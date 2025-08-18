@@ -1,6 +1,6 @@
 # Claude Code LSP
 
-A Language Server Protocol (LSP) client that integrates with Claude Code to provide real-time diagnostics and language intelligence for 25+ programming languages.
+A Language Server Protocol (LSP) client that integrates with Claude Code to provide real-time diagnostics and language intelligence for multiple programming languages.
 
 ## 🎯 How It Works
 
@@ -8,16 +8,28 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **25+ Languages**: TypeScript, Python, Rust, Go, Java, C/C++, Ruby, PHP, and more
+- 🚀 **Multi-Language Support**: TypeScript/JavaScript and C/C++ fully working, Python partially working
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
-- 📦 **Auto-install**: Automatically installs supported language servers
+- 📦 **Auto-install**: Automatically installs TypeScript and Python language servers
 - 🎯 **Smart Detection**: Auto-detects project languages and starts appropriate servers
 - ⚡ **Fast**: Built with Bun for optimal performance
 - 🔒 **Secure**: Unix socket permissions (0600), path traversal protection, rate limiting
 - 🎮 **CLI Management**: Status monitoring, server control, diagnostic queries
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
+
+## 📊 Language Support Status
+
+### ✅ Fully Working
+- **TypeScript/JavaScript** - Full diagnostics, auto-installs
+- **C/C++** - Full diagnostics (requires clangd installed)
+
+### ⚠️ Partially Working  
+- **Python (Pyright)** - Installs but may not detect all type errors
+
+### 🔧 Configured but need fixes
+- Go, Rust, Java, Ruby, PHP, and 20+ other languages have configuration but require additional work
 
 ## 📦 Prerequisites - Install Bun First!
 

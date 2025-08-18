@@ -50,12 +50,12 @@ class LSPHttpServer {
     
     if (hasTypeScript) {
       await logger.info("📘 TypeScript project detected");
-      await this.client.initializeTypeScript(this.projectRoot);
+      await this.client.startLanguageServer('typescript', this.projectRoot);
     }
     
     if (hasPython) {
       await logger.info("🐍 Python project detected");
-      await this.client.initializePython(this.projectRoot);
+      await this.client.startLanguageServer('python', this.projectRoot);
     }
     
     if (!hasTypeScript && !hasPython) {
@@ -408,7 +408,7 @@ class LSPHttpServer {
 
   async shutdown() {
     await logger.info('Shutting down LSP server...');
-    await this.client.shutdown();
+    await this.client.stopAllServers();
   }
 }
 
