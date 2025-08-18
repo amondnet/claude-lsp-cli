@@ -1,0 +1,447 @@
+#!/usr/bin/env bun
+
+import { spawn, ChildProcess } from "child_process";
+import * as rpc from "vscode-jsonrpc/node";
+import { 
+  InitializeRequest, 
+  InitializeParams,
+  DidOpenTextDocumentNotification,
+  DidChangeTextDocumentNotification,
+  TextDocumentItem,
+  VersionedTextDocumentIdentifier,
+  TextDocumentContentChangeEvent,
+  Diagnostic,
+  DiagnosticSeverity
+} from "vscode-languageserver-protocol";
+import { readFileSync, existsSync } from "fs";
+import { join, resolve, extname } from "path";
+import { 
+  languageServers, 
+  detectProjectLanguages, 
+  isLanguageServerInstalled,
+  getInstallInstructions,
+  LanguageServerConfig 
+} from "./language-servers";
+
+interface LSPServer {
+  process: ChildProcess;
+  connection: rpc.MessageConnection;
+  initialized: boolean;
+  rootUri: string;
+  language: string;
+}
+
+export class LSPClient {
+  private servers: Map<string, LSPServer> = new Map();
+  private diagnostics: Map<string, Diagnostic[]> = new Map();
+  private documentVersions: Map<string, number> = new Map();
+  private fileLanguageMap: Map<string, string> = new Map();
+
+  /**
+   * Safely install a language server using spawn instead of execSync
+   * to prevent command injection vulnerabilities
+   */
+  private async safeInstall(config: LanguageServerConfig, cwd: string): Promise<void> {
+    if (!config.installCommand) {
+      throw new Error("No install command provided");
+    }
+
+    // Parse the command safely
+    // For simple commands like "bun add package"
+    const parts = config.installCommand.split(' ');
+    
+    // Special handling for complex commands with pipes or redirects
+    // These should be rewritten to use multiple spawn calls
+    if (config.installCommand.includes('|') || config.installCommand.includes('>')) {
+      // For now, throw an error for complex commands that need rewriting
+      throw new Error(
+        `Complex install command for ${config.name} needs to be rewritten for security. ` +
+        `Commands with pipes or redirects are not allowed: ${config.installCommand}`
+      );
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const [command, ...args] = parts;
+      const child = spawn(command!, args, {
+        cwd,
+        stdio: 'inherit'
+        // Note: shell:false is the default, keeping it explicit for security
+      });
+
+      child.on('error', (error: Error) => {
+        reject(new Error(`Failed to start install process: ${error.message}`));
+      });
+
+      child.on('exit', (code: number | null) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Install process exited with code ${code}`));
+        }
+      });
+    });
+  }
+
+  async startLanguageServer(language: string, rootPath: string): Promise<void> {
+    const config = languageServers[language];
+    if (!config) {
+      console.error(`Unknown language: ${language}`);
+      return;
+    }
+
+    console.log(`Starting ${config.name} Language Server...`);
+    
+    // Check if server is installed
+    if (!isLanguageServerInstalled(language)) {
+      console.error(getInstallInstructions(language));
+      
+      // For non-global packages, try auto-install
+      if (!config.requiresGlobal && config.installCommand) {
+        console.log("Attempting automatic installation...");
+        try {
+          // Safe installation using spawn instead of execSync
+          await this.safeInstall(config, rootPath);
+          console.log(`✅ ${config.name} Language Server installed successfully!`);
+        } catch (e) {
+          console.error(`Failed to install ${config.name} Language Server:`, e);
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    // Start the server
+    try {
+      const serverProcess = spawn(config.command, config.args || [], {
+        cwd: rootPath,
+        env: { ...process.env, CLAUDE_LSP_PROJECT_ROOT: rootPath }
+      });
+
+      serverProcess.on('error', (err) => {
+        console.error(`Failed to start ${config.name} server:`, err);
+      });
+
+      serverProcess.stderr?.on('data', (data) => {
+        console.error(`${config.name} server error:`, data.toString());
+      });
+
+      const connection = rpc.createMessageConnection(
+        new rpc.StreamMessageReader(serverProcess.stdout!),
+        new rpc.StreamMessageWriter(serverProcess.stdin!)
+      );
+
+      // Handle diagnostics
+      connection.onNotification("textDocument/publishDiagnostics", (params: any) => {
+        this.handleDiagnostics(params.uri, params.diagnostics, language);
+      });
+
+      connection.listen();
+
+      // Initialize the server
+      const initParams: InitializeParams = {
+        processId: process.pid,
+        rootUri: `file://${resolve(rootPath)}`,
+        capabilities: {
+          textDocument: {
+            synchronization: {
+              didOpen: {},
+              didChange: {
+                syncKind: 2 // Incremental
+              },
+              didClose: {},
+              didSave: {}
+            },
+            publishDiagnostics: {
+              relatedInformation: true,
+              versionSupport: true,
+              codeDescriptionSupport: true,
+              dataSupport: true
+            }
+          },
+          workspace: {
+            didChangeConfiguration: {
+              dynamicRegistration: false
+            },
+            workspaceFolders: true
+          }
+        },
+        workspaceFolders: [{
+          uri: `file://${resolve(rootPath)}`,
+          name: "workspace"
+        }],
+        initializationOptions: this.getInitializationOptions(language)
+      };
+
+      const result = await connection.sendRequest("initialize", initParams) as any;
+      console.log(`✅ ${config.name} server initialized`);
+
+      // Send initialized notification
+      await connection.sendNotification("initialized", {});
+
+      this.servers.set(language, {
+        process: serverProcess,
+        connection,
+        initialized: true,
+        rootUri: `file://${resolve(rootPath)}`,
+        language
+      });
+
+    } catch (error) {
+      console.error(`Failed to start ${config.name} server:`, error);
+    }
+  }
+
+  async autoDetectAndStart(rootPath: string): Promise<void> {
+    console.log("🔍 Auto-detecting project languages...");
+    const detectedLanguages = detectProjectLanguages(rootPath);
+    
+    if (detectedLanguages.length === 0) {
+      console.log("No language-specific project files detected.");
+      console.log("Will start servers based on file extensions when files are opened.");
+      return;
+    }
+
+    console.log(`Detected languages: ${detectedLanguages.join(", ")}`);
+    
+    for (const language of detectedLanguages) {
+      await this.startLanguageServer(language, rootPath);
+    }
+  }
+
+  async openDocument(filePath: string): Promise<void> {
+    const extension = extname(filePath);
+    
+    // Find which language server should handle this file
+    let targetLanguage: string | undefined;
+    for (const [lang, config] of Object.entries(languageServers)) {
+      if (config.extensions.includes(extension)) {
+        targetLanguage = lang;
+        break;
+      }
+    }
+
+    if (!targetLanguage) {
+      console.log(`No language server for ${extension} files`);
+      return;
+    }
+
+    // Start server if not already running
+    if (!this.servers.has(targetLanguage)) {
+      const rootPath = resolve(process.cwd());
+      await this.startLanguageServer(targetLanguage, rootPath);
+    }
+
+    const server = this.servers.get(targetLanguage);
+    if (!server || !server.initialized) {
+      console.log(`Server not ready for ${targetLanguage}`);
+      return;
+    }
+
+    // Track which language handles this file
+    this.fileLanguageMap.set(filePath, targetLanguage);
+
+    // Read file content
+    const content = readFileSync(filePath, 'utf-8');
+    const uri = `file://${resolve(filePath)}`;
+    
+    // Track document version
+    this.documentVersions.set(uri, 1);
+
+    // Send didOpen notification
+    const textDocument: TextDocumentItem = {
+      uri,
+      languageId: this.getLanguageId(targetLanguage),
+      version: 1,
+      text: content
+    };
+
+    await server.connection.sendNotification("textDocument/didOpen", {
+      textDocument
+    });
+
+    console.log(`📄 Opened ${filePath} with ${languageServers[targetLanguage].name} server`);
+  }
+
+  async updateDocument(filePath: string, newContent: string): Promise<void> {
+    const targetLanguage = this.fileLanguageMap.get(filePath);
+    if (!targetLanguage) {
+      console.log(`No language server tracking ${filePath}`);
+      return;
+    }
+
+    const server = this.servers.get(targetLanguage);
+    if (!server || !server.initialized) return;
+
+    const uri = `file://${resolve(filePath)}`;
+    const currentVersion = this.documentVersions.get(uri) || 1;
+    const newVersion = currentVersion + 1;
+    this.documentVersions.set(uri, newVersion);
+
+    const textDocument: VersionedTextDocumentIdentifier = {
+      uri,
+      version: newVersion
+    };
+
+    const contentChange: TextDocumentContentChangeEvent = {
+      text: newContent
+    };
+
+    await server.connection.sendNotification("textDocument/didChange", {
+      textDocument,
+      contentChanges: [contentChange]
+    });
+  }
+
+  async closeDocument(filePath: string): Promise<void> {
+    const targetLanguage = this.fileLanguageMap.get(filePath);
+    if (!targetLanguage) return;
+
+    const server = this.servers.get(targetLanguage);
+    if (!server || !server.initialized) return;
+
+    const uri = `file://${resolve(filePath)}`;
+    
+    await server.connection.sendNotification("textDocument/didClose", {
+      textDocument: { uri }
+    });
+
+    this.fileLanguageMap.delete(filePath);
+    this.documentVersions.delete(uri);
+    this.diagnostics.delete(resolve(filePath));
+  }
+
+  private handleDiagnostics(uri: string, diagnostics: Diagnostic[], language: string) {
+    const filePath = uri.replace(/^file:\/\//, "");
+    console.log(`[${languageServers[language].name}] Diagnostics for ${filePath}: ${diagnostics.length} issues`);
+    
+    this.diagnostics.set(filePath, diagnostics);
+    
+    // Log errors and warnings
+    for (const diag of diagnostics) {
+      const severity = this.getSeverityString(diag.severity);
+      console.log(`  [${severity}] Line ${diag.range.start.line + 1}: ${diag.message}`);
+    }
+  }
+
+  private getSeverityString(severity?: DiagnosticSeverity): string {
+    switch (severity) {
+      case DiagnosticSeverity.Error: return "ERROR";
+      case DiagnosticSeverity.Warning: return "WARNING";
+      case DiagnosticSeverity.Information: return "INFO";
+      case DiagnosticSeverity.Hint: return "HINT";
+      default: return "UNKNOWN";
+    }
+  }
+
+  private getLanguageId(language: string): string {
+    const languageIdMap: Record<string, string> = {
+      typescript: "typescript",
+      python: "python",
+      rust: "rust",
+      go: "go",
+      java: "java",
+      cpp: "cpp",
+      ruby: "ruby",
+      php: "php",
+      html: "html",
+      css: "css",
+      json: "json",
+      yaml: "yaml",
+      vue: "vue",
+      svelte: "svelte",
+      dockerfile: "dockerfile",
+      bash: "shellscript",
+      lua: "lua",
+      kotlin: "kotlin",
+      swift: "swift",
+      zig: "zig",
+      elixir: "elixir",
+      terraform: "terraform",
+      markdown: "markdown",
+      graphql: "graphql",
+      prisma: "prisma",
+      toml: "toml"
+    };
+    return languageIdMap[language] || language;
+  }
+
+  private getInitializationOptions(language: string): any {
+    // Language-specific initialization options
+    switch (language) {
+      case "typescript":
+        return {
+          preferences: {
+            includeInlayParameterNameHints: "all",
+            includeInlayParameterNameHintsWhenArgumentMatchesName: true,
+            includeInlayFunctionParameterTypeHints: true,
+            includeInlayVariableTypeHints: true,
+            includeInlayPropertyDeclarationTypeHints: true,
+            includeInlayFunctionLikeReturnTypeHints: true,
+            includeInlayEnumMemberValueHints: true
+          }
+        };
+      case "python":
+        return {
+          python: {
+            analysis: {
+              autoImportCompletions: true,
+              autoSearchPaths: true,
+              useLibraryCodeForTypes: true,
+              typeCheckingMode: "strict"
+            }
+          }
+        };
+      default:
+        return {};
+    }
+  }
+
+  getDiagnostics(filePath?: string): Diagnostic[] {
+    if (filePath) {
+      return this.diagnostics.get(resolve(filePath)) || [];
+    }
+    
+    // Return all diagnostics
+    const allDiagnostics: Diagnostic[] = [];
+    for (const diags of this.diagnostics.values()) {
+      allDiagnostics.push(...diags);
+    }
+    return allDiagnostics;
+  }
+
+  getAllDiagnostics(): Map<string, Diagnostic[]> {
+    return new Map(this.diagnostics);
+  }
+
+  async stopLanguageServer(language: string): Promise<void> {
+    const server = this.servers.get(language);
+    if (!server) return;
+
+    server.connection.dispose();
+    server.process.kill();
+    this.servers.delete(language);
+    
+    console.log(`Stopped ${languageServers[language].name} server`);
+  }
+
+  async stopAllServers(): Promise<void> {
+    for (const [language, server] of this.servers) {
+      server.connection.dispose();
+      server.process.kill();
+      console.log(`Stopped ${languageServers[language].name} server`);
+    }
+    this.servers.clear();
+    this.diagnostics.clear();
+    this.documentVersions.clear();
+    this.fileLanguageMap.clear();
+  }
+
+  getActiveServers(): string[] {
+    return Array.from(this.servers.keys()).map(lang => languageServers[lang].name);
+  }
+
+  getSupportedLanguages(): string[] {
+    return Object.keys(languageServers);
+  }
+}
