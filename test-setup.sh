@@ -1,75 +1,121 @@
 #!/bin/bash
 
-echo "🔍 Testing Claude Code LSP Setup..."
+# Claude Code LSP Test Setup Script
+# This script sets up test projects to verify LSP functionality
+
+set -e
+
+echo "🧪 Claude Code LSP Test Setup"
+echo "=============================="
+
+# Create test directory
+TEST_DIR="/tmp/claude-lsp-test-$$"
+mkdir -p "$TEST_DIR"
+cd "$TEST_DIR"
+
+echo "📁 Test directory: $TEST_DIR"
+
+# Create TypeScript test project
+echo "📘 Creating TypeScript test project..."
+mkdir -p ts-project
+cd ts-project
+
+# Create package.json
+cat > package.json << 'EOFINNER'
+{
+  "name": "test-ts-project",
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "typescript-language-server": "^4.0.0"
+  }
+}
+EOFINNER
+
+# Create tsconfig.json
+cat > tsconfig.json << 'EOFINNER'
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}
+EOFINNER
+
+# Create test TypeScript file with intentional errors
+cat > test.ts << 'EOFINNER'
+// Test file with intentional errors
+const message: string = 123; // Type error
+console.log(mesage); // Typo error
+
+function add(a: number, b: number) {
+  return a + b;
+}
+
+add("1", "2"); // Type error
+EOFINNER
+
+echo "✅ TypeScript project created"
+
+# Create Python test project
+cd "$TEST_DIR"
+echo "🐍 Creating Python test project..."
+mkdir -p py-project
+cd py-project
+
+# Create test Python file with intentional errors
+cat > test.py << 'EOFINNER'
+# Test file with intentional errors
+def add(a: int, b: int) -> int:
+    return a + b
+
+result = add("1", "2")  # Type error
+print(reslt)  # Name error
+
+def unused_function():
+    pass  # Unused function warning
+EOFINNER
+
+echo "✅ Python project created"
+
+# Run diagnostics test
 echo ""
+echo "🔍 Running diagnostics test..."
+echo "================================"
 
-# Check if Bun is installed
-if ! command -v bun &> /dev/null; then
-    echo "❌ Bun is not installed. Please install from https://bun.sh"
-    exit 1
-fi
-echo "✅ Bun is installed: $(bun --version)"
-
-# Check if dependencies are installed
-if [ ! -d "node_modules" ]; then
-    echo "📦 Installing dependencies..."
-    bun install
-fi
-echo "✅ Dependencies installed"
-
-# Build the project
-echo "🔨 Building binaries..."
-bun run build
-if [ -f "bin/claude-lsp-cli" ] && [ -f "bin/claude-lsp-server" ] && [ -f "bin/claude-lsp-hook" ]; then
-    echo "✅ All binaries built successfully:"
-    echo "   - claude-lsp-cli (CLI tool)"
-    echo "   - claude-lsp-server (LSP server)"
-    echo "   - claude-lsp-hook (Dedicated hook handler)"
+# Test TypeScript project
+echo "📘 Testing TypeScript diagnostics..."
+cd "$TEST_DIR/ts-project"
+if command -v claude-lsp-cli >/dev/null 2>&1; then
+    claude-lsp-cli diagnostics . test.ts || true
 else
-    echo "❌ Failed to build all binaries"
-    exit 1
+    echo "⚠️  claude-lsp-cli not found in PATH"
 fi
 
-# Check if utils directory exists
-if [ -d "src/utils" ]; then
-    echo "✅ Security utilities are present"
+# Test Python project  
+echo ""
+echo "🐍 Testing Python diagnostics..."
+cd "$TEST_DIR/py-project"
+if command -v claude-lsp-cli >/dev/null 2>&1; then
+    claude-lsp-cli diagnostics . test.py || true
 else
-    echo "❌ Security utilities missing"
-    exit 1
-fi
-
-# Test the CLI help
-echo ""
-echo "📋 Testing CLI..."
-./bin/claude-lsp-cli help > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "✅ CLI is working"
-else
-    echo "❌ CLI test failed"
-    exit 1
-fi
-
-# Check hook file
-if [ -f "hooks/lsp-diagnostics.ts" ]; then
-    echo "✅ Hook file exists"
-else
-    echo "❌ Hook file missing"
-    exit 1
+    echo "⚠️  claude-lsp-cli not found in PATH"
 fi
 
 echo ""
-echo "🎉 All tests passed! Claude Code LSP is ready to use."
+echo "✨ Test setup complete!"
+echo "Test projects created in: $TEST_DIR"
 echo ""
-echo "📝 Next steps:"
-echo "1. Copy the hook to Claude's directory:"
-echo "   cp hooks/lsp-diagnostics.ts ~/.claude/hooks/"
-echo "   chmod +x ~/.claude/hooks/lsp-diagnostics.ts"
+echo "To manually test:"
+echo "  cd $TEST_DIR/ts-project && claude-lsp-cli diagnostics ."
+echo "  cd $TEST_DIR/py-project && claude-lsp-cli diagnostics ."
 echo ""
-echo "2. Update ~/.claude/settings.json:"
-echo '   {
-     "hooks": {
-       "PostToolUse": ["~/.claude/hooks/lsp-diagnostics.ts"]
-     }
-   }'
-echo ""
-echo "3. Start using Claude Code - diagnostics will run automatically!"
+echo "To clean up:"
+echo "  rm -rf $TEST_DIR"

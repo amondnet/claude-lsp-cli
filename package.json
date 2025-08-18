@@ -1,6 +1,6 @@
 {
   "name": "claude-code-lsp",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Universal Language Server Protocol client for Claude Code - supports 25+ programming languages with automatic server management",
   "module": "index.ts",
   "type": "module",

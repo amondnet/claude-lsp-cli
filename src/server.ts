@@ -97,7 +97,7 @@ class LSPHttpServer {
     
     // Register cleanup handler
     cleanupManager.addCleanupHandler(async () => {
-      await this.client.shutdown();
+      await this.client.stopAllServers();
       // Restore original umask
       process.umask(oldUmask);
     });

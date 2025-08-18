@@ -428,7 +428,6 @@ export async function handleHookEvent(eventType: string): Promise<void> {
             })}`);
           }
         }
-      }
     } else if (eventType === 'SessionStart') {
       // Check initial project state
       if (hookData.workingDirectory) {
