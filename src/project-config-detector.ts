@@ -4,10 +4,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "path";
 
 export interface ProjectConfig {
-  language: "typescript" | "javascript" | "react" | "next" | "vue" | "python" | "rust" | "go";
+  language: "typescript" | "javascript" | "react" | "next" | "vue" | "python" | "rust" | "go" | "scala" | "java" | "cpp" | "ruby" | "php" | "lua" | "elixir" | "terraform";
   hasJSX: boolean;
   framework?: "react" | "next" | "vue" | "svelte";
-  packageManager: "npm" | "yarn" | "pnpm" | "bun";
+  packageManager: "npm" | "yarn" | "pnpm" | "bun" | "sbt" | "maven" | "gradle" | "cargo" | "go" | "gem" | "composer" | "mise" | "terraform";
   tsConfig?: any;
   eslintConfig?: any;
   requiredLSPSettings: Record<string, any>;
@@ -111,11 +111,46 @@ export class ProjectConfigDetector {
       if (deps.vue) return "vue";
     }
 
-    // Check for files
+    // Check for project files in priority order
+    if (existsSync(join(this.projectRoot, "build.sbt")) || 
+        existsSync(join(this.projectRoot, "project/build.properties")) ||
+        existsSync(join(this.projectRoot, "build.sc")) ||
+        existsSync(join(this.projectRoot, ".bsp"))) return "scala";
+        
+    if (existsSync(join(this.projectRoot, "pom.xml")) || 
+        existsSync(join(this.projectRoot, "build.gradle")) ||
+        existsSync(join(this.projectRoot, "build.gradle.kts")) ||
+        existsSync(join(this.projectRoot, ".classpath"))) return "java";
+        
     if (existsSync(join(this.projectRoot, "Cargo.toml"))) return "rust";
-    if (existsSync(join(this.projectRoot, "go.mod"))) return "go";
+    
+    if (existsSync(join(this.projectRoot, "go.mod")) || 
+        existsSync(join(this.projectRoot, "go.sum"))) return "go";
+        
+    if (existsSync(join(this.projectRoot, "CMakeLists.txt")) || 
+        existsSync(join(this.projectRoot, "Makefile")) ||
+        existsSync(join(this.projectRoot, "compile_commands.json")) ||
+        existsSync(join(this.projectRoot, ".clang-format"))) return "cpp";
+        
+    if (existsSync(join(this.projectRoot, "Gemfile")) || 
+        existsSync(join(this.projectRoot, ".rubocop.yml")) ||
+        existsSync(join(this.projectRoot, "Rakefile"))) return "ruby";
+        
+    if (existsSync(join(this.projectRoot, "composer.json")) || 
+        existsSync(join(this.projectRoot, ".php-cs-fixer.php"))) return "php";
+        
     if (existsSync(join(this.projectRoot, "requirements.txt")) || 
-        existsSync(join(this.projectRoot, "pyproject.toml"))) return "python";
+        existsSync(join(this.projectRoot, "pyproject.toml")) ||
+        existsSync(join(this.projectRoot, "setup.py")) ||
+        existsSync(join(this.projectRoot, "Pipfile")) ||
+        existsSync(join(this.projectRoot, ".python-version"))) return "python";
+        
+    if (existsSync(join(this.projectRoot, ".luarc.json"))) return "lua";
+    
+    if (existsSync(join(this.projectRoot, "mix.exs"))) return "elixir";
+    
+    if (existsSync(join(this.projectRoot, ".terraform")) ||
+        existsSync(join(this.projectRoot, "main.tf"))) return "terraform";
 
     return "javascript";
   }
@@ -151,10 +186,38 @@ export class ProjectConfigDetector {
   }
 
   private detectPackageManager(): ProjectConfig["packageManager"] {
+    // Scala
+    if (existsSync(join(this.projectRoot, "build.sbt"))) return "sbt";
+    
+    // Java
+    if (existsSync(join(this.projectRoot, "pom.xml"))) return "maven";
+    if (existsSync(join(this.projectRoot, "build.gradle")) || 
+        existsSync(join(this.projectRoot, "build.gradle.kts"))) return "gradle";
+    
+    // Rust
+    if (existsSync(join(this.projectRoot, "Cargo.toml"))) return "cargo";
+    
+    // Go
+    if (existsSync(join(this.projectRoot, "go.mod"))) return "go";
+    
+    // Ruby
+    if (existsSync(join(this.projectRoot, "Gemfile"))) return "gem";
+    
+    // PHP
+    if (existsSync(join(this.projectRoot, "composer.json"))) return "composer";
+    
+    // Terraform
+    if (existsSync(join(this.projectRoot, ".terraform"))) return "terraform";
+    
+    // Node.js package managers
     if (existsSync(join(this.projectRoot, "bun.lockb"))) return "bun";
     if (existsSync(join(this.projectRoot, "pnpm-lock.yaml"))) return "pnpm";
     if (existsSync(join(this.projectRoot, "yarn.lock"))) return "yarn";
-    return "npm";
+    
+    // Default to npm for JavaScript/TypeScript projects, mise for others
+    if (existsSync(join(this.projectRoot, "package.json"))) return "npm";
+    
+    return "mise"; // Default for language servers installed via mise
   }
 
   private generateLSPSettings(config: {
