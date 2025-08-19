@@ -2,6 +2,53 @@ import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 
+// Helper to find executable in common locations
+function findExecutable(name: string): string | null {
+  const possiblePaths = [
+    // Standard PATH
+    name,
+    // Go paths
+    join(process.env.HOME || "", "go", "bin", name),
+    join(process.env.GOPATH || "", "bin", name),
+    // Cargo/Rust paths
+    join(process.env.HOME || "", ".cargo", "bin", name),
+    // Coursier paths (for Scala/Java tools)
+    join(process.env.HOME || "", "Library", "Application Support", "Coursier", "bin", name),
+    // mise/asdf paths
+    join(process.env.HOME || "", ".local", "share", "mise", "shims", name),
+    // Homebrew paths
+    "/opt/homebrew/bin/" + name,
+    "/usr/local/bin/" + name,
+    // System paths
+    "/usr/bin/" + name,
+  ];
+  
+  for (const path of possiblePaths) {
+    if (path.includes(process.env.HOME || "") && !process.env.HOME) continue;
+    
+    // Try different version check approaches
+    const versionCommands = [
+      ["--version"],
+      ["version"],
+      ["-v"],
+      ["--help"]
+    ];
+    
+    for (const args of versionCommands) {
+      const result = spawnSync(path, args, { 
+        timeout: 1000,
+        stdio: 'ignore'
+      });
+      
+      if (result.status === 0) {
+        return path;
+      }
+    }
+  }
+  
+  return null;
+}
+
 export interface LanguageServerConfig {
   name: string;
   command: string;
@@ -30,8 +77,8 @@ export const languageServers: Record<string, LanguageServerConfig> = {
     command: "bun",
     args: ["x", "pyright-langserver", "--stdio"],
     installCommand: "bun add pyright",
-    installCheck: "pyright",
-    projectFiles: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile"],
+    installCheck: "pyright/langserver.index.js",
+    projectFiles: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", ".python-version"],
     extensions: [".py", ".pyi"]
   },
   
@@ -70,6 +117,17 @@ export const languageServers: Record<string, LanguageServerConfig> = {
     requiresGlobal: true
   },
   
+  csharp: {
+    name: "C#",
+    command: "omnisharp",
+    args: ["--languageserver", "--hostPID", process.pid.toString()],
+    installCommand: "brew install omnisharp",  // macOS, different for other OS
+    installCheck: "omnisharp",
+    projectFiles: ["*.csproj", "*.sln", "*.fsproj", "*.vbproj"],
+    extensions: [".cs", ".csx", ".fs", ".fsx", ".vb"],
+    requiresGlobal: true
+  },
+  
   cpp: {
     name: "C/C++",
     command: "clangd",
@@ -89,6 +147,17 @@ export const languageServers: Record<string, LanguageServerConfig> = {
     installCheck: "solargraph",
     projectFiles: ["Gemfile", ".rubocop.yml", "Rakefile"],
     extensions: [".rb", ".erb", ".rake"],
+    requiresGlobal: true
+  },
+  
+  scala: {
+    name: "Scala",
+    command: "metals",
+    args: [],
+    installCommand: "cs install metals",  // Coursier installer
+    installCheck: "metals",
+    projectFiles: ["build.sbt", "build.sc", "project/build.properties", ".bsp"],
+    extensions: [".scala", ".sc", ".sbt"],
     requiresGlobal: true
   },
   
@@ -315,14 +384,14 @@ export function isLanguageServerInstalled(language: string): boolean {
   
   try {
     if (config.requiresGlobal) {
-      // Check if command exists globally
-      // Using spawnSync with shell:false prevents command injection
-      const checkResult = spawnSync('which', [config.command], {
-        stdio: 'pipe',
-        shell: false  // Explicitly disable shell for security
-      });
-      
-      return checkResult.status === 0;
+      // Use our helper to find the executable
+      const execPath = findExecutable(config.command);
+      if (execPath) {
+        // Update the config with the found path
+        languageServers[language].command = execPath;
+        return true;
+      }
+      return false;
     } else {
       // For bun packages, check node_modules
       return existsSync(join(process.cwd(), 'node_modules', config.installCheck || config.command));

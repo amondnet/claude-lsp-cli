@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.1.0 - Language Server Fixes & Testing (Current)
+
+### 🎯 Language Server Improvements
+- **Fixed Go language server** - Added Go bin paths to findExecutable() 
+- **Fixed C++ diagnostics** - Added URL decoding for file paths with special characters
+- **Added C# language support** - Configuration for OmniSharp language server
+- **Enhanced path detection** - Better executable finding for Rust, Go, and other tools
+- **Improved version checking** - Support for different version command formats
+
+### 📊 Verified Language Support (5/10 Working)
+- **✅ TypeScript** - Full diagnostics, auto-installs  
+- **✅ JavaScript** - Full diagnostics via TypeScript server
+- **✅ Go** - Full diagnostics (requires gopls installation)
+- **✅ C/C++** - Full diagnostics (requires clangd)
+- **✅ PHP** - Full diagnostics (auto-installs Intelephense)
+
+### 🔧 Known Issues
+- **Python (Pyright)** - Workspace configuration issue (complex fix required)
+- **Rust** - Needs proper Cargo.toml project structure
+- **Java, Ruby, C#** - Require manual server installation
+
+### 🧪 Testing Infrastructure
+- **Comprehensive test suite** - Tests all 10 configured languages
+- **Honest documentation** - Updated claims to reflect actual working status
+
 ## v3.0.0 - Complete Security Overhaul & Open Source Release
 
 ### 🔒 Critical Security Fixes

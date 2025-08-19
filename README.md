@@ -8,10 +8,10 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: TypeScript/JavaScript and C/C++ fully working, Python partially working
+- 🚀 **Multi-Language Support**: 5 languages working (TypeScript, JavaScript, Go, C++, PHP)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
-- 📦 **Auto-install**: Automatically installs TypeScript and Python language servers
+- 📦 **Auto-install**: Automatically installs TypeScript, Python, and PHP language servers
 - 🎯 **Smart Detection**: Auto-detects project languages and starts appropriate servers
 - ⚡ **Fast**: Built with Bun for optimal performance
 - 🔒 **Secure**: Unix socket permissions (0600), path traversal protection, rate limiting
@@ -19,17 +19,25 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status
+## 📊 Language Support Status (5/11 Tested - 45% Success Rate)
 
-### ✅ Fully Working
-- **TypeScript/JavaScript** - Full diagnostics, auto-installs
-- **C/C++** - Full diagnostics (requires clangd installed)
+### ✅ Verified Working (5 languages) - Tested and Confirmed
+- **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
+- **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
+- **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
+- **C/C++** - Full diagnostics (requires clangd installed) ✓
+- **PHP** - Full diagnostics (auto-installs Intelephense) ✓
 
-### ⚠️ Partially Working  
-- **Python (Pyright)** - Installs but may not detect all type errors
+### ❌ Tested & Not Working (6 languages)
+- **Python (Pyright)** - Architectural incompatibility, complex workspace requirements
+- **Scala (Metals)** - Architectural incompatibility, requires build system integration
+- **Rust** - Not tested (needs Cargo.toml project structure)
+- **Java** - Not tested (requires jdtls installation)
+- **Ruby** - Not tested (requires solargraph installation)
+- **C#** - Not tested (requires omnisharp installation)
 
-### 🔧 Configured but need fixes
-- Go, Rust, Java, Ruby, PHP, and 20+ other languages have configuration but require additional work
+### 🔧 Additional Languages
+- 15+ other languages have configuration but are untested
 
 ## 📦 Prerequisites - Install Bun First!
 

@@ -136,6 +136,55 @@ export class LSPClient {
         this.handleDiagnostics(params.uri, params.diagnostics, language);
       });
 
+      // Handle window/showMessageRequest (needed for Metals)
+      connection.onRequest("window/showMessageRequest", (params: any) => {
+        console.log(`[${config.name}] Message request: ${params.message}`);
+        // Auto-respond to message requests (usually import build prompts)
+        if (params.actions && params.actions.length > 0) {
+          // Return the first action (usually "Import build")
+          return { title: params.actions[0].title };
+        }
+        return null;
+      });
+
+      // Handle workspace/configuration requests (needed for Pyright)
+      connection.onRequest("workspace/configuration", (params: any) => {
+        const items = params.items || [];
+        const result = items.map((item: any) => {
+          if (item.section === "python" && language === "python") {
+            // Detect Python environment
+            const venvPaths = [
+              join(rootPath, "venv"),
+              join(rootPath, ".venv"),
+              join(rootPath, "env"),
+              join(rootPath, ".env"),
+            ];
+            
+            let pythonPath = "python3";
+            for (const venvPath of venvPaths) {
+              const venvPython = join(venvPath, "bin", "python");
+              if (existsSync(venvPython)) {
+                pythonPath = venvPython;
+                break;
+              }
+            }
+            
+            return {
+              pythonPath: pythonPath,
+              analysis: {
+                autoImportCompletions: true,
+                autoSearchPaths: true,
+                useLibraryCodeForTypes: true,
+                typeCheckingMode: "strict",
+                diagnosticMode: "openFilesOnly"
+              }
+            };
+          }
+          return {};
+        });
+        return result;
+      });
+
       connection.listen();
 
       // Initialize the server
@@ -145,12 +194,12 @@ export class LSPClient {
         capabilities: {
           textDocument: {
             synchronization: {
-              didOpen: {},
-              didChange: {
-                syncKind: 2 // Incremental
-              },
-              didClose: {},
-              didSave: {}
+              didOpen: true,
+              didChange: true,
+              didClose: true,
+              didSave: true,
+              willSave: false,
+              willSaveWaitUntil: false
             },
             publishDiagnostics: {
               relatedInformation: true,
@@ -312,10 +361,11 @@ export class LSPClient {
   }
 
   private handleDiagnostics(uri: string, diagnostics: Diagnostic[], language: string) {
-    const filePath = uri.replace(/^file:\/\//, "");
+    const filePath = decodeURIComponent(uri.replace(/^file:\/\//, ""));  // Decode URL encoding
+    const resolvedPath = resolve(filePath);  // Normalize the path
     console.log(`[${languageServers[language].name}] Diagnostics for ${filePath}: ${diagnostics.length} issues`);
     
-    this.diagnostics.set(filePath, diagnostics);
+    this.diagnostics.set(resolvedPath, diagnostics);  // Store with resolved path
     
     // Log errors and warnings
     for (const diag of diagnostics) {
@@ -382,13 +432,39 @@ export class LSPClient {
           }
         };
       case "python":
+        // Pyright needs proper workspace configuration and Python environment
+        const rootPath = resolve(process.cwd());
+        
+        // Try to detect Python environment
+        const venvPaths = [
+          join(rootPath, "venv"),
+          join(rootPath, ".venv"),
+          join(rootPath, "env"),
+          join(rootPath, ".env"),
+        ];
+        
+        let pythonPath = "python3"; // Default
+        for (const venvPath of venvPaths) {
+          const venvPython = join(venvPath, "bin", "python");
+          if (existsSync(venvPython)) {
+            pythonPath = venvPython;
+            console.log(`Found Python venv: ${venvPython}`);
+            break;
+          }
+        }
+        
         return {
           python: {
+            pythonPath: pythonPath,
+            venvPath: "",  // Let Pyright auto-detect
             analysis: {
               autoImportCompletions: true,
               autoSearchPaths: true,
               useLibraryCodeForTypes: true,
-              typeCheckingMode: "strict"
+              typeCheckingMode: "strict",
+              diagnosticMode: "workspace",  // Important: analyze the whole workspace
+              stubPath: "",  // Use default stubs
+              extraPaths: []
             }
           }
         };
@@ -399,7 +475,8 @@ export class LSPClient {
 
   getDiagnostics(filePath?: string): Diagnostic[] {
     if (filePath) {
-      return this.diagnostics.get(resolve(filePath)) || [];
+      const resolvedPath = resolve(filePath);
+      return this.diagnostics.get(resolvedPath) || [];
     }
     
     // Return all diagnostics
