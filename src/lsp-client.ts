@@ -441,24 +441,10 @@ export class LSPClient {
       cpp: "cpp",
       ruby: "ruby",
       php: "php",
-      html: "html",
-      css: "css",
-      json: "json",
-      yaml: "yaml",
-      vue: "vue",
-      svelte: "svelte",
-      dockerfile: "dockerfile",
-      bash: "shellscript",
       lua: "lua",
-      kotlin: "kotlin",
-      swift: "swift",
-      zig: "zig",
       elixir: "elixir",
       terraform: "terraform",
-      markdown: "markdown",
-      graphql: "graphql",
-      prisma: "prisma",
-      toml: "toml"
+      scala: "scala"
     };
     return languageIdMap[language] || language;
   }

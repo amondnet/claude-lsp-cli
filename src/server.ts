@@ -202,7 +202,21 @@ class LSPHttpServer {
   }
 
   private isCodeFile(filename: string): boolean {
-    const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.pyi'];
+    // Support all 13 languages from README
+    const extensions = [
+      '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',  // TypeScript/JavaScript
+      '.py', '.pyi',                                  // Python
+      '.rs',                                         // Rust
+      '.go',                                         // Go
+      '.java',                                       // Java
+      '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',  // C/C++
+      '.rb', '.erb', '.rake',                        // Ruby
+      '.php',                                        // PHP
+      '.lua',                                        // Lua
+      '.ex', '.exs',                                 // Elixir
+      '.tf', '.tfvars',                              // Terraform
+      '.scala', '.sc', '.sbt'                        // Scala
+    ];
     return extensions.some(ext => filename.endsWith(ext));
   }
 
