@@ -45,9 +45,7 @@
     "test": "bun test",
     "build:cli": "mkdir -p bin && bun build src/cli.ts --compile --outfile bin/claude-lsp-cli",
     "build:server": "mkdir -p bin && bun build src/server.ts --compile --outfile bin/claude-lsp-server",
-    "build:hook": "mkdir -p bin && bun build src/hook.ts --compile --outfile bin/claude-lsp-hook",
-    "build:diagnostics": "mkdir -p bin && bun build src/diagnostics.ts --compile --outfile bin/claude-lsp-diagnostics",
-    "build": "mkdir -p bin && bun run build:cli && bun run build:server && bun run build:hook && bun run build:diagnostics"
+    "build": "mkdir -p bin && bun run build:cli && bun run build:server"
   },
   "devDependencies": {
     "@types/bun": "latest"

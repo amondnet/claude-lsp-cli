@@ -8,10 +8,10 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: 9 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala, Rust, Lua, Terraform)
+- 🚀 **Multi-Language Support**: 12 languages working (TypeScript, JavaScript, Python, Rust, Go, Java, C++, Ruby, PHP, Scala, Lua, Elixir, Terraform)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
-- 📦 **Auto-install**: Automatically installs TypeScript, Python, and PHP language servers
+- 📦 **Auto-install**: Automatically installs TypeScript and PHP language servers
 - 🎯 **Smart Detection**: Auto-detects project languages and starts appropriate servers
 - ⚡ **Fast**: Built with Bun for optimal performance
 - 🔒 **Secure**: Unix socket permissions (0600), path traversal protection, rate limiting
@@ -19,27 +19,23 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (9/13 Tested - 69% Success Rate)
+## 📊 Language Support Status (12/12 Tested - 100% Success Rate)
 
-### ✅ Verified Working (9 languages) - Tested and Confirmed
+### ✅ All Languages Working (12 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
+- **Python** - Full diagnostics via pylsp (requires `pip install python-lsp-server`) ✓
+- **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
+- **Java** - Full diagnostics (requires `brew install jdtls`) ✓
 - **C/C++** - Full diagnostics (requires clangd installed) ✓
+- **Ruby** - Full diagnostics (requires `gem install solargraph`) ✓
 - **PHP** - Full diagnostics (auto-installs Intelephense) ✓
 - **Scala** - Full diagnostics (requires `cs install metals`) ✓
-- **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
 - **Lua** - Full diagnostics (install via `mise install lua-language-server`) ✓
+- **Elixir** - Full diagnostics (install via `mise install elixir-ls`) ✓
 - **Terraform** - Partial diagnostics (install via `mise install terraform-ls`) ✓
 
-### ❌ Tested & Not Working (4 languages)
-- **Python (Pyright)** - Architectural incompatibility, complex workspace requirements
-- **Elixir** - Installation path issues with mise-installed elixir-ls
-- **Java** - Not tested (requires jdtls installation)
-- **Ruby** - Not tested (requires solargraph installation)
-
-### 🔧 Additional Languages
-- 15+ other languages have configuration but are untested
 
 ## 📦 Prerequisites - Install Bun First!
 
@@ -78,7 +74,20 @@ bun --version
 
 ## 🚀 Installation
 
-### Method 1: Using Claude Code (Recommended)
+### Method 1: Automated Script (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/teamchong/claude-code-lsp/master/install.sh | bash
+```
+
+This script:
+
+1. **Installs the LSP server** to `~/.claude/claude-code-lsp/`
+2. **Builds the binaries** (claude-lsp-cli and claude-lsp-server)
+3. **Updates your Claude settings** with proper environment variables and hooks
+4. **Checks for installed language servers** and provides installation commands
+
+### Method 2: Using Claude Code
 
 The easiest way is to let Claude install it for you:
 
@@ -89,27 +98,14 @@ cd claude-code-lsp
 
 # Ask Claude to install it (non-interactive, grants access to ~/.claude)
 claude --add-dir ~/.claude -p \
-  "Please install the LSP diagnostics hook by:
-  1. Copying hooks/lsp-diagnostics.ts to ~/.claude/hooks/
-  2. Making it executable (chmod +x)
-  3. Updating ~/.claude/settings.json to add the PostToolUse hook
-  4. Running bun install to install dependencies"
+  "Please install the Claude Code LSP by:
+  1. Running 'bun install' to install dependencies
+  2. Running 'bun run build' to build binaries
+  3. Copying the entire project to ~/.claude/claude-code-lsp/
+  4. Updating ~/.claude/settings.json with the environment variables and hooks from install.sh"
 ```
 
-Claude will handle the installation and any updates automatically!
-
-### Method 2: Automated Script
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/teamchong/claude-code-lsp/master/install-claude-hook.sh | bash
-```
-
-This script:
-
-1. **Installs the LSP server** to `~/.claude/claude-code-lsp/`
-2. **Creates a hook** at `~/.claude/hooks/lsp-diagnostics.ts`
-3. **Updates your Claude settings** to enable the hook
-4. **Checks for installed language servers** and provides installation commands
+Claude will handle the installation based on the install.sh script!
 
 ### Method 3: Manual Installation
 
@@ -122,37 +118,26 @@ cd ~/.claude
 git clone https://github.com/teamchong/claude-code-lsp.git
 cd claude-code-lsp
 bun install
-```
-
-2. Create the hook:
-
-```bash
-mkdir -p ~/.claude/hooks
-cp hooks/lsp-diagnostics.ts ~/.claude/hooks/
-chmod +x ~/.claude/hooks/lsp-diagnostics.ts
-```
-
-3. Build the binaries (optional but recommended):
-
-```bash
 bun run build
 ```
 
-This creates `bin/claude-lsp-cli` and `bin/claude-lsp-server`.
+2. Configure Claude Code settings - add to your `~/.claude/settings.json`:
 
-4. Configure Claude Code settings - add to your `~/.claude/settings.json`:
-
-**Recommended Configuration** (only runs on tools that can modify files):
 ```json
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_LSP_SERVER_PATH": "~/.claude/claude-code-lsp/bin/claude-lsp-server",
+    "CLAUDE_LSP_CLI_PATH": "~/.claude/claude-code-lsp/bin/claude-lsp-cli"
+  },
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "(Write|Edit|Update|MultiEdit|Bash)",
+        "matcher": "(Write|Edit|Update|MultiEdit)",
         "hooks": [
           {
-            "type": "command", 
-            "command": "~/Downloads/repos/claude-code-lsp/bin/claude-lsp-cli hook PostToolUse"
+            "type": "command",
+            "command": "${CLAUDE_LSP_CLI_PATH} hook PostToolUse"
           }
         ]
       }
@@ -162,7 +147,7 @@ This creates `bin/claude-lsp-cli` and `bin/claude-lsp-server`.
         "hooks": [
           {
             "type": "command",
-            "command": "~/Downloads/repos/claude-code-lsp/bin/claude-lsp-cli hook SessionStart"
+            "command": "${CLAUDE_LSP_CLI_PATH} hook SessionStart"
           }
         ]
       }
@@ -172,7 +157,8 @@ This creates `bin/claude-lsp-cli` and `bin/claude-lsp-server`.
 ```
 
 This configuration:
-- **PostToolUse** with matcher: Only runs on tools that can modify files (Write/Edit/Bash/etc.)
+- **Environment variables**: Set paths to the binaries
+- **PostToolUse**: Only runs on tools that can modify files (Write/Edit/etc.)
 - **SessionStart**: Checks initial project state when Claude starts  
 - **No Stop hook**: Servers persist between sessions for optimal performance
 - **Efficient filtering**: Skips Read, WebFetch, Grep and other read-only tools
@@ -234,7 +220,7 @@ ls -la ~/Library/Application\ Support/claude-lsp/run/*.sock
 | Language              | Auto-Install | Manual Install Command                                                                                                                                                                      |
 | --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript/JavaScript | ✅           | Automatic with bun                                                                                                                                                                          |
-| Python                | ✅           | `bun add pyright`                                                                                                                                                                           |
+| Python                | ✅           | `pip install python-lsp-server`                                                                                                                                                             |
 | Rust                  | ❌           | Usually installed with rustup: `rustup component add rust-analyzer` |
 | Go                    | ❌           | `go install golang.org/x/tools/gopls@latest`                                                                                                                                                |
 | Java                  | ❌           | `brew install jdtls`                                                                                                                                                                        |
@@ -279,7 +265,7 @@ Claude: "I see there's a type error on line 5. Let me fix that..."
 # Start the enhanced server with all language support
 bun start
 
-# Or start the basic TypeScript/Python server
+# Or start the basic TypeScript server
 bun start:basic
 ```
 

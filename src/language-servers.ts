@@ -1,6 +1,23 @@
 import { spawnSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
+
+// Helper to get all available elixir-ls version paths
+function getElixirLSVersionPaths(name: string): string[] {
+  const elixirLSDir = join(process.env.HOME || "", ".local", "share", "mise", "installs", "elixir-ls");
+  
+  if (!existsSync(elixirLSDir)) {
+    return [];
+  }
+  
+  try {
+    return readdirSync(elixirLSDir)
+      .filter(version => version !== "latest")
+      .map(version => join(elixirLSDir, version, name));
+  } catch {
+    return [];
+  }
+}
 
 // Helper to find executable in common locations
 function findExecutable(name: string): string | null {
@@ -16,8 +33,10 @@ function findExecutable(name: string): string | null {
     join(process.env.HOME || "", "Library", "Application Support", "Coursier", "bin", name),
     // mise/asdf paths
     join(process.env.HOME || "", ".local", "share", "mise", "shims", name),
-    // mise elixir-ls specific path
+    // mise elixir-ls specific paths (try common version patterns)
     join(process.env.HOME || "", ".local", "share", "mise", "installs", "elixir-ls", "latest", name),
+    // Dynamic elixir-ls version detection
+    ...getElixirLSVersionPaths(name),
     // Homebrew paths
     "/opt/homebrew/bin/" + name,
     "/usr/local/bin/" + name,
@@ -38,11 +57,23 @@ function findExecutable(name: string): string | null {
     
     for (const args of versionCommands) {
       const result = spawnSync(path, args, { 
-        timeout: 1000,
+        timeout: 2000,
         stdio: 'ignore'
       });
       
       if (result.status === 0) {
+        return path;
+      }
+    }
+    
+    // Special case for ElixirLS - it starts outputting LSP messages instead of help
+    if (path.includes("language_server.sh")) {
+      const result = spawnSync(path, [], { 
+        timeout: 500,
+        stdio: 'ignore'
+      });
+      // ElixirLS always exits with 0 and outputs JSON-RPC messages
+      if (result.status === 0 || result.signal === 'SIGTERM') {
         return path;
       }
     }
@@ -75,13 +106,14 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   },
   
   python: {
-    name: "Python (Pyright)",
-    command: "bun",
-    args: ["x", "pyright-langserver", "--stdio"],
-    installCommand: "bun add pyright",
-    installCheck: "pyright/langserver.index.js",
+    name: "Python (pylsp)",
+    command: "pylsp",
+    args: [],
+    installCommand: "pip install python-lsp-server",
+    installCheck: "pylsp",
     projectFiles: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", ".python-version"],
-    extensions: [".py", ".pyi"]
+    extensions: [".py", ".pyi"],
+    requiresGlobal: true
   },
   
   rust: {

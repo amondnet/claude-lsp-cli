@@ -21,67 +21,16 @@ const command = args[0];
 const eventType = args[1];
 
 async function handleHookEvent(eventType: string) {
-  // For hook events, we need to run the diagnostics logic
-  // Spawn diagnostics binary or script as a subprocess and pipe stdin
+  // Handle diagnostics directly in the CLI
   try {
-    // Try multiple paths to find diagnostics executable
-    const possiblePaths = [
-      // In same directory as the CLI binary (most common in production)
-      process.argv[0]?.replace(/claude-lsp-cli$/, "claude-lsp-diagnostics"),
-      // Fallback to common locations
-      "/usr/local/bin/claude-lsp-diagnostics",
-      `${process.env.HOME}/Downloads/repos/claude-code-lsp/bin/claude-lsp-diagnostics`,
-      // When running from source (development)
-      new URL("./diagnostics.ts", import.meta.url).pathname,
-      // Relative to binary location (development)
-      new URL("../src/diagnostics.ts", import.meta.url).pathname,
-    ];
-
-    let diagnosticsPath: string | null = null;
-    let needsBun = false;
-
-    for (const path of possiblePaths) {
-      try {
-        if (path && (await Bun.file(path).exists())) {
-          diagnosticsPath = path;
-          // Check if it's a TypeScript file that needs Bun
-          needsBun = path.endsWith(".ts");
-          break;
-        }
-      } catch (error) {
-        await logger.debug("Path check failed", { path, error });
-      }
-    }
+    // Import and run diagnostics logic directly
+    const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
     
-    if (!diagnosticsPath) {
-      throw new Error("Could not find diagnostics executable or script");
-    }
-    
-    // Read stdin for hook data
-    const stdinData = await Bun.stdin.text();
-    
-    // Spawn diagnostics with appropriate runner
-    const command = needsBun ? ["bun", diagnosticsPath, eventType] : [diagnosticsPath, eventType];
-    const proc = Bun.spawn(command, {
-      stdin: "pipe",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    
-    // Write stdin data to the subprocess
-    if (proc.stdin) {
-      proc.stdin.write(stdinData);
-      proc.stdin.end();
-    }
-    
-    // Wait for the process to complete
-    await proc.exited;
-    
-    // Exit with the same code as the subprocess
-    process.exit(proc.exitCode || 0);
+    // Run diagnostics with the event type
+    await handleDiagnostics(eventType);
     
   } catch (error) {
-    await logger.error('Hook handler error', error, { eventType });
+    await logger.error('Hook handler error', { eventType, error });
     console.error(JSON.stringify({
       error: "HOOK_HANDLER_ERROR", 
       eventType,

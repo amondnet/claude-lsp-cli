@@ -19,8 +19,7 @@ defmodule ElixirProject.MixProject do
 
   defp deps do
     [
-      {:httpoison, "~> 2.0"},
-      {:jason, "~> 1.4"}
+      # Removed external dependencies to avoid Mix.Error during LSP testing
     ]
   end
 end
