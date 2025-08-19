@@ -53,26 +53,34 @@ export class Logger {
       ...(context && { context })
     };
     
-    // Console output with color coding
-    const colorCode = {
-      [LogLevel.ERROR]: '\x1b[31m', // Red
-      [LogLevel.WARN]: '\x1b[33m',  // Yellow
-      [LogLevel.INFO]: '\x1b[36m',  // Cyan
-      [LogLevel.DEBUG]: '\x1b[90m'  // Gray
-    };
+    // Skip console output for INFO/DEBUG when running as a hook (to avoid polluting Claude's output)
+    const isHookMode = process.env.CLAUDE_LSP_HOOK_MODE === 'true';
+    const shouldOutputToConsole = !isHookMode || (level === LogLevel.ERROR || level === LogLevel.WARN);
     
-    const resetColor = '\x1b[0m';
-    console.log(
-      `${colorCode[level]}[${timestamp}] [${level}] ${this.projectName}: ${message}${resetColor}`,
-      context ? context : ''
-    );
+    if (shouldOutputToConsole) {
+      // Console output with color coding
+      const colorCode = {
+        [LogLevel.ERROR]: '\x1b[31m', // Red
+        [LogLevel.WARN]: '\x1b[33m',  // Yellow
+        [LogLevel.INFO]: '\x1b[36m',  // Cyan
+        [LogLevel.DEBUG]: '\x1b[90m'  // Gray
+      };
+      
+      const resetColor = '\x1b[0m';
+      console.log(
+        `${colorCode[level]}[${timestamp}] [${level}] ${this.projectName}: ${message}${resetColor}`,
+        context ? context : ''
+      );
+    }
     
     // File output
     try {
       await appendFile(this.logFile, JSON.stringify(logEntry) + '\n');
     } catch (error) {
       // If file logging fails, at least we have console output
-      console.error('Failed to write to log file:', error);
+      if (shouldOutputToConsole) {
+        console.error('Failed to write to log file:', error);
+      }
     }
   }
   

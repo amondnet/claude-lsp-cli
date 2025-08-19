@@ -21,6 +21,9 @@ const command = args[0];
 const eventType = args[1];
 
 async function handleHookEvent(eventType: string) {
+  // Set hook mode to suppress INFO/DEBUG logging to console
+  process.env.CLAUDE_LSP_HOOK_MODE = 'true';
+  
   // Handle diagnostics directly in the CLI
   try {
     // Import and run diagnostics logic directly
@@ -136,7 +139,7 @@ Environment Variables:
 `);
 }
 
-async function showStatus(projectRoot?: string) {
+async function showStatus(_projectRoot?: string) {
   // Determine socket directory based on platform
   const socketDir = process.env.XDG_RUNTIME_DIR || 
                    (process.platform === 'darwin' 
