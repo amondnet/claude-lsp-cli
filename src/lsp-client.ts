@@ -554,4 +554,9 @@ export class LSPClient {
   getSupportedLanguages(): string[] {
     return Object.keys(languageServers);
   }
+
+  // Alias for stopAllServers to match test expectations
+  async shutdown(): Promise<void> {
+    return this.stopAllServers();
+  }
 }
