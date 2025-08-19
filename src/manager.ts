@@ -112,7 +112,7 @@ export async function isLSPRunning(projectHash: string): Promise<boolean> {
       unix: socketPath,
       signal: AbortSignal.timeout(1000)
     } as any);
-    const data = await response.json();
+    const data = await response.json() as any;
     return data.status === "ok" && data.type === "real-lsp";
   } catch {
     return false;
@@ -148,8 +148,10 @@ export async function startLSPServer(projectInfo: ProjectInfo) {
   console.log(`LSP server started with PID ${child.pid}`);
   
   // Write PID file
-  const pidFile = `/tmp/claude-lsp-${projectInfo.hash}.pid`;
-  await Bun.write(pidFile, child.pid.toString());
+  if (child.pid) {
+    const pidFile = `/tmp/claude-lsp-${projectInfo.hash}.pid`;
+    await Bun.write(pidFile, child.pid.toString());
+  }
 }
 
 /**

@@ -1,0 +1,55 @@
+import express from 'express';
+import { UserService } from './services/UserService';
+import { DatabaseConnection } from './database/Connection';
+
+// Intentional errors for testing
+const app = express();
+const port: string = 3000; // Type error: should be number
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+class Server {
+  private userService: UserService;
+  
+  constructor() {
+    this.userService = new UserService();
+    this.setupRoutes();
+  }
+  
+  private setupRoutes(): void {
+    app.get('/users', async (req, res) => {
+      try {
+        const users = await this.userService.getAllUsers();
+        res.json(users);
+      } catch (error) {
+        console.log(unknownVariable); // Error: undefined variable
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+    
+    app.get('/users/:id', async (req, res) => {
+      const userId: string = req.params.id; // Should be number
+      const user = await this.userService.getUserById(userId); // Type mismatch
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json(user);
+    });
+  }
+  
+  public start(): void {
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+      this.nonExistentMethod(); // Error: method doesn't exist
+    });
+  }
+}
+
+const server = new Server();
+server.start();

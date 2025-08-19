@@ -17,9 +17,9 @@
  */
 
 import { LSPClient } from "../src/lsp-client";
-import { detectProjectLanguages, isLanguageServerInstalled, languageServers } from "../src/language-servers";
-import { existsSync, readFileSync } from "fs";
-import { resolve, extname, dirname } from "path";
+import { languageServers } from "../src/language-servers";
+import { existsSync } from "fs";
+import { extname } from "path";
 
 interface HookInput {
   event: string;

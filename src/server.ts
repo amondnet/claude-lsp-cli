@@ -104,7 +104,7 @@ class LSPHttpServer {
     
     const server = Bun.serve({
       port: 3939,
-      unix: socketPath,
+      unix: socketPath as any,
       fetch: this.handleRequest.bind(this),
       error: async (error) => {
         await logger.error('Server error', error);
@@ -215,7 +215,8 @@ class LSPHttpServer {
 
   private async updateDocument(filePath: string) {
     if (this.openDocuments.has(filePath)) {
-      await this.client.updateDocument(filePath);
+      const content = await Bun.file(filePath).text();
+      await this.client.updateDocument(filePath, content);
     } else {
       await this.openDocument(filePath);
     }

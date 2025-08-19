@@ -222,10 +222,7 @@ export class LSPClient {
         capabilities: {
           textDocument: {
             synchronization: {
-              didOpen: true,
-              didChange: true,
-              didClose: true,
-              didSave: true,
+              dynamicRegistration: false,
               willSave: false,
               willSaveWaitUntil: false
             },

@@ -1,0 +1,15 @@
+{
+  "name": "javascript-real-test",
+  "version": "1.0.0",
+  "description": "Real JavaScript project for LSP testing",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "lodash": "^4.17.0"
+  }
+}

@@ -27,29 +27,29 @@ async function handleHookEvent(eventType: string) {
     // Try multiple paths to find diagnostics executable
     const possiblePaths = [
       // In same directory as the CLI binary (most common in production)
-      process.argv[0].replace(/claude-lsp-cli$/, 'claude-lsp-diagnostics'),
+      process.argv[0]?.replace(/claude-lsp-cli$/, "claude-lsp-diagnostics"),
       // Fallback to common locations
-      '/usr/local/bin/claude-lsp-diagnostics',
+      "/usr/local/bin/claude-lsp-diagnostics",
       `${process.env.HOME}/Downloads/repos/claude-code-lsp/bin/claude-lsp-diagnostics`,
       // When running from source (development)
       new URL("./diagnostics.ts", import.meta.url).pathname,
       // Relative to binary location (development)
       new URL("../src/diagnostics.ts", import.meta.url).pathname,
     ];
-    
+
     let diagnosticsPath: string | null = null;
     let needsBun = false;
-    
+
     for (const path of possiblePaths) {
       try {
-        if (await Bun.file(path).exists()) {
+        if (path && (await Bun.file(path).exists())) {
           diagnosticsPath = path;
           // Check if it's a TypeScript file that needs Bun
-          needsBun = path.endsWith('.ts');
+          needsBun = path.endsWith(".ts");
           break;
         }
       } catch (error) {
-        await logger.debug('Path check failed', { path, error });
+        await logger.debug("Path check failed", { path, error });
       }
     }
     
