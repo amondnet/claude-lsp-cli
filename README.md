@@ -8,7 +8,7 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: 5 languages working (TypeScript, JavaScript, Go, C++, PHP)
+- 🚀 **Multi-Language Support**: 6 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
 - 📦 **Auto-install**: Automatically installs TypeScript, Python, and PHP language servers
@@ -19,18 +19,18 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (5/11 Tested - 45% Success Rate)
+## 📊 Language Support Status (6/11 Tested - 55% Success Rate)
 
-### ✅ Verified Working (5 languages) - Tested and Confirmed
+### ✅ Verified Working (6 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
 - **C/C++** - Full diagnostics (requires clangd installed) ✓
 - **PHP** - Full diagnostics (auto-installs Intelephense) ✓
+- **Scala** - Full diagnostics (requires `cs install metals`) ✓
 
-### ❌ Tested & Not Working (6 languages)
+### ❌ Tested & Not Working (5 languages)
 - **Python (Pyright)** - Architectural incompatibility, complex workspace requirements
-- **Scala (Metals)** - Architectural incompatibility, requires build system integration
 - **Rust** - Not tested (needs Cargo.toml project structure)
 - **Java** - Not tested (requires jdtls installation)
 - **Ruby** - Not tested (requires solargraph installation)
@@ -239,12 +239,13 @@ ls -la ~/Library/Application\ Support/claude-lsp/run/*.sock
 | C/C++                 | ❌           | `brew install llvm` (macOS) or `apt install clangd` (Linux)                                                                                                                                 |
 | Ruby                  | ❌           | `gem install solargraph`                                                                                                                                                                    |
 | PHP                   | ✅           | `bun add intelephense`                                                                                                                                                                      |
+| Scala                 | ❌           | `cs install metals` (requires [Coursier](https://get-coursier.io/docs/cli-installation))                                                                                                    |
 | HTML/CSS              | ✅           | Automatic with bun                                                                                                                                                                          |
 | JSON/YAML             | ✅           | Automatic with bun                                                                                                                                                                          |
 | Vue/Svelte            | ✅           | Automatic with bun                                                                                                                                                                          |
 | Docker                | ❌           | `npm install -g dockerfile-language-server-nodejs`                                                                                                                                          |
 | Bash                  | ❌           | `npm install -g bash-language-server`                                                                                                                                                       |
-| And 14 more...        |              | See [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)                                                                                                                                    |
+| And 13 more...        |              | See [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)                                                                                                                                    |
 
 ## 🎮 How to Use
 

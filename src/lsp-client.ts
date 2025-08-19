@@ -29,6 +29,7 @@ interface LSPServer {
   initialized: boolean;
   rootUri: string;
   language: string;
+  metalsReady?: boolean;
 }
 
 export class LSPClient {
@@ -131,21 +132,48 @@ export class LSPClient {
         new rpc.StreamMessageWriter(serverProcess.stdin!)
       );
 
+      // Create server object early for Metals tracking
+      const server: LSPServer = {
+        process: serverProcess,
+        connection,
+        initialized: false,  // Will be set to true after initialization
+        rootUri: `file://${resolve(rootPath)}`,
+        language,
+        metalsReady: language !== "scala"  // Non-Scala servers are immediately ready
+      };
+      
       // Handle diagnostics
       connection.onNotification("textDocument/publishDiagnostics", (params: any) => {
         this.handleDiagnostics(params.uri, params.diagnostics, language);
       });
-
+      
       // Handle window/showMessageRequest (needed for Metals)
       connection.onRequest("window/showMessageRequest", (params: any) => {
         console.log(`[${config.name}] Message request: ${params.message}`);
         // Auto-respond to message requests (usually import build prompts)
         if (params.actions && params.actions.length > 0) {
           // Return the first action (usually "Import build")
-          return { title: params.actions[0].title };
+          return params.actions[0];
         }
         return null;
       });
+      
+      // Handle client/registerCapability (Metals uses this)
+      connection.onRequest("client/registerCapability", (params: any) => {
+        console.log(`[${config.name}] Registering capability`);
+        return null;
+      });
+      
+      // Track Metals readiness through log messages
+      if (language === "scala") {
+        connection.onNotification("window/logMessage", (params: any) => {
+          if (params.message.includes("indexed workspace") || 
+              params.message.includes("compiled root")) {
+            console.log(`[${config.name}] Metals is ready!`);
+            server.metalsReady = true;  // Update the server object directly
+          }
+        });
+      }
 
       // Handle workspace/configuration requests (needed for Pyright)
       connection.onRequest("workspace/configuration", (params: any) => {
@@ -227,14 +255,26 @@ export class LSPClient {
 
       // Send initialized notification
       await connection.sendNotification("initialized", {});
-
-      this.servers.set(language, {
-        process: serverProcess,
-        connection,
-        initialized: true,
-        rootUri: `file://${resolve(rootPath)}`,
-        language
-      });
+      
+      // Mark server as initialized
+      server.initialized = true;
+      
+      // Store the server
+      this.servers.set(language, server);
+      
+      // For Scala, wait for Metals to be ready
+      if (language === "scala") {
+        console.log(`Waiting for Metals to index and compile...`);
+        const startTime = Date.now();
+        while (!server.metalsReady && Date.now() - startTime < 60000) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        if (server.metalsReady) {
+          console.log(`✅ Metals is ready after ${Math.round((Date.now() - startTime) / 1000)}s`);
+        } else {
+          console.log(`⚠️ Metals initialization timeout after 60s`);
+        }
+      }
 
     } catch (error) {
       console.error(`Failed to start ${config.name} server:`, error);
@@ -364,6 +404,16 @@ export class LSPClient {
     const filePath = decodeURIComponent(uri.replace(/^file:\/\//, ""));  // Decode URL encoding
     const resolvedPath = resolve(filePath);  // Normalize the path
     console.log(`[${languageServers[language].name}] Diagnostics for ${filePath}: ${diagnostics.length} issues`);
+    
+    // For Scala/Metals, only update if we're getting real diagnostics or if we haven't received any yet
+    // This prevents Metals from clearing valid diagnostics with empty updates
+    if (language === "scala" && diagnostics.length === 0 && this.diagnostics.has(resolvedPath)) {
+      const existing = this.diagnostics.get(resolvedPath)!;
+      if (existing.length > 0) {
+        console.log(`  [Scala] Ignoring empty diagnostics update (keeping ${existing.length} existing diagnostics)`);
+        return;
+      }
+    }
     
     this.diagnostics.set(resolvedPath, diagnostics);  // Store with resolved path
     

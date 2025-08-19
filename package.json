@@ -53,9 +53,10 @@
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
+    "intelephense": "^1.14.4",
     "pyright": "^1.1.403",
     "typescript-language-server": "^4.4.0",
     "vscode-jsonrpc": "^8.2.1",
