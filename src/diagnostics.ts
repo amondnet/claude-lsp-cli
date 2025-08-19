@@ -395,7 +395,7 @@ export async function handleHookEvent(eventType: string): Promise<void> {
     const input = await Bun.stdin.text();
     const hookData = JSON.parse(input);
     
-    await logger.info('Processing hook event', { eventType, tool: hookData.tool });
+    // Silent operation - only output when there are actual diagnostics to report
     
     // Process based on event type
     if (eventType === 'PostToolUse') {
@@ -429,16 +429,19 @@ export async function handleHookEvent(eventType: string): Promise<void> {
           }
         }
     } else if (eventType === 'SessionStart') {
-      // Check initial project state
+      // Check initial project state only if it's a code project
       if (hookData.workingDirectory) {
-        const diagnostics = await runDiagnostics(hookData.workingDirectory);
-        if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-          console.error(`[[system-message]]: ${JSON.stringify({
-            status: 'diagnostics_report',
-            result: 'initial_errors_found',
-            diagnostics: diagnostics.diagnostics,
-            summary: `Found ${diagnostics.diagnostics.length} issues in project on startup`
-          })}`);
+        const projectRoot = await findProjectRoot(hookData.workingDirectory);
+        if (projectRoot) {
+          const diagnostics = await runDiagnostics(projectRoot);
+          if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
+            console.error(`[[system-message]]: ${JSON.stringify({
+              status: 'diagnostics_report',
+              result: 'initial_errors_found',
+              diagnostics: diagnostics.diagnostics,
+              summary: `Found ${diagnostics.diagnostics.length} issues in project on startup`
+            })}`);
+          }
         }
       }
     } else if (eventType === 'Stop') {
