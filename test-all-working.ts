@@ -65,6 +65,22 @@ echo $undefinedVar;  // Undefined variable`,
 }`,
     expectedErrors: 1,  // Metals only reports the type error
     slow: true  // Metals needs time to index
+  },
+  {
+    name: "Rust",
+    ext: ".rs",
+    setupFiles: { 
+      "Cargo.toml": `[package]\nname = "test"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]`
+    },
+    fileDir: "src",  // Rust files must be in src/ directory
+    fileName: "main",  // Rust requires main.rs specifically
+    content: `fn main() {
+    let x: String = 123;  // Type error
+    println!("{}", undefined_var);  // Undefined
+    non_existent_function();  // Undefined
+}`,
+    expectedErrors: 3,
+    slow: true  // rust-analyzer needs time to analyze
   }
 ];
 
@@ -95,8 +111,15 @@ async function testAllWorkingLanguages() {
       }
     }
     
-    // Create test file
-    const testFile = join(langDir, `test${lang.ext}`);
+    // Create subdirectory if needed (e.g., src/ for Rust)
+    const fileDir = lang.fileDir ? join(langDir, lang.fileDir) : langDir;
+    if (lang.fileDir) {
+      mkdirSync(fileDir, { recursive: true });
+    }
+    
+    // Create test file (with custom name if specified)
+    const fileName = lang.fileName || "test";
+    const testFile = join(fileDir, `${fileName}${lang.ext}`);
     writeFileSync(testFile, lang.content);
     
     try {

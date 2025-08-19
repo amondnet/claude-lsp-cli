@@ -8,7 +8,7 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: 6 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala)
+- 🚀 **Multi-Language Support**: 7 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala, Rust)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
 - 📦 **Auto-install**: Automatically installs TypeScript, Python, and PHP language servers
@@ -19,19 +19,19 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (6/11 Tested - 55% Success Rate)
+## 📊 Language Support Status (7/11 Tested - 64% Success Rate)
 
-### ✅ Verified Working (6 languages) - Tested and Confirmed
+### ✅ Verified Working (7 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
 - **C/C++** - Full diagnostics (requires clangd installed) ✓
 - **PHP** - Full diagnostics (auto-installs Intelephense) ✓
 - **Scala** - Full diagnostics (requires `cs install metals`) ✓
+- **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
 
-### ❌ Tested & Not Working (5 languages)
+### ❌ Tested & Not Working (4 languages)
 - **Python (Pyright)** - Architectural incompatibility, complex workspace requirements
-- **Rust** - Not tested (needs Cargo.toml project structure)
 - **Java** - Not tested (requires jdtls installation)
 - **Ruby** - Not tested (requires solargraph installation)
 - **C#** - Not tested (requires omnisharp installation)
@@ -233,7 +233,7 @@ ls -la ~/Library/Application\ Support/claude-lsp/run/*.sock
 | --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript/JavaScript | ✅           | Automatic with bun                                                                                                                                                                          |
 | Python                | ✅           | `bun add pyright`                                                                                                                                                                           |
-| Rust                  | ❌           | Manual install from [rust-analyzer releases](https://github.com/rust-lang/rust-analyzer/releases) |
+| Rust                  | ❌           | Usually installed with rustup: `rustup component add rust-analyzer` |
 | Go                    | ❌           | `go install golang.org/x/tools/gopls@latest`                                                                                                                                                |
 | Java                  | ❌           | `brew install jdtls`                                                                                                                                                                        |
 | C/C++                 | ❌           | `brew install llvm` (macOS) or `apt install clangd` (Linux)                                                                                                                                 |
