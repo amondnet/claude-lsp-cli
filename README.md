@@ -8,7 +8,7 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: 7 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala, Rust)
+- 🚀 **Multi-Language Support**: 9 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala, Rust, Lua, Terraform)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
 - 📦 **Auto-install**: Automatically installs TypeScript, Python, and PHP language servers
@@ -19,9 +19,9 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (7/11 Tested - 64% Success Rate)
+## 📊 Language Support Status (9/13 Tested - 69% Success Rate)
 
-### ✅ Verified Working (7 languages) - Tested and Confirmed
+### ✅ Verified Working (9 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
@@ -29,12 +29,14 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - **PHP** - Full diagnostics (auto-installs Intelephense) ✓
 - **Scala** - Full diagnostics (requires `cs install metals`) ✓
 - **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
+- **Lua** - Full diagnostics (install via `mise install lua-language-server`) ✓
+- **Terraform** - Partial diagnostics (install via `mise install terraform-ls`) ✓
 
 ### ❌ Tested & Not Working (4 languages)
 - **Python (Pyright)** - Architectural incompatibility, complex workspace requirements
+- **Elixir** - Installation path issues with mise-installed elixir-ls
 - **Java** - Not tested (requires jdtls installation)
 - **Ruby** - Not tested (requires solargraph installation)
-- **C#** - Not tested (requires omnisharp installation)
 
 ### 🔧 Additional Languages
 - 15+ other languages have configuration but are untested
@@ -245,7 +247,10 @@ ls -la ~/Library/Application\ Support/claude-lsp/run/*.sock
 | Vue/Svelte            | ✅           | Automatic with bun                                                                                                                                                                          |
 | Docker                | ❌           | `npm install -g dockerfile-language-server-nodejs`                                                                                                                                          |
 | Bash                  | ❌           | `npm install -g bash-language-server`                                                                                                                                                       |
-| And 13 more...        |              | See [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)                                                                                                                                    |
+| Lua                   | ❌           | `mise install lua-language-server@latest && mise use -g lua-language-server@latest`                                                                                                         |
+| Terraform             | ❌           | `mise install terraform-ls@latest && mise use -g terraform-ls@latest`                                                                                                                       |
+| Elixir                | ❌           | `mise install elixir-ls@latest` (path issues - not fully working)                                                                                                                           |
+| And 10 more...        |              | See [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)                                                                                                                                    |
 
 ## 🎮 How to Use
 

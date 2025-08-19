@@ -16,6 +16,8 @@ function findExecutable(name: string): string | null {
     join(process.env.HOME || "", "Library", "Application Support", "Coursier", "bin", name),
     // mise/asdf paths
     join(process.env.HOME || "", ".local", "share", "mise", "shims", name),
+    // mise elixir-ls specific path
+    join(process.env.HOME || "", ".local", "share", "mise", "installs", "elixir-ls", "latest", name),
     // Homebrew paths
     "/opt/homebrew/bin/" + name,
     "/usr/local/bin/" + name,
@@ -299,10 +301,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   elixir: {
     name: "Elixir",
-    command: "elixir-ls",
+    command: "language_server.sh",
     args: [],
-    installCommand: "# See https://github.com/elixir-lsp/elixir-ls for installation",
-    installCheck: "elixir-ls",
+    installCommand: "mise install elixir-ls@latest && mise use -g elixir-ls@latest",
+    installCheck: "language_server.sh",
     projectFiles: ["mix.exs"],
     extensions: [".ex", ".exs"],
     requiresGlobal: true
