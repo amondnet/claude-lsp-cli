@@ -458,10 +458,21 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         
           // Output diagnostics as system message
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-            // Count issues by severity
-            const errors = diagnostics.diagnostics.filter((d: any) => d.severity === 'error').length;
-            const warnings = diagnostics.diagnostics.filter((d: any) => d.severity === 'warning').length;
-            const hints = diagnostics.diagnostics.filter((d: any) => d.severity === 'hint' || d.severity === 'info').length;
+            // Filter out node_modules diagnostics
+            const filteredDiagnostics = diagnostics.diagnostics.filter((d: any) => 
+              !d.file.includes('node_modules/') && 
+              !d.file.includes('node_modules\\')
+            );
+            
+            if (filteredDiagnostics.length === 0) {
+              // All diagnostics were in node_modules, ignore
+              return false;
+            }
+            
+            // Count issues by severity (from filtered diagnostics)
+            const errors = filteredDiagnostics.filter((d: any) => d.severity === 'error').length;
+            const warnings = filteredDiagnostics.filter((d: any) => d.severity === 'warning').length;
+            const hints = filteredDiagnostics.filter((d: any) => d.severity === 'hint' || d.severity === 'info').length;
             
             // Only report errors and warnings, not hints (too noisy)
             if (errors > 0 || warnings > 0) {
@@ -472,11 +483,11 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 process.stderr.write(`⚠️  ${warnings} warning${warnings > 1 ? 's' : ''} found\n`);
               }
               
-              // Full diagnostic data for Claude (only for errors/warnings)
+              // Full diagnostic data for Claude (only for errors/warnings, excluding node_modules)
               console.error(`[[system-message]]: ${JSON.stringify({
                 status: 'diagnostics_report',
                 result: 'errors_found',
-                diagnostics: diagnostics.diagnostics.filter((d: any) => d.severity === 'error' || d.severity === 'warning'),
+                diagnostics: filteredDiagnostics.filter((d: any) => d.severity === 'error' || d.severity === 'warning'),
                 reference: {
                   type: 'previous_code_edit',
                   turn: 'claude_-1'
