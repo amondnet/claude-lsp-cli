@@ -15,10 +15,44 @@ import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
 import { resolve } from "path";
 
+async function runAsLanguageServer(language: string) {
+  // This binary is now acting as a language server
+  switch (language) {
+    case 'typescript':
+      // Import and run the bundled TypeScript language server
+      const { start } = await import('typescript-language-server/lib/cli.mjs');
+      // Override process.argv to make it think it was called directly
+      process.argv = ['node', 'typescript-language-server', '--stdio'];
+      await start();
+      break;
+      
+    case 'php':
+      // Import and run the bundled PHP language server  
+      const intelephense = await import('intelephense');
+      // Set up stdio communication
+      process.stdin.setEncoding('utf8');
+      process.stdout.setEncoding('utf8');
+      // Start the language server
+      intelephense.default.start();
+      break;
+      
+    default:
+      console.error(`Unknown language server: ${language}`);
+      process.exit(1);
+  }
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 const command = args[0];
 const eventType = args[1];
+
+// Check if running as a language server
+if (command === '--lang-server' && args[1]) {
+  const language = args[1];
+  await runAsLanguageServer(language);
+  process.exit(0);
+}
 
 async function handleHookEvent(eventType: string) {
   // Set hook mode to suppress INFO/DEBUG logging to console

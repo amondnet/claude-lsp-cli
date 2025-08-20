@@ -97,10 +97,10 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: "npx",
-    args: ["-y", "typescript-language-server@4.4.0", "--stdio"],
-    installCommand: "Automatic - uses npx cache",
-    installCheck: "SKIP", // npx handles this
+    command: process.argv[0], // Use the current executable path
+    args: ["--lang-server", "typescript", "--stdio"],
+    installCommand: "Bundled - no installation needed",
+    installCheck: "BUNDLED",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -186,10 +186,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: "npx",
-    args: ["-y", "intelephense@1.14.4", "--stdio"],
-    installCommand: "Automatic - uses npx cache",
-    installCheck: "SKIP", // npx handles this
+    command: process.argv[0], // Use the current executable path
+    args: ["--lang-server", "php", "--stdio"],
+    installCommand: "Bundled - no installation needed",
+    installCheck: "BUNDLED",
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },
@@ -248,10 +248,9 @@ export function isLanguageServerInstalled(language: string): boolean {
   const config = languageServers[language];
   if (!config) return false;
   
-  // Special handling for bunx-based servers
-  if (config.installCheck === 'SKIP') {
-    // bunx will handle downloading/caching automatically
-    // No need to check installation
+  // Special handling for bundled servers (self-contained)
+  if (config.installCheck === 'BUNDLED') {
+    // These are bundled in the binary - always available
     return true;
   }
   
@@ -278,9 +277,9 @@ export function getInstallInstructions(language: string): string {
   const config = languageServers[language];
   if (!config) return "";
   
-  // Special handling for npx-based servers
-  if (config.installCheck === 'SKIP') {
-    return `✅ ${config.name} Language Server will be automatically downloaded via npx (cached globally)`;
+  // Special handling for bundled servers  
+  if (config.installCheck === 'BUNDLED') {
+    return `✅ ${config.name} Language Server is bundled - no installation needed`;
   }
   
   // Check for manual installation requirement

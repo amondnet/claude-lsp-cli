@@ -7,6 +7,7 @@
         "ignore": "^7.0.5",
         "intelephense": "^1.14.4",
         "pyright": "^1.1.403",
+        "typescript": "^5.9.2",
         "typescript-language-server": "^4.4.0",
         "vscode-jsonrpc": "^8.2.1",
         "vscode-languageclient": "^9.0.1",

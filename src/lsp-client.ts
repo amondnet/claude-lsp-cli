@@ -98,10 +98,10 @@ export class LSPClient {
     if (!isLanguageServerInstalled(language)) {
       console.error(getInstallInstructions(language));
       
-      // Skip auto-install for bunx-based servers (they auto-download)
-      if (config.installCheck === 'SKIP') {
-        // bunx will handle it, just continue
-        await logger.info(`${config.name} will be downloaded automatically via bunx...`);
+      // Skip auto-install for bundled servers (they're already included)
+      if (config.installCheck === 'BUNDLED') {
+        // These are bundled in the binary, just continue
+        await logger.info(`${config.name} is bundled - no installation needed`);
       }
       // For non-global packages, try auto-install (but NOT for our bunx servers)
       else if (!config.requiresGlobal && config.installCommand && !config.installCommand.includes("bunx")) {
