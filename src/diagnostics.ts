@@ -15,6 +15,69 @@ import { logger } from "./utils/logger";
 
 const logFileForRest = "/tmp/lsp-session-reset.log";
 
+// Store last sent diagnostics hash per project with LRU eviction
+class DiagnosticsCache {
+  private cache = new Map<string, { hash: string; timestamp: number }>();
+  private maxSize = 100; // Max projects to track
+  private ttl = 3600000; // 1 hour TTL
+  
+  set(projectHash: string, diagnosticsHash: string): void {
+    // Clean old entries if we're at capacity
+    if (this.cache.size >= this.maxSize) {
+      // Remove oldest entry
+      const oldest = Array.from(this.cache.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+      if (oldest) {
+        this.cache.delete(oldest[0]);
+      }
+    }
+    
+    this.cache.set(projectHash, {
+      hash: diagnosticsHash,
+      timestamp: Date.now()
+    });
+  }
+  
+  get(projectHash: string): string | null {
+    const entry = this.cache.get(projectHash);
+    if (!entry) return null;
+    
+    // Check if entry is expired
+    if (Date.now() - entry.timestamp > this.ttl) {
+      this.cache.delete(projectHash);
+      return null;
+    }
+    
+    // Update timestamp on access (LRU)
+    entry.timestamp = Date.now();
+    return entry.hash;
+  }
+  
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const diagnosticsCache = new DiagnosticsCache();
+
+// Create a stable hash of diagnostics for deduplication
+function createDiagnosticsHash(diagnostics: any[]): string {
+  // Sort diagnostics by file, line, column for stable ordering
+  const sorted = [...diagnostics].sort((a, b) => {
+    if (a.file !== b.file) return a.file.localeCompare(b.file);
+    if (a.line !== b.line) return a.line - b.line;
+    if (a.column !== b.column) return a.column - b.column;
+    return a.message.localeCompare(b.message);
+  });
+  
+  // Create a string representation of key fields only (not timestamps)
+  const key = sorted.map(d => 
+    `${d.file}:${d.line}:${d.column}:${d.severity}:${d.message}`
+  ).join('|');
+  
+  return secureHash(key);
+}
+
 // LSP Client Functions
 async function queryLSPCache(projectHash: string, filePath?: string): Promise<{ diagnostics: any[], timestamp: string } | null> {
   try {
@@ -537,6 +600,27 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             
             // Only report errors and warnings, not hints (too noisy)
             if (errors > 0 || warnings > 0) {
+              const relevantDiagnostics = filteredDiagnostics.filter((d: any) => 
+                d.severity === 'error' || d.severity === 'warning'
+              );
+              
+              // Check if these diagnostics are different from last time
+              const projectHash = secureHash(projectRoot).substring(0, 16);
+              const currentHash = createDiagnosticsHash(relevantDiagnostics);
+              const lastHash = diagnosticsCache.get(projectHash);
+              
+              if (lastHash === currentHash) {
+                // Same diagnostics as last time, don't send duplicate
+                await logger.debug('Skipping duplicate diagnostics', { 
+                  projectHash, 
+                  diagnosticsCount: relevantDiagnostics.length 
+                });
+                return false;
+              }
+              
+              // Store the new hash
+              diagnosticsCache.set(projectHash, currentHash);
+              
               // Show compact summary for users
               if (errors > 0) {
                 process.stderr.write(`❌ ${errors} error${errors > 1 ? 's' : ''} found\n`);
@@ -548,7 +632,7 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
               console.error(`[[system-message]]: ${JSON.stringify({
                 status: 'diagnostics_report',
                 result: 'errors_found',
-                diagnostics: filteredDiagnostics.filter((d: any) => d.severity === 'error' || d.severity === 'warning'),
+                diagnostics: relevantDiagnostics,
                 reference: {
                   type: 'previous_code_edit',
                   turn: 'claude_-1'
@@ -561,16 +645,30 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             }
           } else {
             await logger.info("No diagnostic issues found - all clear");
-            if (process.env.CLAUDE_LSP_QUIET !== 'true') {
-              console.error(`[[system-message]]: ${JSON.stringify({
-                status: 'diagnostics_report',
-                result: 'all_clear',
-                reference: {
-                  type: 'previous_code_edit',
-                  turn: 'claude_-1'
-                }
-              })}`);
+            
+            // Check if we previously had errors for this project
+            const projectHash = secureHash(projectRoot).substring(0, 16);
+            const lastHash = diagnosticsCache.get(projectHash);
+            
+            if (lastHash && lastHash !== 'all_clear') {
+              // We had errors before, now they're fixed - send all clear
+              diagnosticsCache.set(projectHash, 'all_clear');
+              
+              if (process.env.CLAUDE_LSP_QUIET !== 'true') {
+                console.error(`[[system-message]]: ${JSON.stringify({
+                  status: 'diagnostics_report',
+                  result: 'all_clear',
+                  reference: {
+                    type: 'previous_code_edit',
+                    turn: 'claude_-1'
+                  }
+                })}`);
+              }
+            } else {
+              // No errors before and none now - stay quiet
+              await logger.debug('No errors to report, staying quiet', { projectHash });
             }
+            
             return false; // No errors - exit normally
           }
         }

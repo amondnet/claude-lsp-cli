@@ -53,9 +53,9 @@ export class Logger {
       ...(context && { context })
     };
     
-    // Skip console output for INFO/DEBUG when running as a hook (to avoid polluting Claude's output)
+    // Skip ALL console output when running as a hook (to avoid polluting Claude's output)
     const isHookMode = process.env.CLAUDE_LSP_HOOK_MODE === 'true';
-    const shouldOutputToConsole = !isHookMode || (level === LogLevel.ERROR || level === LogLevel.WARN);
+    const shouldOutputToConsole = !isHookMode;
     
     if (shouldOutputToConsole) {
       // Console output with color coding
