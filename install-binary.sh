@@ -14,10 +14,21 @@ echo "🚀 Claude Code LSP Local Binary Installer"
 echo "=========================================="
 echo ""
 
-# Check if binaries exist
+# Build binaries first
+echo "🔨 Building binaries..."
+if command -v bun &> /dev/null; then
+    cd "$SCRIPT_DIR"
+    bun run build
+    echo "✅ Binaries built successfully"
+else
+    echo "❌ Error: Bun is not installed"
+    echo "   Please install Bun first: curl -fsSL https://bun.sh/install | bash"
+    exit 1
+fi
+
+# Check if binaries were built successfully
 if [ ! -f "$SCRIPT_DIR/bin/claude-lsp-cli" ] || [ ! -f "$SCRIPT_DIR/bin/claude-lsp-server" ]; then
-    echo "❌ Binaries not found in $SCRIPT_DIR/bin/"
-    echo "   Please run 'bun run build' first to build the binaries"
+    echo "❌ Build failed - binaries not found in $SCRIPT_DIR/bin/"
     exit 1
 fi
 
