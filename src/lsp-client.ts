@@ -15,6 +15,7 @@ import {
 } from "vscode-languageserver-protocol";
 import { readFileSync, existsSync } from "fs";
 import { join, resolve, extname } from "path";
+import { logger } from "./utils/logger";
 import { 
   languageServers, 
   detectProjectLanguages, 
@@ -91,7 +92,7 @@ export class LSPClient {
       return;
     }
 
-    console.log(`Starting ${config.name} Language Server...`);
+    await logger.info(`Starting ${config.name} Language Server...`);
     
     // Check if server is installed
     if (!isLanguageServerInstalled(language)) {
@@ -99,11 +100,11 @@ export class LSPClient {
       
       // For non-global packages, try auto-install
       if (!config.requiresGlobal && config.installCommand) {
-        console.log("Attempting automatic installation...");
+        await logger.info("Attempting automatic installation...");
         try {
           // Safe installation using spawn instead of execSync
           await this.safeInstall(config, rootPath);
-          console.log(`✅ ${config.name} Language Server installed successfully!`);
+          await logger.info(`✅ ${config.name} Language Server installed successfully!`);
         } catch (e) {
           console.error(`Failed to install ${config.name} Language Server:`, e);
           return;
@@ -144,13 +145,13 @@ export class LSPClient {
       };
       
       // Handle diagnostics
-      connection.onNotification("textDocument/publishDiagnostics", (params: any) => {
-        this.handleDiagnostics(params.uri, params.diagnostics, language);
+      connection.onNotification("textDocument/publishDiagnostics", async (params: any) => {
+        await this.handleDiagnostics(params.uri, params.diagnostics, language);
       });
       
       // Handle window/showMessageRequest (needed for Metals)
-      connection.onRequest("window/showMessageRequest", (params: any) => {
-        console.log(`[${config.name}] Message request: ${params.message}`);
+      connection.onRequest("window/showMessageRequest", async (params: any) => {
+        await logger.debug(`[${config.name}] Message request: ${params.message}`);
         // Auto-respond to message requests (usually import build prompts)
         if (params.actions && params.actions.length > 0) {
           // Return the first action (usually "Import build")
@@ -160,17 +161,17 @@ export class LSPClient {
       });
       
       // Handle client/registerCapability (Metals uses this)
-      connection.onRequest("client/registerCapability", (params: any) => {
-        console.log(`[${config.name}] Registering capability`);
+      connection.onRequest("client/registerCapability", async (params: any) => {
+        await logger.debug(`[${config.name}] Registering capability`);
         return null;
       });
       
       // Track Metals readiness through log messages
       if (language === "scala") {
-        connection.onNotification("window/logMessage", (params: any) => {
+        connection.onNotification("window/logMessage", async (params: any) => {
           if (params.message.includes("indexed workspace") || 
               params.message.includes("compiled root")) {
-            console.log(`[${config.name}] Metals is ready!`);
+            await logger.info(`[${config.name}] Metals is ready!`);
             server.metalsReady = true;  // Update the server object directly
           }
         });
@@ -245,11 +246,11 @@ export class LSPClient {
           uri: `file://${resolve(rootPath)}`,
           name: "workspace"
         }],
-        initializationOptions: this.getInitializationOptions(language)
+        initializationOptions: await this.getInitializationOptions(language)
       };
 
       const result = await connection.sendRequest("initialize", initParams) as any;
-      console.log(`✅ ${config.name} server initialized`);
+      await logger.info(`✅ ${config.name} server initialized`);
 
       // Send initialized notification
       await connection.sendNotification("initialized", {});
@@ -262,15 +263,15 @@ export class LSPClient {
       
       // For Scala, wait for Metals to be ready
       if (language === "scala") {
-        console.log(`Waiting for Metals to index and compile...`);
+        await logger.info(`Waiting for Metals to index and compile...`);
         const startTime = Date.now();
         while (!server.metalsReady && Date.now() - startTime < 60000) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         if (server.metalsReady) {
-          console.log(`✅ Metals is ready after ${Math.round((Date.now() - startTime) / 1000)}s`);
+          await logger.info(`✅ Metals is ready after ${Math.round((Date.now() - startTime) / 1000)}s`);
         } else {
-          console.log(`⚠️ Metals initialization timeout after 60s`);
+          await logger.warn(`⚠️ Metals initialization timeout after 60s`);
         }
       }
 
@@ -280,16 +281,16 @@ export class LSPClient {
   }
 
   async autoDetectAndStart(rootPath: string): Promise<void> {
-    console.log("🔍 Auto-detecting project languages...");
+    await logger.info("🔍 Auto-detecting project languages...");
     const detectedLanguages = detectProjectLanguages(rootPath);
     
     if (detectedLanguages.length === 0) {
-      console.log("No language-specific project files detected.");
-      console.log("Will start servers based on file extensions when files are opened.");
+      await logger.info("No language-specific project files detected.");
+      await logger.info("Will start servers based on file extensions when files are opened.");
       return;
     }
 
-    console.log(`Detected languages: ${detectedLanguages.join(", ")}`);
+    await logger.info(`Detected languages: ${detectedLanguages.join(", ")}`);
     
     for (const language of detectedLanguages) {
       await this.startLanguageServer(language, rootPath);
@@ -309,7 +310,7 @@ export class LSPClient {
     }
 
     if (!targetLanguage) {
-      console.log(`No language server for ${extension} files`);
+      await logger.debug(`No language server for ${extension} files`);
       return;
     }
 
@@ -321,7 +322,7 @@ export class LSPClient {
 
     const server = this.servers.get(targetLanguage);
     if (!server || !server.initialized) {
-      console.log(`Server not ready for ${targetLanguage}`);
+      await logger.debug(`Server not ready for ${targetLanguage}`);
       return;
     }
 
@@ -347,7 +348,7 @@ export class LSPClient {
       textDocument
     });
 
-    console.log(`📄 Opened ${filePath} with ${languageServers[targetLanguage].name} server`);
+    await logger.info(`📄 Opened ${filePath} with ${languageServers[targetLanguage].name} server`);
     
     // If requested, wait for diagnostics to be published
     if (waitForDiagnostics) {
@@ -361,9 +362,9 @@ export class LSPClient {
       }
       
       if (this.receivedDiagnostics.has(resolvedPath)) {
-        console.log(`✅ Received diagnostics for ${filePath}`);
+        await logger.debug(`✅ Received diagnostics for ${filePath}`);
       } else {
-        console.log(`⚠️ Timeout waiting for diagnostics for ${filePath}`);
+        await logger.warn(`⚠️ Timeout waiting for diagnostics for ${filePath}`);
       }
     }
   }
@@ -371,7 +372,7 @@ export class LSPClient {
   async updateDocument(filePath: string, newContent: string): Promise<void> {
     const targetLanguage = this.fileLanguageMap.get(filePath);
     if (!targetLanguage) {
-      console.log(`No language server tracking ${filePath}`);
+      await logger.debug(`No language server tracking ${filePath}`);
       return;
     }
 
@@ -416,10 +417,10 @@ export class LSPClient {
     this.diagnostics.delete(resolve(filePath));
   }
 
-  private handleDiagnostics(uri: string, diagnostics: Diagnostic[], language: string) {
+  private async handleDiagnostics(uri: string, diagnostics: Diagnostic[], language: string) {
     const filePath = decodeURIComponent(uri.replace(/^file:\/\//, ""));  // Decode URL encoding
     const resolvedPath = resolve(filePath);  // Normalize the path
-    console.log(`[${languageServers[language].name}] Diagnostics for ${filePath}: ${diagnostics.length} issues`);
+    await logger.info(`[${languageServers[language].name}] Diagnostics for ${filePath}: ${diagnostics.length} issues`);
     
     // Mark that we've received diagnostics for this file
     this.receivedDiagnostics.add(resolvedPath);
@@ -429,7 +430,7 @@ export class LSPClient {
     if (language === "scala" && diagnostics.length === 0 && this.diagnostics.has(resolvedPath)) {
       const existing = this.diagnostics.get(resolvedPath)!;
       if (existing.length > 0) {
-        console.log(`  [Scala] Ignoring empty diagnostics update (keeping ${existing.length} existing diagnostics)`);
+        await logger.debug(`  [Scala] Ignoring empty diagnostics update (keeping ${existing.length} existing diagnostics)`);
         return;
       }
     }
@@ -439,7 +440,7 @@ export class LSPClient {
     // Log errors and warnings
     for (const diag of diagnostics) {
       const severity = this.getSeverityString(diag.severity);
-      console.log(`  [${severity}] Line ${diag.range.start.line + 1}: ${diag.message}`);
+      await logger.info(`  [${severity}] Line ${diag.range.start.line + 1}: ${diag.message}`);
     }
   }
 
@@ -471,7 +472,7 @@ export class LSPClient {
     return languageIdMap[language] || language;
   }
 
-  private getInitializationOptions(language: string): any {
+  private async getInitializationOptions(language: string): Promise<any> {
     // Language-specific initialization options
     switch (language) {
       case "typescript":
@@ -503,7 +504,7 @@ export class LSPClient {
           const venvPython = join(venvPath, "bin", "python");
           if (existsSync(venvPython)) {
             pythonPath = venvPython;
-            console.log(`Found Python venv: ${venvPython}`);
+            await logger.debug(`Found Python venv: ${venvPython}`);
             break;
           }
         }
@@ -559,14 +560,14 @@ export class LSPClient {
     server.process.kill();
     this.servers.delete(language);
     
-    console.log(`Stopped ${languageServers[language].name} server`);
+    await logger.info(`Stopped ${languageServers[language].name} server`);
   }
 
   async stopAllServers(): Promise<void> {
     for (const [language, server] of this.servers) {
       server.connection.dispose();
       server.process.kill();
-      console.log(`Stopped ${languageServers[language].name} server`);
+      await logger.info(`Stopped ${languageServers[language].name} server`);
     }
     this.servers.clear();
     this.diagnostics.clear();

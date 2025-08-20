@@ -10,6 +10,7 @@ import { existsSync } from "fs";
 import { dirname, join } from "path";
 import { createHash } from "crypto";
 import { $ } from "bun";
+import { logger } from "./utils/logger";
 
 interface ProjectInfo {
   root: string;
@@ -124,18 +125,18 @@ export async function isLSPRunning(projectHash: string): Promise<boolean> {
  */
 export async function startLSPServer(projectInfo: ProjectInfo) {
   if (!projectInfo.hasTypeScript && !projectInfo.hasPython) {
-    console.log(`No supported language files in ${projectInfo.root}`);
+    await logger.info(`No supported language files in ${projectInfo.root}`);
     return;
   }
   
   if (await isLSPRunning(projectInfo.hash)) {
-    console.log(`LSP server already running for ${projectInfo.root}`);
+    await logger.info(`LSP server already running for ${projectInfo.root}`);
     return;
   }
   
-  console.log(`Starting real LSP server for ${projectInfo.root}...`);
-  console.log(`  TypeScript: ${projectInfo.hasTypeScript ? '✅' : '❌'}`);
-  console.log(`  Python: ${projectInfo.hasPython ? '✅' : '❌'}`);
+  await logger.info(`Starting real LSP server for ${projectInfo.root}...`);
+  await logger.info(`  TypeScript: ${projectInfo.hasTypeScript ? '✅' : '❌'}`);
+  await logger.info(`  Python: ${projectInfo.hasPython ? '✅' : '❌'}`);
   
   const serverPath = join(import.meta.dir, "server.ts");
   const child = spawn("bun", [serverPath, projectInfo.root], {
@@ -145,7 +146,7 @@ export async function startLSPServer(projectInfo: ProjectInfo) {
   });
   
   child.unref();
-  console.log(`LSP server started with PID ${child.pid}`);
+  await logger.info(`LSP server started with PID ${child.pid}`);
   
   // Write PID file
   if (child.pid) {
@@ -185,16 +186,16 @@ export async function autoStart(filePath: string) {
   const projectInfo = findProjectRoot(filePath);
   
   if (!projectInfo) {
-    console.log(`No project found for file: ${filePath}`);
+    await logger.info(`No project found for file: ${filePath}`);
     return;
   }
   
-  console.log(`Found project at: ${projectInfo.root}`);
+  await logger.info(`Found project at: ${projectInfo.root}`);
   
   if (projectInfo.hasTypeScript || projectInfo.hasPython) {
     await startLSPServer(projectInfo);
   } else {
-    console.log("No supported language files in project");
+    await logger.info("No supported language files in project");
   }
 }
 
@@ -250,20 +251,20 @@ async function main() {
         const socketPath = `/tmp/claude-lsp-${projectInfo.hash}.sock`;
         const pidFile = `/tmp/claude-lsp-${projectInfo.hash}.pid`;
         
-        console.log(`Stopping LSP server for ${projectInfo.root}...`);
+        await logger.info(`Stopping LSP server for ${projectInfo.root}...`);
         
         if (existsSync(pidFile)) {
           const pid = await Bun.file(pidFile).text();
           await $`kill ${pid.trim()}`.quiet();
           await $`rm -f ${pidFile}`.quiet();
-          console.log(`Killed LSP server process ${pid.trim()}`);
+          await logger.info(`Killed LSP server process ${pid.trim()}`);
         }
         
         if (existsSync(socketPath)) {
           await $`rm -f ${socketPath}`.quiet();
         }
         
-        console.log("LSP server stopped");
+        await logger.info("LSP server stopped");
       }
       break;
     }

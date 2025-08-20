@@ -238,7 +238,7 @@ export class ProcessCleanupManager {
     // Kill all registered processes
     for (const [pid, info] of this.processes) {
       try {
-        console.log(`Cleaning up process ${info.name} (PID: ${pid})`);
+        await logger.debug(`Cleaning up process ${info.name} (PID: ${pid})`);
         await safeKillProcess(pid);
       } catch (error) {
         console.error(`Failed to cleanup process ${info.name}:`, error);
