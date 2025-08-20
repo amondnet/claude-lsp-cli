@@ -11,6 +11,7 @@ import {
 } from "./utils/security";
 import { RateLimiter } from "./utils/rate-limiter";
 import { logger } from "./utils/logger";
+import { ProjectConfigDetector } from "./project-config-detector";
 
 interface DiagnosticResponse {
   file: string;
@@ -44,21 +45,38 @@ class LSPHttpServer {
     await logger.info(`🔑 Project hash: ${this.projectHash}`);
     await logger.info(`🔍 Detecting project type...`);
     
-    // Detect and initialize language servers
-    const hasTypeScript = await this.detectTypeScriptProject();
-    const hasPython = await this.detectPythonProject();
+    // Use ProjectConfigDetector to detect all supported languages
+    const detector = new ProjectConfigDetector(this.projectRoot);
+    const projectConfig = await detector.detect();
     
-    if (hasTypeScript) {
-      await logger.info("📘 TypeScript project detected");
-      await this.client.startLanguageServer('typescript', this.projectRoot);
-    }
-    
-    if (hasPython) {
-      await logger.info("🐍 Python project detected");
-      await this.client.startLanguageServer('python', this.projectRoot);
-    }
-    
-    if (!hasTypeScript && !hasPython) {
+    if (projectConfig) {
+      await logger.info(`✅ Detected ${projectConfig.language} project`);
+      
+      // Map project language to LSP language identifier
+      const languageMap: Record<string, string> = {
+        'typescript': 'typescript',
+        'javascript': 'typescript',
+        'react': 'typescript',
+        'next': 'typescript',
+        'vue': 'typescript',
+        'python': 'python',
+        'rust': 'rust',
+        'go': 'go',
+        'scala': 'scala',
+        'java': 'java',
+        'cpp': 'cpp',
+        'ruby': 'ruby',
+        'php': 'php',
+        'lua': 'lua',
+        'elixir': 'elixir',
+        'terraform': 'terraform'
+      };
+      
+      const lspLanguage = languageMap[projectConfig.language];
+      if (lspLanguage) {
+        await this.client.startLanguageServer(lspLanguage, this.projectRoot);
+      }
+    } else {
       await logger.warn("⚠️  No supported project type detected");
     }
 
@@ -135,38 +153,6 @@ class LSPHttpServer {
     }, 60000);
   }
 
-  private async detectTypeScriptProject(): Promise<boolean> {
-    // Check common TypeScript project indicators
-    const roots = [
-      this.projectRoot,
-      join(this.projectRoot, "ui"),
-      join(this.projectRoot, "frontend"),
-      join(this.projectRoot, "client"),
-      join(this.projectRoot, "web"),
-      join(this.projectRoot, "src")
-    ];
-    
-    for (const root of roots) {
-      if (existsSync(join(root, "tsconfig.json")) || existsSync(join(root, "package.json"))) {
-        return true;
-      }
-    }
-    
-    return false;
-  }
-
-  private async detectPythonProject(): Promise<boolean> {
-    // Check common Python project indicators
-    if (existsSync(join(this.projectRoot, "requirements.txt")) || 
-        existsSync(join(this.projectRoot, "setup.py")) ||
-        existsSync(join(this.projectRoot, "pyproject.toml"))) {
-      return true;
-    }
-    
-    // Check for Python files
-    const files = await import("fs").then(fs => fs.readdirSync(this.projectRoot));
-    return files.some(file => file.endsWith(".py"));
-  }
 
   private async setupFileWatching() {
     try {
