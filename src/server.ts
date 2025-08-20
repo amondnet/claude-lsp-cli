@@ -2,7 +2,7 @@
 
 import { LSPClient } from "./lsp-client";
 import { existsSync, watch } from "fs";
-import { join, relative } from "path";
+import { join, relative, resolve } from "path";
 import { 
   validatePathWithinRoot, 
   secureHash,
@@ -31,8 +31,9 @@ class LSPHttpServer {
   private rateLimiter: RateLimiter;
 
   constructor(projectRoot: string) {
-    this.projectRoot = projectRoot;
-    this.projectHash = secureHash(projectRoot).substring(0, 16);
+    // Normalize to absolute path for consistent hashing
+    this.projectRoot = resolve(projectRoot);
+    this.projectHash = secureHash(this.projectRoot).substring(0, 16);
     this.client = new LSPClient();
     this.rateLimiter = new RateLimiter(100, 60000); // 100 requests per minute
     
@@ -121,7 +122,6 @@ class LSPHttpServer {
     });
     
     const server = Bun.serve({
-      port: 3939,
       unix: socketPath as any,
       fetch: this.handleRequest.bind(this),
       error: async (error) => {
@@ -131,8 +131,7 @@ class LSPHttpServer {
     });
 
     await logger.info(`\n🌐 Server running on:`);
-    await logger.info(`  HTTP: http://localhost:3939`);
-    await logger.info(`  Unix: ${socketPath}`);
+    await logger.info(`  Unix socket: ${socketPath}`);
     await logger.info(`\n📌 API Endpoints (protected by Unix socket permissions):`);
     await logger.info(`  GET /diagnostics?file= - Get diagnostics for specific file`);
     await logger.info(`  GET /diagnostics/all   - Get all project diagnostics`);
