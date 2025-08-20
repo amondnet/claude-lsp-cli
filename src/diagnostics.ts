@@ -588,7 +588,7 @@ if (import.meta.main) {
     const hasErrors = await handleHookEvent(eventType);
     // Exit with appropriate code based on errors found
     if (eventType === 'PostToolUse' && hasErrors) {
-      process.exit(2); // Show feedback
+      process.exit(2); // Show feedback - triggers Claude to respond faster
     } else {
       process.exit(0); // Success
     }
