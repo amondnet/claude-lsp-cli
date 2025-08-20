@@ -257,6 +257,61 @@ Claude: "I see there's a type error on line 5. Let me fix that..."
 [Claude automatically fixes the issue]
 ```
 
+## 🔧 How It Works
+
+The LSP hook communicates with Claude using a **system message protocol** that requires proper configuration in your CLAUDE.md file.
+
+### The System Message Protocol
+
+The hook outputs specially formatted messages that Claude recognizes:
+
+```javascript
+console.error(`[[system-message]]: ${JSON.stringify({
+  status: 'diagnostics_report',
+  result: 'errors_found',
+  diagnostics: [...],
+  reference: { type: 'previous_code_edit', turn: 'claude_-1' }
+})}`);
+```
+
+### Setting Up Claude's Understanding
+
+For Claude to properly handle diagnostics, add this to your `~/.claude/CLAUDE.md` file:
+
+```markdown
+### System Message Format
+
+When you see `[[system-message]]:` followed by JSON, this is an automated system notification (usually diagnostics):
+
+**DIAGNOSTIC REPORT FORMAT:**
+
+{
+  "status": "diagnostics_report",
+  "result": "errors_found" | "all_clear",
+  "reference": {
+    "type": "previous_code_edit", 
+    "turn": "claude_-1"
+  },
+  "diagnostics": [    // Only present when result is "errors_found"
+    {
+      "file": "/absolute/path/to/file.ts",
+      "line": 10,
+      "column": 5,
+      "severity": "error" | "warning",  // Only errors and warnings are reported
+      "message": "Type 'string' is not assignable to type 'number'",
+      "source": "TypeScript",
+      "ruleId": "TS2322"  // Optional: error code if available
+    }
+  ]
+}
+```
+
+This teaches Claude to:
+1. **Recognize diagnostic reports** with `"status": "diagnostics_report"`
+2. **Prioritize fixing errors** before continuing with new requests
+3. **Parse the diagnostic format** and fix issues at correct locations
+4. **Follow the correction protocol** automatically
+
 ## 🛠️ Standalone Usage (Without Claude)
 
 ### As an HTTP Server
