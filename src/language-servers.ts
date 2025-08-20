@@ -97,11 +97,10 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: "bun",
-    args: ["x", "typescript-language-server", "--stdio"],
-    installCommand: "bun add -g typescript-language-server typescript",
-    installCheck: "typescript-language-server",
-    requiresGlobal: true,
+    command: "typescript-language-server",
+    args: ["--stdio"],
+    installCommand: "Already bundled - no installation needed",
+    installCheck: "BUNDLED",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -187,11 +186,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: "bun",
-    args: ["x", "intelephense", "--stdio"],
-    installCommand: "bun add -g intelephense",
-    installCheck: "intelephense",
-    requiresGlobal: true,
+    command: "intelephense",
+    args: ["--stdio"],
+    installCommand: "Already bundled - no installation needed",
+    installCheck: "BUNDLED",
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },
@@ -250,6 +248,20 @@ export function isLanguageServerInstalled(language: string): boolean {
   const config = languageServers[language];
   if (!config) return false;
   
+  // Special handling for bundled servers
+  if (config.installCheck === 'BUNDLED') {
+    // These are included in our package.json dependencies
+    // Check if we can find them in our own node_modules
+    const moduleDir = join(import.meta.dir, '..', 'node_modules');
+    const binPath = join(moduleDir, '.bin', config.command);
+    if (existsSync(binPath)) {
+      // Update command to use full path
+      languageServers[language].command = binPath;
+      return true;
+    }
+    return false;
+  }
+  
   try {
     if (config.requiresGlobal) {
       // Use our helper to find the executable
@@ -272,6 +284,11 @@ export function isLanguageServerInstalled(language: string): boolean {
 export function getInstallInstructions(language: string): string {
   const config = languageServers[language];
   if (!config) return "";
+  
+  // Special handling for bundled servers
+  if (config.installCheck === 'BUNDLED') {
+    return `✅ ${config.name} Language Server is bundled with claude-code-lsp - no installation needed`;
+  }
   
   // Check for manual installation requirement
   if (config.installCommand === null && config.manualInstallUrl) {

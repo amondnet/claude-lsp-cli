@@ -98,8 +98,14 @@ export class LSPClient {
     if (!isLanguageServerInstalled(language)) {
       console.error(getInstallInstructions(language));
       
+      // Skip auto-install for bundled servers (they should already be available)
+      if (config.installCheck === 'BUNDLED') {
+        console.error(`ERROR: Bundled ${config.name} server not found in node_modules`);
+        return;
+      }
+      
       // For non-global packages, try auto-install
-      if (!config.requiresGlobal && config.installCommand) {
+      if (!config.requiresGlobal && config.installCommand && config.installCommand !== "Already bundled - no installation needed") {
         await logger.info("Attempting automatic installation...");
         try {
           // Safe installation using spawn instead of execSync
