@@ -27,17 +27,33 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
+# Kill any running LSP servers
+echo "🛑 Stopping any running LSP servers..."
+if command -v claude-lsp-cli &> /dev/null; then
+    claude-lsp-cli kill-all 2>/dev/null || true
+fi
+# Also try pkill as fallback
+pkill -f claude-lsp-server 2>/dev/null || true
+
 # Create standard directories
 echo "📁 Creating standard directories..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$CONFIG_DIR" 
 mkdir -p "$DATA_DIR"
 
-# Clone source to temp directory
-echo "📦 Downloading Claude Code LSP..."
-TEMP_DIR=$(mktemp -d)
-git clone --depth 1 https://github.com/teamchong/claude-code-lsp.git "$TEMP_DIR"
-cd "$TEMP_DIR"
+# Determine source directory
+if [ -d "$(dirname "$0")/src" ]; then
+    # Running from local repo
+    echo "📦 Using local Claude Code LSP source..."
+    SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
+else
+    # Clone from GitHub
+    echo "📦 Downloading Claude Code LSP..."
+    TEMP_DIR=$(mktemp -d)
+    git clone --depth 1 https://github.com/teamchong/claude-code-lsp.git "$TEMP_DIR"
+    SOURCE_DIR="$TEMP_DIR"
+fi
+cd "$SOURCE_DIR"
 
 # Build binaries
 echo "🔨 Building binaries..."

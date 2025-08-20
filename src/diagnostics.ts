@@ -393,10 +393,29 @@ export async function runDiagnostics(
 export async function handleHookEvent(eventType: string): Promise<void> {
   try {
     const input = await Bun.stdin.text();
-    const hookData = JSON.parse(input);
+    
+    // Handle empty input gracefully
+    if (!input || input.trim() === '') {
+      await logger.debug('Hook received empty input', { eventType });
+      // Exit successfully - no data is not an error for some hook types
+      return;
+    }
+    
+    let hookData: any;
+    try {
+      hookData = JSON.parse(input);
+    } catch (parseError) {
+      await logger.error('Failed to parse hook input as JSON', parseError, { 
+        eventType, 
+        inputLength: input.length,
+        inputPreview: input.substring(0, 100) 
+      });
+      // Exit successfully - malformed data shouldn't block Claude
+      return;
+    }
     
     // Deduplication: Generate unique ID for this hook event to prevent duplicate processing
-    const hookId = `${eventType}-${hookData.sessionId || 'unknown'}-${Date.now()}`;
+    const hookId = `${eventType}-${hookData?.session_id || hookData?.sessionId || 'unknown'}-${Date.now()}`;
     const dedupFile = `/tmp/claude-lsp-hook-${secureHash(hookId).substring(0, 8)}.lock`;
     
     // Check if this exact hook was recently processed (within 2 seconds)
@@ -427,12 +446,14 @@ export async function handleHookEvent(eventType: string): Promise<void> {
     
     // Process based on event type
     if (eventType === 'PostToolUse') {
-      // Run diagnostics after any tool - files could be modified externally
+      // Run diagnostics after ANY tool - files could be modified externally
       // or through ways we don't detect (vim in bash, file watchers, etc.)
-      const workingDir = hookData.workingDirectory || process.cwd();
+      // Get working directory from hook data or current directory
+      // Note: Claude passes 'cwd' not 'workingDirectory' in base fields
+      const workingDir = hookData?.cwd || hookData?.workingDirectory || process.cwd();
       const projectRoot = await findProjectRoot(workingDir);
       if (projectRoot) {
-        const diagnostics = await runDiagnostics(projectRoot, undefined, hookData.sessionId);
+        const diagnostics = await runDiagnostics(projectRoot, undefined, hookData?.session_id || hookData?.sessionId);
           
           // Output diagnostics as system message
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
@@ -458,8 +479,10 @@ export async function handleHookEvent(eventType: string): Promise<void> {
         }
     } else if (eventType === 'SessionStart') {
       // Check initial project state only if it's a code project
-      if (hookData.workingDirectory) {
-        const projectRoot = await findProjectRoot(hookData.workingDirectory);
+      // Handle SessionStart - use cwd field from base hook data
+      const workDir = hookData?.cwd || hookData?.workingDirectory;
+      if (workDir) {
+        const projectRoot = await findProjectRoot(workDir);
         if (projectRoot) {
           const diagnostics = await runDiagnostics(projectRoot);
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
@@ -474,8 +497,10 @@ export async function handleHookEvent(eventType: string): Promise<void> {
       }
     } else if (eventType === 'Stop') {
       // Clean shutdown - stop LSP servers for this session
-      if (hookData.workingDirectory || process.cwd()) {
-        const projectRoot = hookData.workingDirectory || process.cwd();
+      // Handle Stop event - use cwd field from base hook data
+      const workDir = hookData?.cwd || hookData?.workingDirectory || process.cwd();
+      if (workDir) {
+        const projectRoot = workDir;
         const projectHash = secureHash(projectRoot).substring(0, 16);
         
         // Stop LSP server gracefully

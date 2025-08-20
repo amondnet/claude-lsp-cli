@@ -14,9 +14,21 @@ var keA = [ "PreToolUse", "PostToolUse", "Notification", "UserPromptSubmit", "Se
 Found at lines 428810-428850 in the source code:
 
 ### Universal Exit Code Meanings:
-- **Exit code 0**: Hook succeeded (normal success)
+- **Exit code 0**: Hook succeeded (normal success) - no message shown to user
 - **Exit code 2**: Special "blocking" status - behavior depends on hook type (see below)
-- **Any other exit code (1, 3, etc.)**: Non-blocking error (shows warning but continues)
+- **Exit code 1 or other non-zero**: Non-blocking error - shows warning message but Claude continues
+
+### Why You See "failed with non-blocking status code 1"
+This message appears when a hook returns exit code 1, which typically means:
+- The hook encountered an error (e.g., invalid JSON input, missing dependencies)
+- The hook couldn't perform its task (e.g., language server not installed)
+- The hook intentionally returned 1 to show a warning without blocking
+
+For LSP hooks specifically, exit code 1 often occurs when:
+- The working directory doesn't exist or isn't accessible
+- JSON parsing fails on the input from Claude
+- Language servers aren't installed or can't start
+- No relevant files to check in the project
 
 ### Source Code Evidence:
 ```javascript
@@ -136,6 +148,118 @@ Example to trigger immediate response:
 3. **JSON output is optional**: Hooks can return plain text (stdout) or JSON. If JSON parsing fails, stdout is treated as plain text.
 
 4. **The user's assumption was incorrect**: PostToolUse with exit code 2 does NOT stop Claude. It only shows feedback.
+
+## Hook Data Structure (stdin JSON)
+
+### Base Fields (all hooks receive these):
+```json
+{
+  "session_id": "string - Current Claude session ID",
+  "transcript_path": "string - Path to conversation transcript",
+  "cwd": "string - Current working directory"
+}
+```
+
+### Hook-Specific Additional Fields:
+
+#### PreToolUse
+```json
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "string - Name of tool being invoked (e.g., 'Edit', 'Write', 'Bash')",
+  "tool_input": "object - The tool's input parameters"
+}
+```
+
+#### PostToolUse
+```json
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "string - Name of tool that was invoked",
+  "tool_input": "object - The tool's input parameters",
+  "tool_response": "object - The tool's output/response"
+}
+```
+
+#### UserPromptSubmit
+```json
+{
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "string - The user's prompt text"
+}
+```
+
+#### SessionStart
+```json
+{
+  "hook_event_name": "SessionStart",
+  "source": "string - Source of session start (e.g., 'cli', 'api')"
+}
+```
+
+#### Stop / SubagentStop
+```json
+{
+  "hook_event_name": "Stop" | "SubagentStop",
+  "stop_hook_active": "boolean - Whether stop hook is active"
+}
+```
+
+#### PreCompact
+```json
+{
+  "hook_event_name": "PreCompact",
+  "trigger": "string - What triggered compaction",
+  "custom_instructions": "string - Custom instructions if any"
+}
+```
+
+#### Notification
+```json
+{
+  "hook_event_name": "Notification"
+  // No additional fields beyond base fields
+}
+```
+
+### Important Notes About Hook Data
+
+1. **Not all hooks receive meaningful data**: Some hooks like Stop, SessionStart may receive minimal data
+2. **Handle missing fields gracefully**: Always check if fields exist before accessing
+3. **tool_input varies by tool**: The structure depends on which tool is being used
+4. **JSON parsing may fail**: Always wrap JSON.parse in try-catch
+
+### Example: Handling Missing Data
+
+```bash
+#!/bin/bash
+# Safe hook that handles missing data
+
+input=$(cat)
+
+# Try to parse JSON, fallback to empty object
+json=$(echo "$input" | jq '.' 2>/dev/null || echo '{}')
+
+# Extract fields with defaults
+event=$(echo "$json" | jq -r '.hook_event_name // "unknown"')
+session=$(echo "$json" | jq -r '.session_id // "no-session"')
+tool=$(echo "$json" | jq -r '.tool_name // "no-tool"')
+
+# Process based on event type
+case "$event" in
+  "PostToolUse")
+    echo "Tool $tool was used in session $session"
+    ;;
+  "SessionStart")
+    echo "Session $session started"
+    ;;
+  *)
+    echo "Event $event occurred"
+    ;;
+esac
+
+exit 0
+```
 
 ## Hook Configuration Format
 
