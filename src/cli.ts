@@ -24,9 +24,11 @@ async function handleHookEvent(eventType: string) {
   // Set hook mode to suppress INFO/DEBUG logging to console
   process.env.CLAUDE_LSP_HOOK_MODE = 'true';
   
-  // Determine exit code based on hook type
-  // PostToolUse requires exit code 2 for Claude Code
-  const successExitCode = eventType === 'PostToolUse' ? 2 : 0;
+  // Exit codes based on Claude source code analysis:
+  // 0 = success
+  // 1 = error  
+  // 2 = blocking error (blocks tool execution)
+  const successExitCode = 0;
   const errorExitCode = 1;
   
   // Add timeout protection (30 seconds max)
@@ -50,7 +52,7 @@ async function handleHookEvent(eventType: string) {
     // Clear timeout on success
     clearTimeout(timeoutId);
     
-    // Exit with appropriate code for hook type
+    // Exit with success code 0
     process.exit(successExitCode);
     
   } catch (error) {
