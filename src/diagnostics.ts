@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
-import { appendFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { Database } from "bun:sqlite";
 import { ProjectConfigDetector } from "./project-config-detector";
 import { mkdirSync, existsSync } from "fs";
+import ignore from "ignore";
+import { join } from "path";
 import { 
   secureHash, 
   safeKillProcess, 
@@ -357,6 +359,68 @@ async function logForReset(message: string): Promise<void> {
   }
 }
 
+// Load gitignore patterns
+async function loadGitignore(projectRoot: string): Promise<ReturnType<typeof ignore> | null> {
+  try {
+    const gitignorePath = join(projectRoot, '.gitignore');
+    if (!existsSync(gitignorePath)) {
+      // Create default ignore patterns even without .gitignore
+      const ig = ignore();
+      ig.add('node_modules');
+      ig.add('.git');
+      ig.add('dist');
+      ig.add('build');
+      ig.add('coverage');
+      ig.add('.next');
+      ig.add('.nuxt');
+      ig.add('.svelte-kit');
+      ig.add('*.log');
+      ig.add('.DS_Store');
+      return ig;
+    }
+    
+    const content = await readFile(gitignorePath, 'utf-8');
+    const ig = ignore();
+    ig.add(content);
+    
+    // Always add these patterns
+    ig.add('node_modules');
+    ig.add('.git');
+    
+    return ig;
+  } catch (error) {
+    await logger.warn('Failed to load .gitignore', { error });
+    // Return default patterns on error
+    const ig = ignore();
+    ig.add('node_modules');
+    ig.add('.git');
+    ig.add('dist');
+    ig.add('build');
+    return ig;
+  }
+}
+
+// Filter out ignored files from diagnostics
+async function filterDiagnostics(diagnostics: any[], projectRoot: string): Promise<any[]> {
+  const ig = await loadGitignore(projectRoot);
+  
+  return diagnostics.filter((d: any) => {
+    if (!d.file) return true;
+    
+    // Convert absolute path to relative for ignore matching
+    const relativePath = d.file.startsWith(projectRoot) 
+      ? d.file.slice(projectRoot.length + 1)
+      : d.file;
+    
+    // Check if file should be ignored
+    if (ig && ig.ignores(relativePath)) {
+      return false;
+    }
+    
+    return true;
+  });
+}
+
 // Main diagnostic function
 export async function runDiagnostics(
   projectRoot: string,
@@ -458,11 +522,8 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         
           // Output diagnostics as system message
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-            // Filter out node_modules diagnostics
-            const filteredDiagnostics = diagnostics.diagnostics.filter((d: any) => 
-              !d.file.includes('node_modules/') && 
-              !d.file.includes('node_modules\\')
-            );
+            // Filter out ignored files (node_modules, .git, etc.)
+            const filteredDiagnostics = await filterDiagnostics(diagnostics.diagnostics, projectRoot);
             
             if (filteredDiagnostics.length === 0) {
               // All diagnostics were in node_modules, ignore
@@ -523,12 +584,16 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         if (projectRoot) {
           const diagnostics = await runDiagnostics(projectRoot);
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-            console.error(`[[system-message]]: ${JSON.stringify({
-              status: 'diagnostics_report',
-              result: 'initial_errors_found',
-              diagnostics: diagnostics.diagnostics,
-              summary: `Found ${diagnostics.diagnostics.length} issues in project on startup`
-            })}`);
+            // Filter out ignored files for session start too
+            const filteredDiagnostics = await filterDiagnostics(diagnostics.diagnostics, projectRoot);
+            if (filteredDiagnostics.length > 0) {
+              console.error(`[[system-message]]: ${JSON.stringify({
+                status: 'diagnostics_report',
+                result: 'initial_errors_found',
+                diagnostics: filteredDiagnostics,
+                summary: `Found ${filteredDiagnostics.length} issues in project on startup`
+              })}`);  
+            }
           }
         }
       }
