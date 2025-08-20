@@ -97,10 +97,17 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: process.argv[0], // Use the current executable path
-    args: ["--lang-server", "typescript", "--stdio"],
-    installCommand: "Bundled - no installation needed",
-    installCheck: "BUNDLED",
+    // Use bundled approach when running as compiled binary, fallback to node_modules in dev
+    command: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
+      ? process.argv[0] 
+      : "npx",
+    args: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules')
+      ? ["--lang-server", "typescript", "--stdio"]
+      : ["-y", "typescript-language-server@4.4.0", "--stdio"],
+    installCommand: "Bundled in binary, uses npx in development",
+    installCheck: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
+      ? "BUNDLED" 
+      : "SKIP",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -186,10 +193,17 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: process.argv[0], // Use the current executable path
-    args: ["--lang-server", "php", "--stdio"],
-    installCommand: "Bundled - no installation needed",
-    installCheck: "BUNDLED",
+    // Use bundled approach when running as compiled binary, fallback to npx in dev
+    command: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
+      ? process.argv[0] 
+      : "npx",
+    args: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules')
+      ? ["--lang-server", "php", "--stdio"]
+      : ["-y", "intelephense@1.14.4", "--stdio"],
+    installCommand: "Bundled in binary, uses npx in development",
+    installCheck: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
+      ? "BUNDLED" 
+      : "SKIP",
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },
@@ -248,9 +262,9 @@ export function isLanguageServerInstalled(language: string): boolean {
   const config = languageServers[language];
   if (!config) return false;
   
-  // Special handling for bundled servers (self-contained)
-  if (config.installCheck === 'BUNDLED') {
-    // These are bundled in the binary - always available
+  // Special handling for bundled servers (self-contained) or auto-download
+  if (config.installCheck === 'BUNDLED' || config.installCheck === 'SKIP') {
+    // These are bundled in the binary or auto-download - always available
     return true;
   }
   
@@ -277,9 +291,13 @@ export function getInstallInstructions(language: string): string {
   const config = languageServers[language];
   if (!config) return "";
   
-  // Special handling for bundled servers  
+  // Special handling for bundled servers or auto-download
   if (config.installCheck === 'BUNDLED') {
     return `✅ ${config.name} Language Server is bundled - no installation needed`;
+  }
+  
+  if (config.installCheck === 'SKIP') {
+    return `✅ ${config.name} Language Server will be automatically downloaded via npx`;
   }
   
   // Check for manual installation requirement

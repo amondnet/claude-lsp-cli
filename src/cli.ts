@@ -19,21 +19,32 @@ async function runAsLanguageServer(language: string) {
   // This binary is now acting as a language server
   switch (language) {
     case 'typescript':
-      // Import and run the bundled TypeScript language server
-      const { start } = await import('typescript-language-server/lib/cli.mjs');
-      // Override process.argv to make it think it was called directly
-      process.argv = ['node', 'typescript-language-server', '--stdio'];
-      await start();
+      try {
+        // Try to import and run the bundled TypeScript language server
+        const tsls = await import('typescript-language-server/lib/cli.mjs');
+        // Set up proper argv for the language server
+        process.argv = ['node', 'typescript-language-server', '--stdio'];
+        await tsls.start();
+      } catch (error) {
+        console.error('Failed to start TypeScript language server:', error);
+        // Fallback: Let the parent know we can't start
+        process.exit(1);
+      }
       break;
       
     case 'php':
-      // Import and run the bundled PHP language server  
-      const intelephense = await import('intelephense');
-      // Set up stdio communication
-      process.stdin.setEncoding('utf8');
-      process.stdout.setEncoding('utf8');
-      // Start the language server
-      intelephense.default.start();
+      try {
+        // Import and run the bundled PHP language server  
+        const intelephense = await import('intelephense');
+        // Set up stdio communication
+        process.stdin.setEncoding('utf8');
+        process.stdout.setEncoding('utf8');
+        // Start the language server
+        await intelephense.default.start();
+      } catch (error) {
+        console.error('Failed to start PHP language server:', error);
+        process.exit(1);
+      }
       break;
       
     default:

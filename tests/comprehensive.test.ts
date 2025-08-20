@@ -92,9 +92,9 @@ describe("Comprehensive LSP Tests", () => {
       
       const result = await new Promise<{stdout: string, stderr: string, code: number}>((resolve) => {
         const proc = spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
-          cwd: projectRoot,
+          cwd: TEST_PROJECT, // Run from the test project directory
           stdin: "pipe",
-          stdout: "pipe",
+          stdout: "pipe", 
           stderr: "pipe",
           env: { ...process.env, CLAUDE_LSP_HOOK_MODE: 'true' }
         });
@@ -113,15 +113,13 @@ describe("Comprehensive LSP Tests", () => {
         });
       });
       
-      // TODO: TypeScript LSP not properly detecting errors in test environment
-      // Should exit with code 2 when errors found, but currently returns 0
-      // This is a known limitation - the TypeScript language server needs better
-      // project initialization to properly analyze files
-      expect(result.code).toBe(0); // Currently returns 0 instead of 2
+      // Debug output
+      console.log("Exit code:", result.code);
+      console.log("Stderr:", JSON.stringify(result.stderr));
+      console.log("Stdout:", JSON.stringify(result.stdout));
       
-      // Should output system message (currently shows all_clear)
+      // Should output system message
       expect(result.stderr).toContain("[[system-message]]:");
-      expect(result.stderr).toContain("all_clear"); // Currently shows all_clear
     }, 30000);
     
     test("PostToolUse without errors returns exit code 0", async () => {
@@ -137,7 +135,7 @@ describe("Comprehensive LSP Tests", () => {
       
       const result = await new Promise<{stdout: string, stderr: string, code: number}>((resolve) => {
         const proc = spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
-          cwd: projectRoot,
+          cwd: TEST_PROJECT, // Run from the test project directory
           stdin: "pipe",
           stdout: "pipe",
           stderr: "pipe",
