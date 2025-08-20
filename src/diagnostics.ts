@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { relative } from "path";
 import { appendFile } from "node:fs/promises";
 import { Database } from "bun:sqlite";
 import { ProjectConfigDetector } from "./project-config-detector";
@@ -8,7 +7,6 @@ import {
   secureHash, 
   safeKillProcess, 
   safeDeleteFile,
-  safeExecute,
   cleanupManager
 } from "./utils/security";
 import { logger } from "./utils/logger";
@@ -460,26 +458,47 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         
           // Output diagnostics as system message
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-            console.error(`[[system-message]]: ${JSON.stringify({
-              status: 'diagnostics_report',
-              result: 'errors_found',
-              diagnostics: diagnostics.diagnostics,
-              reference: {
-                type: 'previous_code_edit',
-                turn: 'claude_-1'
+            // Count issues by severity
+            const errors = diagnostics.diagnostics.filter((d: any) => d.severity === 'error').length;
+            const warnings = diagnostics.diagnostics.filter((d: any) => d.severity === 'warning').length;
+            const hints = diagnostics.diagnostics.filter((d: any) => d.severity === 'hint' || d.severity === 'info').length;
+            
+            // Only report errors and warnings, not hints (too noisy)
+            if (errors > 0 || warnings > 0) {
+              // Show compact summary for users
+              if (errors > 0) {
+                process.stderr.write(`❌ ${errors} error${errors > 1 ? 's' : ''} found\n`);
+              } else if (warnings > 0) {
+                process.stderr.write(`⚠️  ${warnings} warning${warnings > 1 ? 's' : ''} found\n`);
               }
-            })}`);
-            return true; // Found errors - will exit with code 2 to show feedback
+              
+              // Full diagnostic data for Claude (only for errors/warnings)
+              console.error(`[[system-message]]: ${JSON.stringify({
+                status: 'diagnostics_report',
+                result: 'errors_found',
+                diagnostics: diagnostics.diagnostics.filter((d: any) => d.severity === 'error' || d.severity === 'warning'),
+                reference: {
+                  type: 'previous_code_edit',
+                  turn: 'claude_-1'
+                }
+              })}`)
+              return true; // Found errors - will exit with code 2 to show feedback
+            } else {
+              // Only hints - don't report to avoid noise
+              return false;
+            }
           } else {
             await logger.info("No diagnostic issues found - all clear");
-            console.error(`[[system-message]]: ${JSON.stringify({
-              status: 'diagnostics_report',
-              result: 'all_clear',
-              reference: {
-                type: 'previous_code_edit',
-                turn: 'claude_-1'
-              }
-            })}`);
+            if (process.env.CLAUDE_LSP_QUIET !== 'true') {
+              console.error(`[[system-message]]: ${JSON.stringify({
+                status: 'diagnostics_report',
+                result: 'all_clear',
+                reference: {
+                  type: 'previous_code_edit',
+                  turn: 'claude_-1'
+                }
+              })}`);
+            }
             return false; // No errors - exit normally
           }
         }
