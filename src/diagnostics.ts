@@ -395,6 +395,34 @@ export async function handleHookEvent(eventType: string): Promise<void> {
     const input = await Bun.stdin.text();
     const hookData = JSON.parse(input);
     
+    // Deduplication: Generate unique ID for this hook event to prevent duplicate processing
+    const hookId = `${eventType}-${hookData.sessionId || 'unknown'}-${Date.now()}`;
+    const dedupFile = `/tmp/claude-lsp-hook-${secureHash(hookId).substring(0, 8)}.lock`;
+    
+    // Check if this exact hook was recently processed (within 2 seconds)
+    try {
+      const lockStat = await Bun.file(dedupFile).exists();
+      if (lockStat) {
+        const lockTime = await Bun.file(dedupFile).text();
+        const lockTimestamp = parseInt(lockTime);
+        if (Date.now() - lockTimestamp < 2000) {
+          // Skip duplicate hook event
+          await logger.debug('Skipping duplicate hook event', { eventType, hookId });
+          return;
+        }
+      }
+    } catch (error) {
+      // Lock file doesn't exist or can't be read, continue
+    }
+    
+    // Create lock file to prevent duplicates
+    await Bun.write(dedupFile, Date.now().toString());
+    
+    // Clean up lock file after 2 seconds
+    setTimeout(async () => {
+      await safeDeleteFile(dedupFile);
+    }, 2000);
+    
     // Silent operation - only output when there are actual diagnostics to report
     
     // Process based on event type

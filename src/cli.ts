@@ -24,7 +24,22 @@ async function handleHookEvent(eventType: string) {
   // Set hook mode to suppress INFO/DEBUG logging to console
   process.env.CLAUDE_LSP_HOOK_MODE = 'true';
   
-  // Handle diagnostics directly in the CLI
+  // Determine exit code based on hook type
+  // PostToolUse requires exit code 2 for Claude Code
+  const successExitCode = eventType === 'PostToolUse' ? 2 : 0;
+  const errorExitCode = 1;
+  
+  // Add timeout protection (30 seconds max)
+  const timeoutId = setTimeout(() => {
+    console.error(`[[system-message]]: ${JSON.stringify({
+      status: "diagnostics_report",
+      result: "timeout_error", 
+      error: `Hook timed out after 30 seconds for event: ${eventType}`,
+      reference: { type: "hook_timeout", event: eventType }
+    })}`);
+    process.exit(errorExitCode);
+  }, 30000);
+  
   try {
     // Import and run diagnostics logic directly
     const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
@@ -32,14 +47,26 @@ async function handleHookEvent(eventType: string) {
     // Run diagnostics with the event type
     await handleDiagnostics(eventType);
     
+    // Clear timeout on success
+    clearTimeout(timeoutId);
+    
+    // Exit with appropriate code for hook type
+    process.exit(successExitCode);
+    
   } catch (error) {
+    clearTimeout(timeoutId);
     await logger.error('Hook handler error', { eventType, error });
-    console.error(JSON.stringify({
-      error: "HOOK_HANDLER_ERROR", 
+    
+    // Format error as system message for Claude
+    console.error(`[[system-message]]: ${JSON.stringify({
+      status: "diagnostics_report",
+      result: "hook_error",
+      error: error instanceof Error ? error.message : "Unknown error",
       eventType,
-      message: error instanceof Error ? error.message : "Unknown error"
-    }));
-    process.exit(1);
+      reference: { type: "hook_error", event: eventType }
+    })}`);
+    
+    process.exit(errorExitCode);
   }
 }
 
