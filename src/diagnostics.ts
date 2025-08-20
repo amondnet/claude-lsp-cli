@@ -455,7 +455,9 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
       const projectRoot = await findProjectRoot(workingDir);
       if (projectRoot) {
         const diagnostics = await runDiagnostics(projectRoot, undefined, hookData?.session_id || hookData?.sessionId);
-          
+        
+        await logger.debug("Diagnostics response received", diagnostics);
+        
           // Output diagnostics as system message
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
             console.error(`[[system-message]]: ${JSON.stringify({
@@ -469,6 +471,7 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             })}`);
             return true; // Found errors - will exit with code 2 to show feedback
           } else {
+            await logger.info("No diagnostic issues found - all clear");
             console.error(`[[system-message]]: ${JSON.stringify({
               status: 'diagnostics_report',
               result: 'all_clear',

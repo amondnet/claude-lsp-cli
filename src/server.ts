@@ -413,6 +413,9 @@ class LSPHttpServer {
   }
 }
 
+// Export for testing
+export { LSPHttpServer };
+
 // Main execution
 if (import.meta.main) {
   const projectRoot = process.argv[2] || process.cwd();
