@@ -206,9 +206,9 @@ class LSPHttpServer {
     return extensions.some(ext => filename.endsWith(ext));
   }
 
-  private async openDocument(filePath: string) {
+  private async openDocument(filePath: string, waitForDiagnostics: boolean = false) {
     if (!this.openDocuments.has(filePath)) {
-      await this.client.openDocument(filePath);
+      await this.client.openDocument(filePath, waitForDiagnostics);
       this.openDocuments.add(filePath);
     }
   }
@@ -340,8 +340,8 @@ class LSPHttpServer {
 
   private async handleFileDiagnostics(fullPath: string, headers: any): Promise<Response> {
     try {
-      // Open document if not already open
-      await this.openDocument(fullPath);
+      // Open document and wait for diagnostics to be published
+      await this.openDocument(fullPath, true);
       
       // Get diagnostics
       const diagnostics = this.client.getDiagnostics(fullPath);

@@ -37,6 +37,7 @@ export class LSPClient {
   private diagnostics: Map<string, Diagnostic[]> = new Map();
   private documentVersions: Map<string, number> = new Map();
   private fileLanguageMap: Map<string, string> = new Map();
+  private receivedDiagnostics: Set<string> = new Set(); // Track files that have received diagnostics
 
   /**
    * Safely install a language server using spawn instead of execSync
@@ -295,7 +296,7 @@ export class LSPClient {
     }
   }
 
-  async openDocument(filePath: string): Promise<void> {
+  async openDocument(filePath: string, waitForDiagnostics: boolean = false): Promise<void> {
     const extension = extname(filePath);
     
     // Find which language server should handle this file
@@ -347,6 +348,24 @@ export class LSPClient {
     });
 
     console.log(`📄 Opened ${filePath} with ${languageServers[targetLanguage].name} server`);
+    
+    // If requested, wait for diagnostics to be published
+    if (waitForDiagnostics) {
+      const resolvedPath = resolve(filePath);
+      const maxWait = 50; // 5 seconds max
+      let attempts = 0;
+      
+      while (attempts < maxWait && !this.receivedDiagnostics.has(resolvedPath)) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+      
+      if (this.receivedDiagnostics.has(resolvedPath)) {
+        console.log(`✅ Received diagnostics for ${filePath}`);
+      } else {
+        console.log(`⚠️ Timeout waiting for diagnostics for ${filePath}`);
+      }
+    }
   }
 
   async updateDocument(filePath: string, newContent: string): Promise<void> {
@@ -401,6 +420,9 @@ export class LSPClient {
     const filePath = decodeURIComponent(uri.replace(/^file:\/\//, ""));  // Decode URL encoding
     const resolvedPath = resolve(filePath);  // Normalize the path
     console.log(`[${languageServers[language].name}] Diagnostics for ${filePath}: ${diagnostics.length} issues`);
+    
+    // Mark that we've received diagnostics for this file
+    this.receivedDiagnostics.add(resolvedPath);
     
     // For Scala/Metals, only update if we're getting real diagnostics or if we haven't received any yet
     // This prevents Metals from clearing valid diagnostics with empty updates
@@ -518,6 +540,11 @@ export class LSPClient {
       allDiagnostics.push(...diags);
     }
     return allDiagnostics;
+  }
+  
+  hasReceivedDiagnostics(filePath: string): boolean {
+    const resolvedPath = resolve(filePath);
+    return this.receivedDiagnostics.has(resolvedPath);
   }
 
   getAllDiagnostics(): Map<string, Diagnostic[]> {
