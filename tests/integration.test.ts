@@ -27,6 +27,13 @@ describe("LSP Integration Tests", () => {
       }
     }, null, 2));
     
+    // Install TypeScript
+    try {
+      execAsync("bun install", { cwd: TEST_PROJECT }).catch(() => {});
+    } catch (e) {
+      console.log("TypeScript install:", e);
+    }
+    
     writeFileSync(join(TEST_PROJECT, "tsconfig.json"), JSON.stringify({
       compilerOptions: {
         target: "ES2022",
