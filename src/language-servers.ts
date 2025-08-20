@@ -97,10 +97,10 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: "bunx",
-    args: ["--bun", "typescript-language-server@4.4.0", "--stdio"],
-    installCommand: "Automatic - uses bunx cache",
-    installCheck: "SKIP", // bunx handles this
+    command: "npx",
+    args: ["-y", "typescript-language-server@4.4.0", "--stdio"],
+    installCommand: "Automatic - uses npx cache",
+    installCheck: "SKIP", // npx handles this
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -186,10 +186,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: "bunx",
-    args: ["--bun", "intelephense@1.14.4", "--stdio"],
-    installCommand: "Automatic - uses bunx cache",
-    installCheck: "SKIP", // bunx handles this
+    command: "npx",
+    args: ["-y", "intelephense@1.14.4", "--stdio"],
+    installCommand: "Automatic - uses npx cache",
+    installCheck: "SKIP", // npx handles this
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },
@@ -278,9 +278,9 @@ export function getInstallInstructions(language: string): string {
   const config = languageServers[language];
   if (!config) return "";
   
-  // Special handling for bunx-based servers
+  // Special handling for npx-based servers
   if (config.installCheck === 'SKIP') {
-    return `✅ ${config.name} Language Server will be automatically downloaded via bunx (cached globally)`;
+    return `✅ ${config.name} Language Server will be automatically downloaded via npx (cached globally)`;
   }
   
   // Check for manual installation requirement

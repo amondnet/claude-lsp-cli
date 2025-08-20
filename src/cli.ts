@@ -141,6 +141,9 @@ Usage:
   claude-lsp-cli start <project>             Start LSP server for project
   claude-lsp-cli stop <project>              Stop LSP server for project
   claude-lsp-cli kill-all                    Kill all running LSP servers
+  claude-lsp-cli install <language>          Install language server
+  claude-lsp-cli install-all                 Install all supported language servers
+  claude-lsp-cli list-servers                List available language servers
   claude-lsp-cli help                        Show this help message
 
 Hook Event Types:
@@ -309,6 +312,104 @@ async function killAllServers() {
   }
 }
 
+async function installLanguageServer(language: string) {
+  const { languageServers } = await import("./language-servers");
+  const { spawn } = await import("child_process");
+  
+  const config = languageServers[language];
+  if (!config) {
+    console.error(`Unknown language: ${language}`);
+    console.log("Use 'claude-lsp-cli list-servers' to see available languages");
+    return;
+  }
+  
+  console.log(`Installing ${config.name} Language Server...`);
+  
+  // Handle different installation methods
+  if (config.installCheck === 'SKIP') {
+    console.log("✅ This language server uses auto-download via bunx/npx - no installation needed");
+    return;
+  }
+  
+  if (config.installCommand === null && config.manualInstallUrl) {
+    console.log(`❌ ${config.name} requires manual installation for security.`);
+    console.log(`Please install from: ${config.manualInstallUrl}`);
+    return;
+  }
+  
+  if (!config.installCommand) {
+    console.log(`❌ No installation method available for ${config.name}`);
+    return;
+  }
+  
+  // Parse and execute install command
+  console.log(`Running: ${config.installCommand}`);
+  const parts = config.installCommand.split(' ');
+  const [cmd, ...args] = parts;
+  
+  const proc = spawn(cmd, args, {
+    stdio: 'inherit',
+    shell: false
+  });
+  
+  proc.on('exit', (code) => {
+    if (code === 0) {
+      console.log(`✅ ${config.name} Language Server installed successfully!`);
+    } else {
+      console.error(`❌ Installation failed with exit code ${code}`);
+    }
+  });
+}
+
+async function installAllLanguageServers() {
+  const { languageServers } = await import("./language-servers");
+  
+  const installable = Object.entries(languageServers)
+    .filter(([_, config]) => 
+      config.installCommand && 
+      config.installCommand !== "Automatic - uses bunx cache" &&
+      config.installCheck !== 'SKIP'
+    );
+  
+  console.log(`Installing ${installable.length} language servers...`);
+  
+  for (const [language, config] of installable) {
+    console.log(`\nInstalling ${config.name}...`);
+    await installLanguageServer(language);
+  }
+  
+  console.log("\n✅ Installation complete!");
+}
+
+async function listLanguageServers() {
+  const { languageServers, isLanguageServerInstalled } = await import("./language-servers");
+  
+  console.log("\nAvailable Language Servers:");
+  console.log("============================\n");
+  
+  const entries = Object.entries(languageServers).sort((a, b) => 
+    a[1].name.localeCompare(b[1].name)
+  );
+  
+  for (const [language, config] of entries) {
+    const installed = isLanguageServerInstalled(language);
+    const status = installed ? "✅ Installed" : "❌ Not installed";
+    const autoDownload = config.installCheck === 'SKIP' ? " (auto-download)" : "";
+    
+    console.log(`${config.name.padEnd(25)} [${language}]`);
+    console.log(`  Status: ${status}${autoDownload}`);
+    console.log(`  Extensions: ${config.extensions.join(', ')}`);
+    
+    if (!installed && config.installCommand) {
+      console.log(`  Install: claude-lsp-cli install ${language}`);
+    }
+    console.log();
+  }
+  
+  console.log("To install a specific server: claude-lsp-cli install <language>");
+  console.log("To install all servers: claude-lsp-cli install-all");
+}
+
 // Main execution
 if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
@@ -325,6 +426,12 @@ if (command === "hook" && eventType) {
   await stopServer(args[1]);
 } else if (command === "kill-all") {
   await killAllServers();
+} else if (command === "install" && args[1]) {
+  await installLanguageServer(args[1]);
+} else if (command === "install-all") {
+  await installAllLanguageServers();
+} else if (command === "list-servers") {
+  await listLanguageServers();
 } else if (command === "help" || command === "--help" || command === "-h") {
   showHelp();
 } else {
