@@ -98,14 +98,13 @@ export class LSPClient {
     if (!isLanguageServerInstalled(language)) {
       console.error(getInstallInstructions(language));
       
-      // Skip auto-install for bundled servers (they should already be available)
-      if (config.installCheck === 'BUNDLED') {
-        console.error(`ERROR: Bundled ${config.name} server not found in node_modules`);
-        return;
+      // Skip auto-install for bunx-based servers (they auto-download)
+      if (config.installCheck === 'SKIP') {
+        // bunx will handle it, just continue
+        await logger.info(`${config.name} will be downloaded automatically via bunx...`);
       }
-      
-      // For non-global packages, try auto-install
-      if (!config.requiresGlobal && config.installCommand && config.installCommand !== "Already bundled - no installation needed") {
+      // For non-global packages, try auto-install (but NOT for our bunx servers)
+      else if (!config.requiresGlobal && config.installCommand && !config.installCommand.includes("bunx")) {
         await logger.info("Attempting automatic installation...");
         try {
           // Safe installation using spawn instead of execSync

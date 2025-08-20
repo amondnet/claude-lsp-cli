@@ -8,6 +8,7 @@ import { spawn, SpawnOptions } from "child_process";
 import { createHash, randomBytes } from "crypto";
 import { unlink, access, constants } from "fs/promises";
 import { existsSync } from "fs";
+import { logger } from "./logger";
 
 /**
  * Validates that a file path stays within the specified root directory
@@ -241,7 +242,7 @@ export class ProcessCleanupManager {
         await logger.debug(`Cleaning up process ${info.name} (PID: ${pid})`);
         await safeKillProcess(pid);
       } catch (error) {
-        console.error(`Failed to cleanup process ${info.name}:`, error);
+        await logger.error(`Failed to cleanup process ${info.name}:`, error);
       }
     }
     

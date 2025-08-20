@@ -97,10 +97,10 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: "typescript-language-server",
-    args: ["--stdio"],
-    installCommand: "Already bundled - no installation needed",
-    installCheck: "BUNDLED",
+    command: "bunx",
+    args: ["--bun", "typescript-language-server@4.4.0", "--stdio"],
+    installCommand: "Automatic - uses bunx cache",
+    installCheck: "SKIP", // bunx handles this
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -186,10 +186,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: "intelephense",
-    args: ["--stdio"],
-    installCommand: "Already bundled - no installation needed",
-    installCheck: "BUNDLED",
+    command: "bunx",
+    args: ["--bun", "intelephense@1.14.4", "--stdio"],
+    installCommand: "Automatic - uses bunx cache",
+    installCheck: "SKIP", // bunx handles this
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },
@@ -248,18 +248,11 @@ export function isLanguageServerInstalled(language: string): boolean {
   const config = languageServers[language];
   if (!config) return false;
   
-  // Special handling for bundled servers
-  if (config.installCheck === 'BUNDLED') {
-    // These are included in our package.json dependencies
-    // Check if we can find them in our own node_modules
-    const moduleDir = join(import.meta.dir, '..', 'node_modules');
-    const binPath = join(moduleDir, '.bin', config.command);
-    if (existsSync(binPath)) {
-      // Update command to use full path
-      languageServers[language].command = binPath;
-      return true;
-    }
-    return false;
+  // Special handling for bunx-based servers
+  if (config.installCheck === 'SKIP') {
+    // bunx will handle downloading/caching automatically
+    // No need to check installation
+    return true;
   }
   
   try {
@@ -285,9 +278,9 @@ export function getInstallInstructions(language: string): string {
   const config = languageServers[language];
   if (!config) return "";
   
-  // Special handling for bundled servers
-  if (config.installCheck === 'BUNDLED') {
-    return `✅ ${config.name} Language Server is bundled with claude-code-lsp - no installation needed`;
+  // Special handling for bunx-based servers
+  if (config.installCheck === 'SKIP') {
+    return `✅ ${config.name} Language Server will be automatically downloaded via bunx (cached globally)`;
   }
   
   // Check for manual installation requirement
