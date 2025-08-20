@@ -14,9 +14,12 @@ var keA = [ "PreToolUse", "PostToolUse", "Notification", "UserPromptSubmit", "Se
 Found at lines 428810-428850 in the source code:
 
 ### Universal Exit Code Meanings:
-- **Exit code 0**: Hook succeeded (normal success) - no message shown to user
-- **Exit code 2**: Special "blocking" status - behavior depends on hook type (see below)
-- **Exit code 1 or other non-zero**: Non-blocking error - shows warning message but Claude continues
+- **Exit code 0**: Hook succeeded (normal success) - no errors found, no message shown to user
+- **Exit code 2**: Special status - behavior depends on hook type:
+  - **PostToolUse**: Shows diagnostic feedback to user (perfect for displaying code errors!)
+  - **PreToolUse**: Blocks tool execution 
+  - **UserPromptSubmit**: Blocks prompt submission
+- **Exit code 1 or other non-zero**: Non-blocking error - hook itself failed, shows warning message but Claude continues
 
 ### Why You See "failed with non-blocking status code 1"
 This message appears when a hook returns exit code 1, which typically means:
@@ -148,6 +151,15 @@ Example to trigger immediate response:
 3. **JSON output is optional**: Hooks can return plain text (stdout) or JSON. If JSON parsing fails, stdout is treated as plain text.
 
 4. **The user's assumption was incorrect**: PostToolUse with exit code 2 does NOT stop Claude. It only shows feedback.
+
+## LSP Diagnostics Implementation
+
+Our LSP diagnostics hook uses exit codes strategically:
+- **Exit 0**: No errors found in code
+- **Exit 1**: Hook failed to run (timeout, crash, parse error)
+- **Exit 2**: Errors found in code (for PostToolUse) - shows diagnostic feedback to user
+
+This means when PostToolUse finds TypeScript/ESLint errors, it exits with code 2 to ensure the diagnostic report is visible to the user without blocking Claude's operation.
 
 ## Hook Data Structure (stdin JSON)
 
