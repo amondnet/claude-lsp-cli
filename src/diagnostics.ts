@@ -390,7 +390,8 @@ export async function runDiagnostics(
 }
 
 // Hook handler for Claude Code integration
-export async function handleHookEvent(eventType: string): Promise<void> {
+// Returns true if errors were found, false otherwise
+export async function handleHookEvent(eventType: string): Promise<boolean> {
   try {
     const input = await Bun.stdin.text();
     
@@ -398,7 +399,7 @@ export async function handleHookEvent(eventType: string): Promise<void> {
     if (!input || input.trim() === '') {
       await logger.debug('Hook received empty input', { eventType });
       // Exit successfully - no data is not an error for some hook types
-      return;
+      return false;
     }
     
     let hookData: any;
@@ -411,7 +412,7 @@ export async function handleHookEvent(eventType: string): Promise<void> {
         inputPreview: input.substring(0, 100) 
       });
       // Exit successfully - malformed data shouldn't block Claude
-      return;
+      return false;
     }
     
     // Deduplication: Generate unique ID for this hook event to prevent duplicate processing
@@ -427,7 +428,7 @@ export async function handleHookEvent(eventType: string): Promise<void> {
         if (Date.now() - lockTimestamp < 2000) {
           // Skip duplicate hook event
           await logger.debug('Skipping duplicate hook event', { eventType, hookId });
-          return;
+          return false;
         }
       }
     } catch (error) {
@@ -466,6 +467,7 @@ export async function handleHookEvent(eventType: string): Promise<void> {
                 turn: 'claude_-1'
               }
             })}`);
+            return true; // Found errors - will exit with code 2 to show feedback
           } else {
             console.error(`[[system-message]]: ${JSON.stringify({
               status: 'diagnostics_report',
@@ -475,8 +477,10 @@ export async function handleHookEvent(eventType: string): Promise<void> {
                 turn: 'claude_-1'
               }
             })}`);
+            return false; // No errors - exit normally
           }
         }
+        return false; // No project root found
     } else if (eventType === 'SessionStart') {
       // Check initial project state only if it's a code project
       // Handle SessionStart - use cwd field from base hook data
@@ -525,8 +529,12 @@ export async function handleHookEvent(eventType: string): Promise<void> {
       }
     }
     
+    // Return false for all other event types (no errors to report)
+    return false;
+    
   } catch (error) {
     await logger.error('Hook event processing failed', error);
+    return false; // Error in hook itself, not in code
   }
 }
 
@@ -555,7 +563,13 @@ if (import.meta.main) {
   const eventType = process.argv[2];
   
   if (eventType) {
-    await handleHookEvent(eventType);
+    const hasErrors = await handleHookEvent(eventType);
+    // Exit with appropriate code based on errors found
+    if (eventType === 'PostToolUse' && hasErrors) {
+      process.exit(2); // Show feedback
+    } else {
+      process.exit(0); // Success
+    }
   } else {
     await logger.error('No event type provided');
     process.exit(1);

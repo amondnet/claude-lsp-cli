@@ -25,11 +25,15 @@ async function handleHookEvent(eventType: string) {
   process.env.CLAUDE_LSP_HOOK_MODE = 'true';
   
   // Exit codes based on Claude source code analysis:
-  // 0 = success
-  // 1 = error  
-  // 2 = blocking error (blocks tool execution)
+  // 0 = success (no issues found)
+  // 1 = error (hook failed to run properly)
+  // 2 = blocking error (different behavior per hook type):
+  //     - PreToolUse: blocks tool execution
+  //     - PostToolUse: shows feedback but continues (perfect for diagnostics!)
+  //     - UserPromptSubmit: blocks prompt submission
   const successExitCode = 0;
   const errorExitCode = 1;
+  const feedbackExitCode = 2; // For PostToolUse: shows diagnostic feedback
   
   // Add timeout protection (30 seconds max)
   const timeoutId = setTimeout(() => {
@@ -47,13 +51,18 @@ async function handleHookEvent(eventType: string) {
     const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
     
     // Run diagnostics with the event type
-    await handleDiagnostics(eventType);
+    const hasErrors = await handleDiagnostics(eventType);
     
     // Clear timeout on success
     clearTimeout(timeoutId);
     
-    // Exit with success code 0
-    process.exit(successExitCode);
+    // For PostToolUse with errors, exit 2 to show feedback
+    // For other hooks or no errors, exit 0
+    if (eventType === 'PostToolUse' && hasErrors) {
+      process.exit(feedbackExitCode); // Exit 2 shows feedback in Claude
+    } else {
+      process.exit(successExitCode);
+    }
     
   } catch (error) {
     clearTimeout(timeoutId);
