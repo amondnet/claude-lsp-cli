@@ -36,9 +36,6 @@
     "url": "https://github.com/teamchong/claude-code-lsp/issues"
   },
   "homepage": "https://github.com/teamchong/claude-code-lsp#readme",
-  "bin": {
-    "claude-lsp": "./src/cli.ts"
-  },
   "scripts": {
     "start": "bun run src/server.ts",
     "dev": "bun --watch src/server.ts",

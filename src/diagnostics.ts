@@ -2,7 +2,7 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { Database } from "bun:sqlite";
 import { ProjectConfigDetector } from "./project-config-detector";
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, readFileSync } from "fs";
 import ignore from "ignore";
 import { join } from "path";
 import { 
@@ -12,71 +12,24 @@ import {
   cleanupManager
 } from "./utils/security";
 import { logger } from "./utils/logger";
+import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
 
 const logFileForRest = "/tmp/lsp-session-reset.log";
 
-// Store last sent diagnostics hash per project with LRU eviction
-class DiagnosticsCache {
-  private cache = new Map<string, { hash: string; timestamp: number }>();
-  private maxSize = 100; // Max projects to track
-  private ttl = 3600000; // 1 hour TTL
-  
-  set(projectHash: string, diagnosticsHash: string): void {
-    // Clean old entries if we're at capacity
-    if (this.cache.size >= this.maxSize) {
-      // Remove oldest entry
-      const oldest = Array.from(this.cache.entries())
-        .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
-      if (oldest) {
-        this.cache.delete(oldest[0]);
-      }
-    }
-    
-    this.cache.set(projectHash, {
-      hash: diagnosticsHash,
-      timestamp: Date.now()
-    });
+// Cache of deduplicators per project
+const deduplicatorCache = new Map<string, DiagnosticDeduplicator>();
+
+function getDeduplicator(projectPath: string): DiagnosticDeduplicator {
+  let deduplicator = deduplicatorCache.get(projectPath);
+  if (!deduplicator) {
+    deduplicator = new DiagnosticDeduplicator(projectPath);
+    deduplicatorCache.set(projectPath, deduplicator);
   }
-  
-  get(projectHash: string): string | null {
-    const entry = this.cache.get(projectHash);
-    if (!entry) return null;
-    
-    // Check if entry is expired
-    if (Date.now() - entry.timestamp > this.ttl) {
-      this.cache.delete(projectHash);
-      return null;
-    }
-    
-    // Update timestamp on access (LRU)
-    entry.timestamp = Date.now();
-    return entry.hash;
-  }
-  
-  clear(): void {
-    this.cache.clear();
-  }
+  return deduplicator;
 }
 
-const diagnosticsCache = new DiagnosticsCache();
-
-// Create a stable hash of diagnostics for deduplication
-function createDiagnosticsHash(diagnostics: any[]): string {
-  // Sort diagnostics by file, line, column for stable ordering
-  const sorted = [...diagnostics].sort((a, b) => {
-    if (a.file !== b.file) return a.file.localeCompare(b.file);
-    if (a.line !== b.line) return a.line - b.line;
-    if (a.column !== b.column) return a.column - b.column;
-    return a.message.localeCompare(b.message);
-  });
-  
-  // Create a string representation of key fields only (not timestamps)
-  const key = sorted.map(d => 
-    `${d.file}:${d.line}:${d.column}:${d.severity}:${d.message}`
-  ).join('|');
-  
-  return secureHash(key);
-}
+// Note: createDiagnosticsHash is no longer needed as DiagnosticDeduplicator
+// handles hash generation internally for each diagnostic
 
 // LSP Client Functions
 async function queryLSPCache(projectHash: string, filePath?: string): Promise<{ diagnostics: any[], timestamp: string } | null> {
@@ -467,6 +420,26 @@ async function loadGitignore(projectRoot: string): Promise<ReturnType<typeof ign
 async function filterDiagnostics(diagnostics: any[], projectRoot: string): Promise<any[]> {
   const ig = await loadGitignore(projectRoot);
   
+  // Check if TypeScript project and load tsconfig if exists
+  let hasTypeScriptConfig = false;
+  let allowJs = false;
+  let checkJs = false;
+  
+  try {
+    const tsconfigPath = join(projectRoot, 'tsconfig.json');
+    if (existsSync(tsconfigPath)) {
+      hasTypeScriptConfig = true;
+      const tsconfigContent = readFileSync(tsconfigPath, 'utf8');
+      const tsconfig = JSON.parse(tsconfigContent);
+      
+      // Check TypeScript compiler options
+      allowJs = tsconfig.compilerOptions?.allowJs || false;
+      checkJs = tsconfig.compilerOptions?.checkJs || false;
+    }
+  } catch (e) {
+    // Ignore tsconfig parse errors
+  }
+  
   return diagnostics.filter((d: any) => {
     if (!d.file) return true;
     
@@ -475,9 +448,23 @@ async function filterDiagnostics(diagnostics: any[], projectRoot: string): Promi
       ? d.file.slice(projectRoot.length + 1)
       : d.file;
     
-    // Check if file should be ignored
+    // Check if file should be ignored by gitignore
     if (ig && ig.ignores(relativePath)) {
       return false;
+    }
+    
+    // Always filter out node_modules
+    if (relativePath.includes('node_modules/')) {
+      return false;
+    }
+    
+    // If this is a TypeScript project and the file is .js
+    if (hasTypeScriptConfig && relativePath.endsWith('.js')) {
+      // Only check JS files if TypeScript is configured to do so
+      if (!allowJs && !checkJs) {
+        // TypeScript is not configured to check JS files, filter them out
+        return false;
+      }
     }
     
     return true;
@@ -500,8 +487,8 @@ export async function runDiagnostics(
     const { LSPClient } = await import('./lsp-client');
     const client = new LSPClient();
     
-    // Initialize the client
-    await client.initialize(projectRoot);
+    // Auto-detect and start language servers for the project
+    await client.autoDetectAndStart(projectRoot);
     
     // Get diagnostics for the project
     const diagnostics: any[] = [];
@@ -509,7 +496,7 @@ export async function runDiagnostics(
     if (filePath) {
       // Get diagnostics for specific file
       const content = await Bun.file(filePath).text();
-      await client.openDocument(filePath, content);
+      await client.openDocument(filePath);
       await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for diagnostics
       const fileDiagnostics = client.getDiagnostics(filePath);
       if (fileDiagnostics) {
@@ -534,7 +521,7 @@ export async function runDiagnostics(
         const fullPath = join(projectRoot, file);
         try {
           const content = await Bun.file(fullPath).text();
-          await client.openDocument(fullPath, content);
+          await client.openDocument(fullPath);
         } catch (error) {
           // Skip files that can't be read
         }
@@ -569,7 +556,7 @@ export async function runDiagnostics(
     
     // Return mock diagnostics only during installation testing
     if (process.env.NODE_ENV === 'test' && process.env.CLAUDE_LSP_MOCK_DIAGNOSTICS === 'true') {
-      console.error('DEBUG: Using mock diagnostics for test');
+      await logger.debug('Using mock diagnostics for test');
       return {
         diagnostics: [{
           file: filePath || join(projectRoot, 'test.ts'),
@@ -653,13 +640,9 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
       const workingDir = hookData?.cwd || hookData?.workingDirectory || process.cwd();
       const projectRoot = await findProjectRoot(workingDir);
       if (projectRoot) {
-        if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-          console.error(`DEBUG: Found project root: ${projectRoot}`);
-        }
+        await logger.debug('Found project root', { projectRoot });
         
-        if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-          console.error(`DEBUG: Calling runDiagnostics...`);
-        }
+        await logger.debug('Calling runDiagnostics');
         
         let diagnostics;
         try {
@@ -674,14 +657,12 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             timeoutPromise
           ]);
         } catch (error) {
-          if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-            console.error(`DEBUG: runDiagnostics error:`, error);
-          }
-          await logger.error('Failed to run diagnostics', { error: error.message, projectRoot });
+          await logger.debug('runDiagnostics error', { error });
+          await logger.error('Failed to run diagnostics', { error: error instanceof Error ? error.message : String(error), projectRoot });
           
           // For now, return mock data in test mode to make tests pass
           if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-            console.error(`DEBUG: Using mock diagnostics for test`);
+            await logger.debug('Using mock diagnostics for test');
             
             // Check if the edited file contains errors by reading it
             const editedFile = hookData?.tool_input?.file_path;
@@ -716,9 +697,7 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
           }
         }
         
-        if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-          console.error(`DEBUG: Raw diagnostics count: ${diagnostics.diagnostics?.length || 0}`);
-        }
+        await logger.debug('Raw diagnostics count', { count: diagnostics.diagnostics?.length || 0 });
         
         await logger.debug("Diagnostics response received", diagnostics);
         
@@ -743,28 +722,35 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 d.severity === 'error' || d.severity === 'warning'
               );
               
-              // Check if these diagnostics are different from last time
-              const projectHash = secureHash(projectRoot).substring(0, 16);
-              const currentHash = createDiagnosticsHash(relevantDiagnostics);
-              const lastHash = diagnosticsCache.get(projectHash);
+              // Use DiagnosticDeduplicator for exactly-once delivery
+              const dedup = getDeduplicator(projectRoot);
               
-              if (lastHash === currentHash) {
-                // Same diagnostics as last time, don't send duplicate
-                await logger.debug('Skipping duplicate diagnostics', { 
-                  projectHash, 
-                  diagnosticsCount: relevantDiagnostics.length 
+              // Process diagnostics and check if we should report
+              const { diff, shouldReport } = await dedup.processDiagnostics(
+                relevantDiagnostics
+              );
+              
+              if (!shouldReport) {
+                // No changes in diagnostics, don't send duplicate
+                await logger.debug('Skipping unchanged diagnostics', { 
+                  projectRoot, 
+                  unchanged: diff.unchanged.length 
                 });
                 return false;
               }
               
-              // Store the new hash
-              diagnosticsCache.set(projectHash, currentHash);
+              await logger.debug('Diagnostic changes detected', {
+                projectRoot,
+                added: diff.added.length,
+                resolved: diff.resolved.length,
+                unchanged: diff.unchanged.length
+              });
               
               // Show compact summary for users
               if (errors > 0) {
-                process.stderr.write(`❌ ${errors} error${errors > 1 ? 's' : ''} found\n`);
+                await logger.error(`❌ ${errors} error${errors > 1 ? 's' : ''} found\n`);
               } else if (warnings > 0) {
-                process.stderr.write(`⚠️  ${warnings} warning${warnings > 1 ? 's' : ''} found\n`);
+                await logger.error(`⚠️  ${warnings} warning${warnings > 1 ? 's' : ''} found\n`);
               }
               
               // Full diagnostic data for Claude (only for errors/warnings, excluding node_modules)
@@ -786,12 +772,15 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             await logger.info("No diagnostic issues found - all clear");
             
             // Check if we previously had errors for this project
-            const projectHash = secureHash(projectRoot).substring(0, 16);
-            const lastHash = diagnosticsCache.get(projectHash);
+            const dedup = getDeduplicator(projectRoot);
             
-            if (lastHash && lastHash !== 'all_clear') {
+            // Process empty diagnostics array to check if we had errors before
+            const { shouldReport } = await dedup.processDiagnostics(
+                [] // Empty array means all issues are resolved
+            );
+            
+            if (shouldReport) {
               // We had errors before, now they're fixed - send all clear
-              diagnosticsCache.set(projectHash, 'all_clear');
               
               if (process.env.CLAUDE_LSP_QUIET !== 'true') {
                 console.error(`[[system-message]]: ${JSON.stringify({
@@ -804,8 +793,8 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 })}`);
               }
             } else {
-              // No errors before and none now - stay quiet
-              await logger.debug('No errors to report, staying quiet', { projectHash });
+              // No errors before and none now - stay quiet  
+              await logger.debug('No errors to report, staying quiet', { projectRoot });
             }
             
             return false; // No errors - exit normally
@@ -819,18 +808,36 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
       if (workDir) {
         const projectRoot = await findProjectRoot(workDir);
         if (projectRoot) {
-          const diagnostics = await runDiagnostics(projectRoot);
-          if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-            // Filter out ignored files for session start too
-            const filteredDiagnostics = await filterDiagnostics(diagnostics.diagnostics, projectRoot);
-            if (filteredDiagnostics.length > 0) {
-              console.error(`[[system-message]]: ${JSON.stringify({
-                status: 'diagnostics_report',
-                result: 'initial_errors_found',
-                diagnostics: filteredDiagnostics,
-                summary: `Found ${filteredDiagnostics.length} issues in project on startup`
-              })}`);  
+          // Check if this is the first run for this project
+          const dedup = getDeduplicator(projectRoot);
+          const isFirstRun = dedup.isFirstRun();
+          
+          if (isFirstRun) {
+            // Only report diagnostics on the very first run for this project
+            const diagnostics = await runDiagnostics(projectRoot);
+            if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
+              // Filter out ignored files for session start too
+              const filteredDiagnostics = await filterDiagnostics(diagnostics.diagnostics, projectRoot);
+              
+              // Only report errors and warnings, not hints
+              const relevantDiagnostics = filteredDiagnostics.filter((d: any) => 
+                d.severity === 'error' || d.severity === 'warning'
+              );
+              
+              if (relevantDiagnostics.length > 0) {
+                // Process initial diagnostics through deduplicator to establish baseline
+                await dedup.processDiagnostics(relevantDiagnostics, 'session-start');
+                
+                console.error(`[[system-message]]: ${JSON.stringify({
+                  status: 'diagnostics_report',
+                  result: 'initial_errors_found',
+                  diagnostics: relevantDiagnostics,
+                  summary: `Found ${relevantDiagnostics.length} issues in project on first run`
+                })}`);  
+              }
             }
+          } else {
+            await logger.debug('Skipping SessionStart diagnostics - not first run', { projectRoot });
           }
         }
       }

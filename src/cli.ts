@@ -27,7 +27,7 @@ async function runAsLanguageServer(language: string) {
       try {
         // Use node to run the typescript-language-server
         const serverPath = join(import.meta.dir, '..', 'node_modules', '.bin', 'typescript-language-server');
-        process.stderr.write(`DEBUG: Starting TypeScript server at: ${serverPath}\n`);
+        await logger.error(`DEBUG: Starting TypeScript server at: ${serverPath}\n`);
         const serverProcess = spawn('node', [serverPath, '--stdio'], {
           stdio: ['pipe', 'pipe', 'pipe']
         });
@@ -117,23 +117,11 @@ async function handleHookEvent(eventType: string) {
   }, 30000);
   
   try {
-    if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-      console.error(`DEBUG: Starting diagnostics for event: ${eventType}`);
-    }
-    
     // Import and run diagnostics logic directly
     const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
     
-    if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-      console.error(`DEBUG: Diagnostics imported, calling handleDiagnostics`);
-    }
-    
     // Run diagnostics with the event type
     const hasErrors = await handleDiagnostics(eventType);
-    
-    if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-      console.error(`DEBUG: Diagnostics completed, hasErrors: ${hasErrors}`);
-    }
     
     // Clear timeout on success
     clearTimeout(timeoutId);

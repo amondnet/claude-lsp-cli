@@ -97,10 +97,10 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: "typescript-language-server",
-    args: ["--stdio"],
+    command: "npx",
+    args: ["-y", "typescript-language-server", "--stdio"],
     installCommand: "Already bundled - no installation needed",
-    installCheck: "BUNDLED",
+    installCheck: "SKIP",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -186,10 +186,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: "intelephense",
-    args: ["--stdio"],
-    installCommand: "Already bundled - no installation needed",
-    installCheck: "BUNDLED",
+    command: "npx",
+    args: ["-y", "intelephense", "--stdio"],
+    installCommand: "Auto-download via npx",
+    installCheck: "SKIP",
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },

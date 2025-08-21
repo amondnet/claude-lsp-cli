@@ -37,16 +37,14 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - **Terraform** - Partial diagnostics (install via `mise install terraform-ls`) ✓
 
 
-## 📦 Prerequisites - Install Bun First!
+## 📦 Prerequisites
 
-Claude Code LSP is built with [Bun](https://bun.sh), a fast JavaScript runtime. You need to install Bun before proceeding:
+### 1. Install Bun (Required)
 
-### Installing Bun
-
-#### macOS/Linux/WSL:
+Claude Code LSP is built with [Bun](https://bun.sh), a fast JavaScript runtime:
 
 ```bash
-# Official installer (recommended)
+# macOS/Linux/WSL
 curl -fsSL https://bun.sh/install | bash
 
 # Alternative: Homebrew (macOS)
@@ -74,40 +72,61 @@ bun --version
 
 ## 🚀 Installation
 
-### Method 1: Automated Script (Recommended)
+### Step 1: Clone the Repository
+
+```bash
+cd ~/.claude
+git clone https://github.com/teamchong/claude-code-lsp.git
+cd claude-code-lsp
+```
+
+### Step 2: Run the Installation Script
+
+```bash
+./install.sh
+```
+
+This script will:
+- Clean up any existing LSP processes
+- Build compiled binaries with embedded Bun runtime
+- Install binaries to `~/.local/bin/`
+- Provide instructions for configuring Claude Code
+
+### Step 3: Configure Claude Code
+
+After installation, run Claude Code with the required directories:
+
+```bash
+claude --add-dir ~/.claude --add-dir ~/.local/bin
+```
+
+Then ask Claude to configure the system:
+
+```
+"Please help me set up the Claude Code LSP diagnostics system:
+
+1. First, update my ~/.claude/settings.json to include these LSP hooks:
+   - PreToolUse: claude-lsp-cli hook PreToolUse
+   - PostToolUse: claude-lsp-cli hook PostToolUse
+   
+2. Then, add the Diagnostics & Self-Correction Protocol to my ~/.claude/CLAUDE.md
+   file. This protocol teaches you how to handle [[system-message]] diagnostic
+   reports.
+
+Please set up both the hooks in settings.json and the protocol in CLAUDE.md."
+```
+
+Claude will handle the installation based on the install.sh script!
+
+### Alternative: Quick Install via curl
+
+For a one-line installation (requires git to be installed):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/teamchong/claude-code-lsp/master/install.sh | bash
 ```
 
-This script:
-
-1. **Installs the LSP server** to `~/.claude/claude-code-lsp/`
-2. **Builds the binaries** (claude-lsp-cli and claude-lsp-server)
-3. **Updates your Claude settings** with proper environment variables and hooks
-4. **Checks for installed language servers** and provides installation commands
-
-### Method 2: Using Claude Code
-
-The easiest way is to let Claude install it for you:
-
-```bash
-# Clone the repository first
-git clone https://github.com/teamchong/claude-code-lsp.git
-cd claude-code-lsp
-
-# Ask Claude to install it (non-interactive, grants access to ~/.claude)
-claude --add-dir ~/.claude -p \
-  "Please install the Claude Code LSP by:
-  1. Running 'bun install' to install dependencies
-  2. Running 'bun run build' to build binaries
-  3. Copying the entire project to ~/.claude/claude-code-lsp/
-  4. Updating ~/.claude/settings.json with the environment variables and hooks from install.sh"
-```
-
-Claude will handle the installation based on the install.sh script!
-
-### Method 3: Manual Installation
+### Manual Installation
 
 For full control over the installation:
 

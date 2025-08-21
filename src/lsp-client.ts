@@ -3,10 +3,7 @@
 import { spawn, ChildProcess } from "child_process";
 import * as rpc from "vscode-jsonrpc/node";
 import { 
-  InitializeRequest, 
   InitializeParams,
-  DidOpenTextDocumentNotification,
-  DidChangeTextDocumentNotification,
   TextDocumentItem,
   VersionedTextDocumentIdentifier,
   TextDocumentContentChangeEvent,
@@ -88,7 +85,7 @@ export class LSPClient {
   async startLanguageServer(language: string, rootPath: string): Promise<void> {
     const config = languageServers[language];
     if (!config) {
-      console.error(`Unknown language: ${language}`);
+      await logger.error(`Unknown language: ${language}`);
       return;
     }
 
@@ -96,7 +93,7 @@ export class LSPClient {
     
     // Check if server is installed
     if (!isLanguageServerInstalled(language)) {
-      console.error(getInstallInstructions(language));
+      await logger.error(getInstallInstructions(language));
       
       // Skip auto-install for bundled servers or auto-download servers
       if (config.installCheck === 'BUNDLED') {
@@ -114,7 +111,7 @@ export class LSPClient {
           await this.safeInstall(config, rootPath);
           await logger.info(`✅ ${config.name} Language Server installed successfully!`);
         } catch (e) {
-          console.error(`Failed to install ${config.name} Language Server:`, e);
+          await logger.error(`Failed to install ${config.name} Language Server:`, e);
           return;
         }
       } else {
@@ -129,12 +126,12 @@ export class LSPClient {
         env: { ...process.env, CLAUDE_LSP_PROJECT_ROOT: rootPath }
       });
 
-      serverProcess.on('error', (err) => {
-        console.error(`Failed to start ${config.name} server:`, err);
+      serverProcess.on('error', async (err) => {
+        await logger.error(`Failed to start ${config.name} server:`, err);
       });
 
-      serverProcess.stderr?.on('data', (data) => {
-        console.error(`${config.name} server error:`, data.toString());
+      serverProcess.stderr?.on('data', async (data) => {
+        await logger.error(`${config.name} server error:`, data.toString());
       });
 
       const connection = rpc.createMessageConnection(
@@ -284,7 +281,7 @@ export class LSPClient {
       }
 
     } catch (error) {
-      console.error(`Failed to start ${config.name} server:`, error);
+      await logger.error(`Failed to start ${config.name} server:`, error);
     }
   }
 
