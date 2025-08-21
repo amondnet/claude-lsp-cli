@@ -191,10 +191,10 @@ const test = "hello";
     }
   });
   
-  test("handleHookEvent ignores non-edit tools", async () => {
+  test("handleHookEvent runs diagnostics for all tools including non-edit", async () => {
     const hookData = {
       eventType: "PostToolUse",
-      tool: "Bash", // Not an edit tool
+      tool: "Bash", // Not an edit tool, but can still modify files
       parameters: { command: "ls" },
       result: "file1.txt file2.txt"
     };
@@ -216,8 +216,10 @@ const test = "hello";
     try {
       await handleHookEvent("PostToolUse");
       
-      // Should output all_clear message for non-edit tools (current behavior)
-      expect(outputCaptured).toContain("all_clear");
+      // Should output diagnostics report for ALL tools (Bash can modify files too)
+      // The report contains errors from the test project
+      expect(outputCaptured).toContain("diagnostics_report");
+      expect(outputCaptured).toContain("errors_found");
     } finally {
       // @ts-ignore
       Bun.stdin = originalStdin;
