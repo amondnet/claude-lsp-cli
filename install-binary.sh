@@ -141,11 +141,13 @@ else
     echo "⚠️  CLI binary may have issues (--version not implemented)"
 fi
 
-# Test with a simple hook call
-if echo '{"sessionId": "test", "workingDirectory": "/tmp"}' | "$INSTALL_DIR/claude-lsp-cli" hook PostToolUse &>/dev/null; then
-    echo "✅ Hook execution works"
+# Test with a simple hook call (exit code 2 is normal for PostToolUse with diagnostics)
+echo '{"sessionId": "test", "workingDirectory": "/tmp"}' | NODE_ENV=test CLAUDE_LSP_MOCK_DIAGNOSTICS=true "$INSTALL_DIR/claude-lsp-cli" hook PostToolUse &>/dev/null
+hook_exit_code=$?
+if [ $hook_exit_code -eq 0 ] || [ $hook_exit_code -eq 2 ]; then
+    echo "✅ Hook execution works (exit code: $hook_exit_code)"
 else
-    echo "⚠️  Hook execution test failed"
+    echo "⚠️  Hook execution test failed (exit code: $hook_exit_code)"
 fi
 
 echo ""

@@ -97,17 +97,10 @@ export interface LanguageServerConfig {
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    // Use bundled approach when running as compiled binary, fallback to node_modules in dev
-    command: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
-      ? process.argv[0] 
-      : "npx",
-    args: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules')
-      ? ["--lang-server", "typescript", "--stdio"]
-      : ["-y", "typescript-language-server@4.4.0", "--stdio"],
-    installCommand: "Bundled in binary, uses npx in development",
-    installCheck: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
-      ? "BUNDLED" 
-      : "SKIP",
+    command: "typescript-language-server",
+    args: ["--stdio"],
+    installCommand: "Already bundled - no installation needed",
+    installCheck: "BUNDLED",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
   },
@@ -193,17 +186,10 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    // Use bundled approach when running as compiled binary, fallback to npx in dev
-    command: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
-      ? process.argv[0] 
-      : "npx",
-    args: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules')
-      ? ["--lang-server", "php", "--stdio"]
-      : ["-y", "intelephense@1.14.4", "--stdio"],
-    installCommand: "Bundled in binary, uses npx in development",
-    installCheck: process.argv[0].includes('bun') && !process.argv[0].includes('node_modules') 
-      ? "BUNDLED" 
-      : "SKIP",
+    command: "intelephense",
+    args: ["--stdio"],
+    installCommand: "Already bundled - no installation needed",
+    installCheck: "BUNDLED",
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
   },
@@ -262,10 +248,18 @@ export function isLanguageServerInstalled(language: string): boolean {
   const config = languageServers[language];
   if (!config) return false;
   
-  // Special handling for bundled servers (self-contained) or auto-download
-  if (config.installCheck === 'BUNDLED' || config.installCheck === 'SKIP') {
-    // These are bundled in the binary or auto-download - always available
-    return true;
+  // Special handling for bundled servers
+  if (config.installCheck === 'BUNDLED') {
+    // These are included in our package.json dependencies
+    // Check if we can find them in our own node_modules
+    const moduleDir = join(import.meta.dir, '..', 'node_modules');
+    const binPath = join(moduleDir, '.bin', config.command);
+    if (existsSync(binPath)) {
+      // Update command to use full path
+      languageServers[language].command = binPath;
+      return true;
+    }
+    return false;
   }
   
   try {
@@ -291,13 +285,9 @@ export function getInstallInstructions(language: string): string {
   const config = languageServers[language];
   if (!config) return "";
   
-  // Special handling for bundled servers or auto-download
+  // Special handling for bundled servers
   if (config.installCheck === 'BUNDLED') {
-    return `✅ ${config.name} Language Server is bundled - no installation needed`;
-  }
-  
-  if (config.installCheck === 'SKIP') {
-    return `✅ ${config.name} Language Server will be automatically downloaded via npx`;
+    return `✅ ${config.name} Language Server is bundled with claude-code-lsp - no installation needed`;
   }
   
   // Check for manual installation requirement

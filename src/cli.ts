@@ -13,24 +13,44 @@
 
 import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
-import { resolve } from "path";
+import { resolve, join } from "path";
 
 async function runAsLanguageServer(language: string) {
   // This binary is now acting as a language server
   switch (language) {
-    case 'typescript':
+    case 'typescript': {
+      // TypeScript language server doesn't work with Bun's import() due to stdio handling
+      // In development, we spawn it as a subprocess
+      // TODO: For production binary, need a different approach
+      const { spawn } = await import("child_process");
+      
       try {
-        // Try to import and run the bundled TypeScript language server
-        const tsls = await import('typescript-language-server/lib/cli.mjs');
-        // Set up proper argv for the language server
-        process.argv = ['node', 'typescript-language-server', '--stdio'];
-        await tsls.start();
+        // Use node to run the typescript-language-server
+        const serverPath = join(import.meta.dir, '..', 'node_modules', '.bin', 'typescript-language-server');
+        process.stderr.write(`DEBUG: Starting TypeScript server at: ${serverPath}\n`);
+        const serverProcess = spawn('node', [serverPath, '--stdio'], {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+        
+        // Pipe stdio
+        process.stdin.pipe(serverProcess.stdin);
+        serverProcess.stdout.pipe(process.stdout);
+        serverProcess.stderr.pipe(process.stderr);
+        
+        serverProcess.on('exit', (code) => {
+          process.exit(code || 0);
+        });
+        
+        serverProcess.on('error', (error) => {
+          console.error('Failed to start TypeScript language server:', error);
+          process.exit(1);
+        });
       } catch (error) {
         console.error('Failed to start TypeScript language server:', error);
-        // Fallback: Let the parent know we can't start
         process.exit(1);
       }
       break;
+    }
       
     case 'php':
       try {
@@ -57,6 +77,11 @@ async function runAsLanguageServer(language: string) {
 const args = process.argv.slice(2);
 const command = args[0];
 const eventType = args[1];
+
+// Debug: log process.argv[0] in hook mode
+if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
+  console.error(`DEBUG: process.argv[0] = ${process.argv[0]}`);
+}
 
 // Check if running as a language server
 if (command === '--lang-server' && args[1]) {
@@ -92,11 +117,23 @@ async function handleHookEvent(eventType: string) {
   }, 30000);
   
   try {
+    if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
+      console.error(`DEBUG: Starting diagnostics for event: ${eventType}`);
+    }
+    
     // Import and run diagnostics logic directly
     const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
     
+    if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
+      console.error(`DEBUG: Diagnostics imported, calling handleDiagnostics`);
+    }
+    
     // Run diagnostics with the event type
     const hasErrors = await handleDiagnostics(eventType);
+    
+    if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
+      console.error(`DEBUG: Diagnostics completed, hasErrors: ${hasErrors}`);
+    }
     
     // Clear timeout on success
     clearTimeout(timeoutId);
@@ -479,6 +516,15 @@ if (command === "hook" && eventType) {
   await listLanguageServers();
 } else if (command === "help" || command === "--help" || command === "-h") {
   showHelp();
+} else if (command === "--version" || command === "-v") {
+  // Read version from package.json
+  try {
+    const packagePath = new URL("../package.json", import.meta.url).pathname;
+    const packageJson = await Bun.file(packagePath).json();
+    console.log(packageJson.version || "3.0.0");
+  } catch (error) {
+    console.log("3.0.0"); // Fallback version
+  }
 } else {
   console.error("Invalid command. Use 'claude-lsp-cli help' for usage information.");
   showHelp();

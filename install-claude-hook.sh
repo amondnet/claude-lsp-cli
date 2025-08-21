@@ -51,15 +51,23 @@ echo "📦 Installing dependencies and building binaries..."
 bun install
 bun run build
 
+# Copy binaries to user's local bin directory
+USER_BIN_DIR="$HOME/.local/bin"
+mkdir -p "$USER_BIN_DIR"
+
+echo "📋 Copying binaries to $USER_BIN_DIR..."
+cp "$LSP_DIR/bin/claude-lsp-cli" "$USER_BIN_DIR/"
+cp "$LSP_DIR/bin/claude-lsp-server" "$USER_BIN_DIR/"
+
 # Check if binaries were created
-if [ ! -f "$LSP_DIR/bin/claude-lsp-cli" ] || [ ! -f "$LSP_DIR/bin/claude-lsp-server" ]; then
+if [ ! -f "$USER_BIN_DIR/claude-lsp-cli" ] || [ ! -f "$USER_BIN_DIR/claude-lsp-server" ]; then
     echo "❌ Failed to build binaries"
     exit 1
 fi
 
 echo "✅ Binaries built successfully"
-echo "   CLI: $LSP_DIR/bin/claude-lsp-cli"
-echo "   Server: $LSP_DIR/bin/claude-lsp-server"
+echo "   CLI: $USER_BIN_DIR/claude-lsp-cli"
+echo "   Server: $USER_BIN_DIR/claude-lsp-server"
 
 # Update settings.json for binary-based hooks
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
@@ -83,21 +91,9 @@ else
     echo "  Make sure the claude-lsp-cli binary is in your PATH."
 fi
 
-# Add binary to PATH by creating symlink
-echo "🔗 Adding claude-lsp-cli to PATH..."
-BIN_LINK="/usr/local/bin/claude-lsp-cli"
-if [ -L "$BIN_LINK" ]; then
-    echo "   Removing existing symlink..."
-    sudo rm "$BIN_LINK"
-fi
-
-sudo ln -s "$LSP_DIR/bin/claude-lsp-cli" "$BIN_LINK"
-if [ $? -eq 0 ]; then
-    echo "✅ claude-lsp-cli added to PATH"
-else
-    echo "⚠️  Could not add to PATH. You may need to manually add $LSP_DIR/bin to your PATH"
-    echo "   Or run: export PATH=\"$LSP_DIR/bin:\$PATH\""
-fi
+# Binaries are now in ~/.local/bin (add to PATH if needed)
+echo "💡 If claude-lsp-cli is not found, add ~/.local/bin to your PATH:"
+echo "   export PATH=\"$HOME/.local/bin:\$PATH\""
 
 # Install commonly needed language servers
 echo ""
@@ -135,8 +131,8 @@ echo ""
 echo "✅ Installation complete!"
 echo ""
 echo "The LSP diagnostics system is now set up:"
-echo "  • LSP server: $LSP_DIR/bin/claude-lsp-server"
-echo "  • CLI tool: claude-lsp-cli (available in PATH)"
+echo "  • LSP server: $USER_BIN_DIR/claude-lsp-server"
+echo "  • CLI tool: $USER_BIN_DIR/claude-lsp-cli"
 echo "  • Hook configured in Claude Code settings"
 echo ""
 echo "The system will automatically:"

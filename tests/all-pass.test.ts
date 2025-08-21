@@ -71,8 +71,8 @@ console.log(obj.nmae); // Property typo
     test("TypeScript language server config is valid", () => {
       const tsConfig = languageServers.typescript;
       expect(tsConfig.name).toBe("TypeScript");
-      // Command might be 'bun' when auto-installed
-      expect(tsConfig.command === "typescript-language-server" || tsConfig.command === "bun").toBe(true);
+      // Command might be 'bunx' for auto-installation
+      expect(tsConfig.command === "typescript-language-server" || tsConfig.command === "bunx").toBe(true);
       expect(tsConfig.extensions).toContain(".ts");
       expect(tsConfig.extensions).toContain(".tsx");
     });

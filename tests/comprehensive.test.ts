@@ -90,35 +90,32 @@ describe("Comprehensive LSP Tests", () => {
         tool_response: { success: true }
       };
       
-      const result = await new Promise<{stdout: string, stderr: string, code: number}>((resolve) => {
-        const proc = spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
-          cwd: TEST_PROJECT, // Run from the test project directory
-          stdin: "pipe",
-          stdout: "pipe", 
-          stderr: "pipe",
-          env: { ...process.env, CLAUDE_LSP_HOOK_MODE: 'true' }
-        });
-        
-        // Send hook data via stdin
-        proc.stdin?.write(JSON.stringify(hookData));
-        proc.stdin?.end();
-        
-        proc.exited.then(() => {
-          const stdout = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
-          const stderr = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
-          
-          Promise.all([stdout, stderr]).then(([stdoutText, stderrText]) => {
-            resolve({ stdout: stdoutText, stderr: stderrText, code: proc.exitCode || 0 });
-          });
-        });
+      const proc = Bun.spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
+        cwd: TEST_PROJECT, // Run from the test project directory
+        stdin: "pipe",
+        stdout: "pipe", 
+        stderr: "pipe",
+        env: { ...process.env, CLAUDE_LSP_HOOK_MODE: 'true' }
       });
+      
+      // Send hook data via stdin
+      proc.stdin.write(JSON.stringify(hookData));
+      proc.stdin.end();
+      
+      // Wait for completion and get output
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      
+      const result = { stdout, stderr, code: exitCode };
       
       // Debug output
       console.log("Exit code:", result.code);
-      console.log("Stderr:", JSON.stringify(result.stderr));
-      console.log("Stdout:", JSON.stringify(result.stdout));
+      console.log("Stderr length:", result.stderr.length);
+      console.log("First 500 chars of stderr:", JSON.stringify(result.stderr.substring(0, 500)));
       
-      // Should output system message
+      // The CLI should find errors and output system message
+      expect(result.code).toBe(2); // Should exit 2 when errors found
       expect(result.stderr).toContain("[[system-message]]:");
     }, 30000);
     
@@ -133,28 +130,24 @@ describe("Comprehensive LSP Tests", () => {
         tool_response: { success: true }
       };
       
-      const result = await new Promise<{stdout: string, stderr: string, code: number}>((resolve) => {
-        const proc = spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
-          cwd: TEST_PROJECT, // Run from the test project directory
-          stdin: "pipe",
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...process.env, CLAUDE_LSP_HOOK_MODE: 'true' }
-        });
-        
-        // Send hook data via stdin
-        proc.stdin?.write(JSON.stringify(hookData));
-        proc.stdin?.end();
-        
-        proc.exited.then(() => {
-          const stdout = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
-          const stderr = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
-          
-          Promise.all([stdout, stderr]).then(([stdoutText, stderrText]) => {
-            resolve({ stdout: stdoutText, stderr: stderrText, code: proc.exitCode || 0 });
-          });
-        });
+      const proc = Bun.spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
+        cwd: TEST_PROJECT, // Run from the test project directory
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, CLAUDE_LSP_HOOK_MODE: 'true' }
       });
+      
+      // Send hook data via stdin
+      proc.stdin.write(JSON.stringify(hookData));
+      proc.stdin.end();
+      
+      // Wait for completion and get output
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      
+      const result = { stdout, stderr, code: exitCode };
       
       // Should exit with code 0 for no errors
       expect(result.code).toBe(0);
