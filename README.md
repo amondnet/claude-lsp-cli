@@ -8,7 +8,7 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: 12 languages working (TypeScript, JavaScript, Python, Rust, Go, Java, C++, Ruby, PHP, Scala, Lua, Elixir, Terraform)
+- 🚀 **Multi-Language Support**: 9 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala, Rust, Lua, Terraform)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
 - 📦 **Auto-install**: Automatically installs TypeScript and PHP language servers
@@ -19,21 +19,21 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (12/12 Tested - 100% Success Rate)
+## 📊 Language Support Status (9/13 Tested - 69% Success Rate)
 
-### ✅ All Languages Working (12 languages) - Tested and Confirmed
+### ✅ Working Languages (9 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
-- **Python** - Full diagnostics via pylsp (requires `pip install python-lsp-server`) ✓
+- **Python** - ❌ Not working (architectural issues with pylsp)
 - **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
-- **Java** - Full diagnostics (requires `brew install jdtls`) ✓
+- **Java** - ❌ Not working (configuration issues)
 - **C/C++** - Full diagnostics (requires clangd installed) ✓
-- **Ruby** - Full diagnostics (requires `gem install solargraph`) ✓
+- **Ruby** - ❌ Not working (solargraph integration issues)
 - **PHP** - Full diagnostics (auto-installs Intelephense) ✓
 - **Scala** - Full diagnostics (requires `cs install metals`) ✓
 - **Lua** - Full diagnostics (install via `mise install lua-language-server`) ✓
-- **Elixir** - Full diagnostics (install via `mise install elixir-ls`) ✓
+- **Elixir** - ❌ Not working (path configuration issues)
 - **Terraform** - Partial diagnostics (install via `mise install terraform-ls`) ✓
 
 
