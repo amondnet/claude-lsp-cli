@@ -1,5 +1,6 @@
 declare module 'intelephense' {
-  export default {
+  const intelephense: {
     start: () => Promise<void>;
   };
+  export default intelephense;
 }

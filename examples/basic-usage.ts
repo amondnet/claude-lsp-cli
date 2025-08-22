@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { LSPClient } from "../src/claude-code-lsp";
+import { LSPClient } from "../src/lsp-client";
 
 async function main() {
   const client = new LSPClient();
@@ -8,7 +8,7 @@ async function main() {
   console.log("Starting TypeScript Language Server...");
   
   // Start TypeScript server for current directory
-  await client.startTypeScriptServer(process.cwd());
+  await client.startLanguageServer("typescript", process.cwd());
   
   // Open a TypeScript file
   const testFile = "./src/index.ts";
@@ -25,7 +25,7 @@ async function main() {
     console.log("✅ No issues found!");
   } else {
     console.log(`Found ${diagnostics.length} issues:`);
-    diagnostics.forEach((diag, i) => {
+    diagnostics.forEach((diag: any, i: number) => {
       console.log(`  ${i + 1}. [${diag.severity}] Line ${diag.range.start.line + 1}: ${diag.message}`);
     });
   }

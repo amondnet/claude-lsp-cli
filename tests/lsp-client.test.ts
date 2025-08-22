@@ -171,11 +171,11 @@ console.log(value); // Fixed
     writeFileSync(rareLangFile, "some content");
     
     // Should not throw when opening unsupported file
-    let error = null;
+    let error: Error | null = null;
     try {
       await client.openDocument(rareLangFile);
     } catch (e) {
-      error = e;
+      error = e as Error;
     }
     
     // Should either succeed or fail gracefully

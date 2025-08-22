@@ -225,7 +225,7 @@ export class DiagnosticDeduplicator {
           last_report_time = excluded.last_report_time,
           last_report_hash = excluded.last_report_hash,
           diagnostics_count = excluded.diagnostics_count
-      `, this.projectHash, now, currentHash, currentDiagnostics.length);
+      `, [this.projectHash, now, currentHash, currentDiagnostics.length]);
     }
 
     await logger.debug('Diagnostic diff computed', {
@@ -261,7 +261,7 @@ export class DiagnosticDeduplicator {
     this.db.run(`
       DELETE FROM diagnostic_history 
       WHERE project_hash = ? AND last_seen < ?
-    `, this.projectHash, oneDayAgo);
+    `, [this.projectHash, oneDayAgo]);
   }
 
   close(): void {

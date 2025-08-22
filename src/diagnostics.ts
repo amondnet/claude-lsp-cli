@@ -171,7 +171,16 @@ export async function runDiagnostics(
       const { glob } = await import('glob');
       const files = await glob('**/*.{ts,tsx,js,jsx}', {
         cwd: projectRoot,
-        ignore: ['node_modules/**', 'dist/**', 'build/**']
+        ignore: [
+          'node_modules/**',
+          'dist/**',
+          'build/**',
+          'examples/**',
+          'github-sdk/**',
+          'lancedb-blog/**',
+          '**/*.d.ts',
+          '**/*.min.js'
+        ]
       });
       
       for (const file of files.slice(0, 10)) { // Limit to 10 files for performance
@@ -484,10 +493,16 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
               }
               
               // Full diagnostic data for Claude (only for errors/warnings, excluding node_modules)
+              // Format diagnostics to prevent context flooding - show first 5 with summary for rest
+              const displayDiagnostics = relevantDiagnostics.slice(0, 5);
+              const remainingCount = Math.max(0, relevantDiagnostics.length - 5);
+              
               console.error(`[[system-message]]: ${JSON.stringify({
                 status: 'diagnostics_report',
                 result: 'errors_found',
-                diagnostics: relevantDiagnostics,
+                diagnostics: displayDiagnostics,
+                summary: remainingCount > 0 ? `... and ${remainingCount} more diagnostic${remainingCount > 1 ? 's' : ''}` : undefined,
+                total_count: relevantDiagnostics.length,
                 reference: {
                   type: 'previous_code_edit',
                   turn: 'claude_-1'
@@ -559,11 +574,18 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 // Process initial diagnostics through deduplicator to establish baseline
                 await dedup.processDiagnostics(relevantDiagnostics, 'session-start');
                 
+                // Format diagnostics to prevent context flooding - show first 5 with summary for rest
+                const displayDiagnostics = relevantDiagnostics.slice(0, 5);
+                const remainingCount = Math.max(0, relevantDiagnostics.length - 5);
+                
                 console.error(`[[system-message]]: ${JSON.stringify({
                   status: 'diagnostics_report',
                   result: 'initial_errors_found',
-                  diagnostics: relevantDiagnostics,
-                  summary: `Found ${relevantDiagnostics.length} issues in project on first run`
+                  diagnostics: displayDiagnostics,
+                  summary: remainingCount > 0 
+                    ? `Found ${relevantDiagnostics.length} issues in project on first run (showing first 5, ${remainingCount} more)`
+                    : `Found ${relevantDiagnostics.length} issues in project on first run`,
+                  total_count: relevantDiagnostics.length
                 })}`);  
               }
             }
