@@ -88,6 +88,23 @@ export class DiagnosticDeduplicator {
     return secureHash(`${diag.file}:${diag.line}:${diag.column}:${diag.message}`).substring(0, 16);
   }
 
+  private createReportHash(diagnostics: Diagnostic[]): string {
+    // Sort diagnostics for consistent hashing
+    const sorted = [...diagnostics].sort((a, b) => {
+      if (a.file !== b.file) return a.file.localeCompare(b.file);
+      if (a.line !== b.line) return a.line - b.line;
+      if (a.column !== b.column) return a.column - b.column;
+      return a.message.localeCompare(b.message);
+    });
+    
+    // Create hash of all diagnostics
+    const combinedString = sorted.map(d => 
+      `${d.file}:${d.line}:${d.column}:${d.severity}:${d.message}`
+    ).join('|');
+    
+    return secureHash(combinedString).substring(0, 32);
+  }
+
   /**
    * Process diagnostics and return only the changes
    */
@@ -180,21 +197,33 @@ export class DiagnosticDeduplicator {
       }
     }
     
+    // Create hash of current diagnostics for comparison
+    const currentHash = this.createReportHash(currentDiagnostics);
+    
+    // Get previous report hash
+    const previousReport = this.db.prepare(`
+      SELECT last_report_hash FROM diagnostic_reports WHERE project_hash = ?
+    `).get(this.projectHash) as any;
+    
+    const previousHash = previousReport?.last_report_hash;
+    
     // Check if we should report
-    // Report if: first report with diagnostics, or there are changes (added/resolved)
+    // Report if: first report with diagnostics, or there are changes (added/resolved), or hash changed
     const shouldReport = (isFirstReport && currentDiagnostics.length > 0) || 
                         added.length > 0 || 
-                        resolved.length > 0;
+                        resolved.length > 0 ||
+                        currentHash !== previousHash;
     
-    // Update last report time if reporting or if it's the first run
+    // Update last report time and hash if reporting or if it's the first run
     if (shouldReport || isFirstReport) {
       this.db.run(`
-        INSERT INTO diagnostic_reports (project_hash, last_report_time, diagnostics_count)
-        VALUES (?, ?, ?)
+        INSERT INTO diagnostic_reports (project_hash, last_report_time, last_report_hash, diagnostics_count)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(project_hash) DO UPDATE SET
           last_report_time = excluded.last_report_time,
+          last_report_hash = excluded.last_report_hash,
           diagnostics_count = excluded.diagnostics_count
-      `, this.projectHash, now, currentDiagnostics.length);
+      `, this.projectHash, now, currentHash, currentDiagnostics.length);
     }
 
     await logger.debug('Diagnostic diff computed', {
