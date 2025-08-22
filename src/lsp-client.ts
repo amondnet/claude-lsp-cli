@@ -166,7 +166,7 @@ export class LSPClient {
       });
       
       // Handle client/registerCapability (Metals uses this)
-      connection.onRequest("client/registerCapability", async (params: any) => {
+      connection.onRequest("client/registerCapability", async (_params: any) => {
         await logger.debug(`[${config.name}] Registering capability`);
         return null;
       });
@@ -254,7 +254,7 @@ export class LSPClient {
         initializationOptions: await this.getInitializationOptions(language)
       };
 
-      const result = await connection.sendRequest("initialize", initParams) as any;
+      await connection.sendRequest("initialize", initParams) as any;
       await logger.info(`✅ ${config.name} server initialized`);
 
       // Send initialized notification

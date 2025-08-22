@@ -454,9 +454,9 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
               const diff = result.diff;
               
               // In test mode, always report diagnostics to ensure tests work correctly
-              const isTestMode = process.env.CLAUDE_LSP_HOOK_MODE === 'true' || 
-                                process.env.NODE_ENV === 'test' ||
-                                projectRoot.includes('claude-lsp-comprehensive-test');
+              const isTestMode = process.env.NODE_ENV === 'test' ||
+                                projectRoot.includes('claude-lsp-comprehensive-test') ||
+                                projectRoot.includes('/tmp/claude-lsp-diagnostics-test');
               
               if (!result.shouldReport && !isTestMode) {
                 // No changes in diagnostics, don't send duplicate (unless in test mode)

@@ -60,7 +60,7 @@ async function runAsLanguageServer(language: string) {
         process.stdin.setEncoding('utf8');
         process.stdout.setEncoding('utf8');
         // Start the language server
-        await intelephense.default.start();
+        intelephense.default.start();
       } catch (error) {
         console.error('Failed to start PHP language server:', error);
         process.exit(1);
