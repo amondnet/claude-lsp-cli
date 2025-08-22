@@ -19,12 +19,12 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (9/13 Tested - 69% Success Rate)
+## 📊 Language Support Status (10/13 Tested - 77% Success Rate)
 
-### ✅ Working Languages (9 languages) - Tested and Confirmed
+### ✅ Working Languages (10 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
-- **Python** - ❌ Not working (architectural issues with pylsp)
+- **Python** - Full diagnostics via pylsp (mypy, pyflakes, pycodestyle) ✓
 - **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
 - **Java** - ❌ Not working (configuration issues)
