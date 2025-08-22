@@ -2,12 +2,30 @@ import express from 'express';
 import { UserController } from './controllers/UserController.js';
 import { DatabaseService } from './services/DatabaseService.js';
 
-// Intentional errors for testing
+// Intentional errors for testing - 10+ errors for diagnostic limit testing
 const app = express();
 const port = 3000;
 
-// Error: accessing undefined variable
+// Multiple undefined variables (errors 1-8)
 console.log(undefinedConfigVariable);
+console.log(undefinedVar1);
+console.log(undefinedVar2);
+console.log(undefinedVar3);
+console.log(undefinedVar4);
+console.log(undefinedVar5);
+console.log(undefinedVar6);
+console.log(undefinedVar7);
+
+// Syntax errors in JavaScript
+const obj = {
+  prop1: "value",
+  prop2: "value",,  // Double comma syntax error
+};
+
+// More undefined references
+nonExistentFunction1();
+nonExistentFunction2();
+nonExistentFunction3();
 
 class App {
   constructor() {
@@ -48,4 +66,4 @@ class App {
 }
 
 const server = new App();
-server.start();
+server.start();// test

@@ -492,17 +492,52 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 await logger.error(`⚠️  ${warnings} warning${warnings > 1 ? 's' : ''} found\n`);
               }
               
-              // Full diagnostic data for Claude (only for errors/warnings, excluding node_modules)
-              // Format diagnostics to prevent context flooding - show first 5 with summary for rest
-              const displayDiagnostics = relevantDiagnostics.slice(0, 5);
-              const remainingCount = Math.max(0, relevantDiagnostics.length - 5);
+              // Group diagnostics by language/source
+              const diagnosticsBySource = new Map<string, any[]>();
+              for (const diag of relevantDiagnostics) {
+                const source = diag.source || 'unknown';
+                if (!diagnosticsBySource.has(source)) {
+                  diagnosticsBySource.set(source, []);
+                }
+                diagnosticsBySource.get(source)!.push(diag);
+              }
+              
+              // Format diagnostics with 5 per language limit
+              const displayDiagnostics: any[] = [];
+              const summaryParts: string[] = [];
+              
+              for (const [source, sourceDiagnostics] of diagnosticsBySource) {
+                // Take first 5 from each language
+                const toDisplay = sourceDiagnostics.slice(0, 5);
+                displayDiagnostics.push(...toDisplay);
+                
+                // Add to summary if there are more than 5
+                const totalForSource = sourceDiagnostics.length;
+                if (totalForSource > 5) {
+                  const remaining = totalForSource - 5;
+                  summaryParts.push(`${source}: ${remaining} more`);
+                }
+              }
+              
+              // Create a comprehensive summary
+              let summary: string | undefined;
+              if (summaryParts.length > 0) {
+                // Also add total counts per language for clarity
+                const fullCounts = Array.from(diagnosticsBySource.entries())
+                  .map(([source, diags]) => `${source}: ${diags.length}`)
+                  .join(', ');
+                summary = `Total: ${fullCounts}${summaryParts.length > 0 ? '. Showing first 5 per language.' : ''}`;
+              }
               
               console.error(`[[system-message]]: ${JSON.stringify({
                 status: 'diagnostics_report',
                 result: 'errors_found',
                 diagnostics: displayDiagnostics,
-                summary: remainingCount > 0 ? `... and ${remainingCount} more diagnostic${remainingCount > 1 ? 's' : ''}` : undefined,
+                summary,
                 total_count: relevantDiagnostics.length,
+                by_source: Object.fromEntries(
+                  Array.from(diagnosticsBySource.entries()).map(([k, v]) => [k, v.length])
+                ),
                 reference: {
                   type: 'previous_code_edit',
                   turn: 'claude_-1'
@@ -574,18 +609,48 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 // Process initial diagnostics through deduplicator to establish baseline
                 await dedup.processDiagnostics(relevantDiagnostics, 'session-start');
                 
-                // Format diagnostics to prevent context flooding - show first 5 with summary for rest
-                const displayDiagnostics = relevantDiagnostics.slice(0, 5);
-                const remainingCount = Math.max(0, relevantDiagnostics.length - 5);
+                // Group diagnostics by language/source
+                const diagnosticsBySource = new Map<string, any[]>();
+                for (const diag of relevantDiagnostics) {
+                  const source = diag.source || 'unknown';
+                  if (!diagnosticsBySource.has(source)) {
+                    diagnosticsBySource.set(source, []);
+                  }
+                  diagnosticsBySource.get(source)!.push(diag);
+                }
+                
+                // Format diagnostics with 5 per language limit
+                const displayDiagnostics: any[] = [];
+                const summaryParts: string[] = [];
+                
+                for (const [source, sourceDiagnostics] of diagnosticsBySource) {
+                  // Take first 5 from each language
+                  const toDisplay = sourceDiagnostics.slice(0, 5);
+                  displayDiagnostics.push(...toDisplay);
+                  
+                  // Add to summary if there are more than 5
+                  const totalForSource = sourceDiagnostics.length;
+                  if (totalForSource > 5) {
+                    const remaining = totalForSource - 5;
+                    summaryParts.push(`${source}: ${remaining} more`);
+                  }
+                }
+                
+                // Create a comprehensive summary
+                const fullCounts = Array.from(diagnosticsBySource.entries())
+                  .map(([source, diags]) => `${source}: ${diags.length}`)
+                  .join(', ');
+                const summary = `Found issues on first run - Total: ${fullCounts}. Showing first 5 per language.`;
                 
                 console.error(`[[system-message]]: ${JSON.stringify({
                   status: 'diagnostics_report',
                   result: 'initial_errors_found',
                   diagnostics: displayDiagnostics,
-                  summary: remainingCount > 0 
-                    ? `Found ${relevantDiagnostics.length} issues in project on first run (showing first 5, ${remainingCount} more)`
-                    : `Found ${relevantDiagnostics.length} issues in project on first run`,
-                  total_count: relevantDiagnostics.length
+                  summary,
+                  total_count: relevantDiagnostics.length,
+                  by_source: Object.fromEntries(
+                    Array.from(diagnosticsBySource.entries()).map(([k, v]) => [k, v.length])
+                  )
                 })}`);  
               }
             }

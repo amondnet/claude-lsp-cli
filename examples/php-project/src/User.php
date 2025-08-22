@@ -57,4 +57,29 @@ class User
         $database = new Database();
         return $database->saveUser($this); // Database class doesn't exist
     }
-}
+    
+    // More errors for testing (10+ total)
+    public function testErrors(): void
+    {
+        // Undefined variables
+        echo $undefined1;
+        echo $undefined2;
+        echo $undefined3;
+        echo $undefined4;
+        echo $undefined5;
+        
+        // Type errors
+        $num = "string";
+        $this->processNumber($num); // Expects int
+        
+        // Undefined functions
+        undefinedFunction1();
+        undefinedFunction2();
+        undefinedFunction3();
+    }
+    
+    private function processNumber(int $number): int
+    {
+        return $number * 2;
+    }
+}// trigger

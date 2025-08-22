@@ -48,8 +48,23 @@ def main():
     # Error: Calling undefined method
     user.send_email("test@example.com")
     
-    # Error: Undefined variable
+    # More undefined variables (10+ errors total)
     print(f"Average: {avg}, User: {undefined_var}")
+    print(undefined_var1)
+    print(undefined_var2)
+    print(undefined_var3)
+    print(undefined_var4)
+    print(undefined_var5)
+    
+    # More type errors
+    result1: int = "string"
+    result2: bool = 123
+    result3: str = True
+    
+    # Undefined functions
+    undefined_func1()
+    undefined_func2()
+    undefined_func3()
 
 if __name__ == "__main__":
-    main()
+    main()# trigger

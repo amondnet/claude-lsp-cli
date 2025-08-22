@@ -2,9 +2,21 @@ import express from 'express';
 import { UserService } from './services/UserService';
 import { DatabaseConnection } from './database/Connection';
 
-// Intentional errors for testing
+// Intentional errors for testing - 10+ errors to test 5-item limit
 const app = express();
 const port: string = 3000; // Type error: should be number
+
+// More intentional errors
+const error1: number = "string1"; // Type error 1
+const error2: boolean = 123; // Type error 2  
+const error3: string = true; // Type error 3
+const error4: number[] = "not an array"; // Type error 4
+const error5: object = 456; // Type error 5
+
+// Undefined variables
+console.log(undefinedVar1); // Undefined 1
+console.log(undefinedVar2); // Undefined 2
+console.log(undefinedVar3); // Undefined 3
 
 interface User {
   id: number;
@@ -52,4 +64,5 @@ class Server {
 }
 
 const server = new Server();
-server.start();
+server.start();// trigger change
+const newError: string = 999; // New type error

@@ -28,8 +28,13 @@ impl User {
 }
 
 fn main() {
-    // Error: undefined variable
+    // Multiple undefined variables (10+ errors for testing)
     println!("Starting application version: {}", VERSION);
+    println!("{}", UNDEFINED1);
+    println!("{}", UNDEFINED2);
+    println!("{}", UNDEFINED3);
+    println!("{}", UNDEFINED4);
+    println!("{}", UNDEFINED5);
     
     let mut users: HashMap<u32, User> = HashMap::new();
     
@@ -52,4 +57,4 @@ fn main() {
     for (id, user) in users.iter() {
         println!("ID: {}, Info: {}", id, user.display()); // display() doesn't exist
     }
-}
+}// trigger
