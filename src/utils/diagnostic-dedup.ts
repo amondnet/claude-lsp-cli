@@ -209,13 +209,15 @@ export class DiagnosticDeduplicator {
     
     // Check if we should report
     // Report if: first report with diagnostics, or there are changes (added/resolved), or hash changed
+    // Don't report if: no diagnostics and no previous report (nothing to report)
     const shouldReport = (isFirstReport && currentDiagnostics.length > 0) || 
                         added.length > 0 || 
                         resolved.length > 0 ||
-                        currentHash !== previousHash;
+                        (currentHash !== previousHash && (currentDiagnostics.length > 0 || previousHash != null));
     
-    // Update last report time and hash if reporting or if it's the first run
-    if (shouldReport || isFirstReport) {
+    // Update last report time and hash only if we're actually reporting
+    // Don't create a record for first run with no diagnostics
+    if (shouldReport) {
       this.db.run(`
         INSERT INTO diagnostic_reports (project_hash, last_report_time, last_report_hash, diagnostics_count)
         VALUES (?, ?, ?, ?)
