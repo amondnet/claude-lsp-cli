@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { DiagnosticDeduplicator } from "../src/utils/diagnostic-dedup";
-import { Database } from "bun:sqlite";
+// Database import removed - not used
 import { rmSync, existsSync } from "fs";
 import { join } from "path";
 
@@ -12,7 +12,7 @@ describe("DiagnosticDeduplicator", () => {
 
   beforeEach(() => {
     // Generate unique project path for each test to avoid conflicts
-    testProjectPath = `/test/project/${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    testProjectPath = `/test/project/${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     
     // Clean up any existing test database
     if (existsSync(testDbPath)) {
@@ -241,7 +241,7 @@ describe("DiagnosticDeduplicator", () => {
     
     // Cleanup should remove diagnostics older than 24 hours
     // For testing, we'd need to mock the timestamp or expose cleanup method
-    await dedup.cleanup();
+    dedup.cleanup();
     
     // After cleanup, old diagnostics should be removed
     // This test would need additional setup to properly test the 24-hour window
