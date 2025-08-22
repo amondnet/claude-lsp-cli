@@ -78,10 +78,6 @@ const args = process.argv.slice(2);
 const command = args[0];
 const eventType = args[1];
 
-// Debug: log process.argv[0] in hook mode
-if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-  console.error(`DEBUG: process.argv[0] = ${process.argv[0]}`);
-}
 
 // Check if running as a language server
 if (command === '--lang-server' && args[1]) {

@@ -168,7 +168,7 @@ export class ProjectConfigDetector {
     return undefined;
   }
 
-  private detectJSX(packageJson: any, tsConfig: any, framework?: string): boolean {
+  private detectJSX(_packageJson: any, tsConfig: any, framework?: string): boolean {
     // If it's a React-based framework, it uses JSX
     if (framework === "react" || framework === "next") return true;
     

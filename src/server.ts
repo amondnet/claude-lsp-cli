@@ -121,7 +121,7 @@ class LSPHttpServer {
       process.umask(oldUmask);
     });
     
-    const server = Bun.serve({
+    Bun.serve({
       unix: socketPath as any,
       fetch: this.handleRequest.bind(this),
       error: async (error) => {

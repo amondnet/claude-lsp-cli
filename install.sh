@@ -95,9 +95,11 @@ echo "  ${GREEN}claude --add-dir ~/.claude --add-dir ~/.local/bin${NC}"
 echo ""
 echo "Then ask Claude to set up BOTH the hooks AND the diagnostic handling:"
 echo ""
-echo "  \"Please help me set up the Claude Code LSP diagnostics system:"
+echo "  \"Please help me set up the Claude Code LSP diagnostics system by checking"
+echo "  existing configurations and updating them intelligently:"
 echo ""
-echo "  1. First, update my ~/.claude/settings.json to include these LSP hooks:"
+echo "  1. First, read my existing ~/.claude/settings.json file. Then intelligently"
+echo "     merge or replace the hooks section to include these LSP hooks:"
 echo '     {
        "hooks": {
          "PreToolUse": [
@@ -114,17 +116,19 @@ echo '     {
          ]
        }
      }'
-echo "     Replace any existing claude-lsp-cli hooks with this configuration."
+echo "     If claude-lsp-cli hooks already exist, replace them. If other hooks exist,"
+echo "     preserve them and add the LSP hooks alongside them."
 echo ""
-echo "  2. Then, add the Diagnostics & Self-Correction Protocol to my ~/.claude/CLAUDE.md"
-echo "     file. This protocol teaches you how to handle [[system-message]] diagnostic"
-echo "     reports. Include the mandatory correction protocol that explains:"
+echo "  2. Then, read my existing ~/.claude/CLAUDE.md file. If a 'Diagnostics &"
+echo "     Self-Correction Protocol' section already exists, update it. If not,"
+echo "     add it. Include the mandatory correction protocol that explains:"
 echo "     - How to recognize diagnostic reports with status: 'diagnostics_report'"
 echo "     - The requirement to fix errors before continuing with user requests"
 echo "     - How to handle the asynchronous diagnostic flow"
 echo "     - The escape hatch after three failed correction attempts"
 echo ""
-echo "  Please set up both the hooks in settings.json and the protocol in CLAUDE.md.\""
+echo "  Please read existing configurations first, then intelligently update both"
+echo "  files without creating duplicates or breaking existing settings.\""
 echo ""
 echo "This ensures both hook configuration and diagnostic handling instructions."
 
@@ -163,3 +167,4 @@ echo "  Run: $SCRIPT_DIR/uninstall.sh"
 echo "  Or manually:"
 echo "    rm -f ~/.local/bin/claude-lsp-{cli,server,hook,diagnostics}"
 echo "    Remove hooks from ~/.claude/settings.json"
+echo "    Remove Diagnostics & Self-Correction Protocol from ~/.claude/CLAUDE.md"
