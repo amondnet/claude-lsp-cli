@@ -521,12 +521,12 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
               
               // Create a comprehensive summary
               let summary: string | undefined;
-              if (summaryParts.length > 0) {
-                // Also add total counts per language for clarity
-                const fullCounts = Array.from(diagnosticsBySource.entries())
-                  .map(([source, diags]) => `${source}: ${diags.length}`)
+              if (summaryParts.length > 0 || relevantDiagnostics.length > 5) {
+                // Show total count with breakdown by language
+                const languageCounts = Array.from(diagnosticsBySource.entries())
+                  .map(([source, diags]) => `${diags.length} for ${source}`)
                   .join(', ');
-                summary = `Total: ${fullCounts}${summaryParts.length > 0 ? '. Showing first 5 per language.' : ''}`;
+                summary = `total: ${relevantDiagnostics.length} diagnostics (${languageCounts})`;
               }
               
               console.error(`[[system-message]]: ${JSON.stringify({
@@ -636,11 +636,11 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                   }
                 }
                 
-                // Create a comprehensive summary
-                const fullCounts = Array.from(diagnosticsBySource.entries())
-                  .map(([source, diags]) => `${source}: ${diags.length}`)
+                // Create a comprehensive summary  
+                const languageCounts = Array.from(diagnosticsBySource.entries())
+                  .map(([source, diags]) => `${diags.length} for ${source}`)
                   .join(', ');
-                const summary = `Found issues on first run - Total: ${fullCounts}. Showing first 5 per language.`;
+                const summary = `total: ${relevantDiagnostics.length} diagnostics (${languageCounts})`;
                 
                 console.error(`[[system-message]]: ${JSON.stringify({
                   status: 'diagnostics_report',
