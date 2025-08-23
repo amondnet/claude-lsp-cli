@@ -139,122 +139,69 @@ export async function runDiagnostics(
   logger.setProject(projectHash);
   
   try {
-    // For now, we'll use the LSP client directly instead of the server
-    // This is a temporary solution until we update the server architecture
-    const { LSPClient } = await import('./lsp-client');
-    const client = new LSPClient();
+    // First, try to query the existing server
+    const socketDir = process.env.XDG_RUNTIME_DIR || 
+                     (process.platform === 'darwin' 
+                       ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
+                       : `${process.env.HOME}/.claude-lsp/run`);
     
-    // Auto-detect and start language servers for the project
-    await client.autoDetectAndStart(projectRoot);
+    const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
     
-    // Get diagnostics for the project
-    const diagnostics: any[] = [];
-    
-    if (filePath) {
-      // Get diagnostics for specific file
-      await Bun.file(filePath).text();
-      await client.openDocument(filePath);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for diagnostics
-      const fileDiagnostics = client.getDiagnostics(filePath);
-      if (fileDiagnostics) {
-        diagnostics.push(...fileDiagnostics.map(d => ({
-          file: filePath,
-          line: d.range.start.line + 1,
-          column: d.range.start.character + 1,
-          severity: d.severity === 1 ? 'error' : 'warning',
-          message: d.message,
-          source: d.source || 'typescript'
-        })));
-      }
-    } else {
-      // Import language detection utilities
-      const { detectProjectLanguages, languageServers } = await import('./language-servers');
-      
-      // Detect project languages based on project files
-      const detectedLanguages = detectProjectLanguages(projectRoot);
-      await logger.info(`Detected languages: ${detectedLanguages.join(', ')}`);
-      
-      // Collect all extensions for detected languages
-      const extensions = new Set<string>();
-      for (const lang of detectedLanguages) {
-        const config = languageServers[lang];
-        if (config?.extensions) {
-          config.extensions.forEach(ext => extensions.add(ext.substring(1))); // Remove leading dot
-        }
-      }
-      await logger.info(`Extensions to scan: ${Array.from(extensions).join(', ')}`)
-      
-      // If no languages detected, try to get from active servers as fallback
-      if (extensions.size === 0) {
-        const activeExtensions = client.getActiveFileExtensions();
-        activeExtensions.forEach(ext => extensions.add(ext.substring(1)));
-      }
-      
-      if (extensions.size === 0) {
-        // No languages detected, skip file discovery
-        await logger.warn("No languages detected to determine file extensions");
-      } else {
-        // Build glob pattern from extensions
-        const extensionArray = Array.from(extensions);
-        const globPattern = extensionArray.length > 1
-          ? `**/*.{${extensionArray.join(',')}}` 
-          : `**/*.${extensionArray[0]}`;
-        
-        const { glob } = await import('glob');
-        const files = await glob(globPattern, {
-          cwd: projectRoot,
-          ignore: [
-            'node_modules/**',
-            'dist/**',
-            'build/**',
-            'coverage/**',
-            '.git/**',
-            '**/*.min.js',
-            '**/*.d.ts',
-            'vendor/**',
-            '.bundle/**'
-          ]
-        });
-        
-        // Process all discovered files (remove arbitrary 10-file limit)
-        // Open files in batches to avoid overwhelming the language server
-        const BATCH_SIZE = 5;
-        for (let i = 0; i < files.length; i += BATCH_SIZE) {
-          const batch = files.slice(i, i + BATCH_SIZE);
-          await Promise.all(batch.map(async (file) => {
-            const fullPath = join(projectRoot, file);
-            try {
-              await Bun.file(fullPath).text();
-              await client.openDocument(fullPath);
-            } catch (error) {
-              // Skip files that can't be read
-            }
-          }));
-          // Small delay between batches
-          if (i + BATCH_SIZE < files.length) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-        }
-      }
-      
-      // Wait for diagnostics to be collected
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Get all diagnostics
-      for (const [file, diags] of client.getAllDiagnostics()) {
-        diagnostics.push(...diags.map(d => ({
-          file,
-          line: d.range.start.line + 1,
-          column: d.range.start.character + 1,
-          severity: d.severity === 1 ? 'error' : 'warning',
-          message: d.message,
-          source: d.source || 'typescript'
-        })));
-      }
+    // Check if server is running by attempting to query it
+    let serverRunning = false;
+    try {
+      const testResponse = await fetch('http://localhost/health', {
+        // @ts-ignore - Bun supports unix option
+        unix: socketPath,
+        signal: AbortSignal.timeout(1000)
+      });
+      serverRunning = testResponse.ok;
+    } catch {
+      // Server not running
     }
     
-    // Clean up
-    await client.shutdown();
+    // If server not running, start it
+    if (!serverRunning) {
+      const { spawn } = await import('child_process');
+      const serverProcess = spawn('bun', ['run', join(import.meta.dir, 'server.ts'), projectRoot], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      serverProcess.unref();
+      
+      // Wait for server to start
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    
+    // Now query the server for diagnostics
+    const diagnostics: any[] = [];
+    
+    // Query the server for diagnostics
+    try {
+      const url = filePath 
+        ? `http://localhost/diagnostics?file=${encodeURIComponent(filePath)}`
+        : `http://localhost/diagnostics/all`;
+      
+      const response = await fetch(url, {
+        // @ts-ignore - Bun supports unix option
+        unix: socketPath,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(30000) // 30 second timeout
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.diagnostics && Array.isArray(data.diagnostics)) {
+          diagnostics.push(...data.diagnostics);
+        }
+      } else {
+        await logger.error(`Server returned error: ${response.status}`, { url });
+      }
+    } catch (error) {
+      await logger.error('Failed to query diagnostics from server', error);
+    }
     
     return {
       diagnostics,
