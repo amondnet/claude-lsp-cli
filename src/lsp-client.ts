@@ -584,6 +584,21 @@ export class LSPClient {
     return Array.from(this.servers.keys()).map(lang => languageServers[lang].name);
   }
 
+  getActiveLanguageKeys(): string[] {
+    return Array.from(this.servers.keys());
+  }
+
+  getActiveFileExtensions(): string[] {
+    const extensions = new Set<string>();
+    for (const lang of this.servers.keys()) {
+      const config = languageServers[lang];
+      if (config?.extensions) {
+        config.extensions.forEach(ext => extensions.add(ext));
+      }
+    }
+    return Array.from(extensions);
+  }
+
   getSupportedLanguages(): string[] {
     return Object.keys(languageServers);
   }

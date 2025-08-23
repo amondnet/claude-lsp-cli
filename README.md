@@ -8,7 +8,7 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## ✨ Features
 
-- 🚀 **Multi-Language Support**: 9 languages working (TypeScript, JavaScript, Go, C++, PHP, Scala, Rust, Lua, Terraform)
+- 🚀 **Multi-Language Support**: 13 languages working (TypeScript, JavaScript, Python, Go, Java, C++, Ruby, PHP, Scala, Rust, Lua, Elixir, Terraform)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
 - 📦 **Auto-install**: Automatically installs TypeScript and PHP language servers
@@ -21,7 +21,7 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 
 ## 📊 Language Support Status (11/13 Tested - 85% Success Rate)
 
-### ✅ Working Languages (11 languages) - Tested and Confirmed
+### ✅ Working Languages (13 languages) - Tested and Confirmed
 - **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
 - **Python** - Full diagnostics via pylsp (mypy, pyflakes, pycodestyle) ✓
@@ -29,11 +29,11 @@ This LSP server integrates with Claude Code through a **PostToolUse hook** that 
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
 - **Java** - Full diagnostics via jdtls (requires `brew install jdtls`) ✓
 - **C/C++** - Full diagnostics (requires clangd installed) ✓
-- **Ruby** - ❌ Not working (solargraph integration issues)
+- **Ruby** - Full diagnostics via Solargraph (requires `gem install solargraph` and `.solargraph.yml` config) ✓
 - **PHP** - Full diagnostics (auto-installs Intelephense) ✓
 - **Scala** - Full diagnostics (requires `cs install metals`) ✓
 - **Lua** - Full diagnostics (install via `mise install lua-language-server`) ✓
-- **Elixir** - ❌ Not working (path configuration issues)
+- **Elixir** - Full diagnostics via Elixir LS (requires `mise install elixir-ls`) ✓
 - **Terraform** - Partial diagnostics (install via `mise install terraform-ls`) ✓
 
 

@@ -368,6 +368,12 @@ class LSPHttpServer {
 
   private async handleAllDiagnostics(headers: any): Promise<Response> {
     try {
+      // First, discover and open all relevant files in the project
+      await this.discoverAndOpenProjectFiles();
+      
+      // Wait a bit for diagnostics to be collected
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
       const allDiagnostics: DiagnosticResponse[] = [];
       
       for (const [filePath, diagnostics] of this.client.getAllDiagnostics()) {
@@ -393,6 +399,81 @@ class LSPHttpServer {
     } catch (error) {
       await logger.error('Failed to get all diagnostics', error);
       throw error;
+    }
+  }
+
+  private async discoverAndOpenProjectFiles(): Promise<void> {
+    try {
+      // Import language detection utilities
+      const { detectProjectLanguages, languageServers } = await import('./language-servers');
+      
+      // Detect project languages based on project files
+      const detectedLanguages = detectProjectLanguages(this.projectRoot);
+      
+      // Collect all extensions for detected languages
+      const extensions = new Set<string>();
+      for (const lang of detectedLanguages) {
+        const config = languageServers[lang];
+        if (config?.extensions) {
+          config.extensions.forEach(ext => extensions.add(ext.substring(1))); // Remove leading dot
+        }
+      }
+      
+      // If no languages detected via project files, try to get from active servers
+      if (extensions.size === 0) {
+        const activeExtensions = this.client.getActiveFileExtensions();
+        activeExtensions.forEach(ext => extensions.add(ext.substring(1)));
+      }
+      
+      if (extensions.size === 0) {
+        // No languages detected, skip file discovery
+        await logger.debug("No languages detected for file discovery");
+        return;
+      }
+      
+      // Build glob pattern from extensions
+      const extensionArray = Array.from(extensions);
+      const globPattern = extensionArray.length > 1
+        ? `**/*.{${extensionArray.join(',')}}` 
+        : `**/*.${extensionArray[0]}`;
+      
+      const { glob } = await import('glob');
+      const files = await glob(globPattern, {
+        cwd: this.projectRoot,
+        ignore: [
+          'node_modules/**',
+          'dist/**',
+          'build/**',
+          'coverage/**',
+          '.git/**',
+          '**/*.min.js',
+          '**/*.d.ts',
+          'vendor/**',
+          '.bundle/**'
+        ]
+      });
+      
+      // Open files in batches to avoid overwhelming the language server
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < files.length; i += BATCH_SIZE) {
+        const batch = files.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (file) => {
+          const fullPath = join(this.projectRoot, file);
+          try {
+            await this.openDocument(fullPath);
+          } catch (error) {
+            // Skip files that can't be opened
+            await logger.debug(`Could not open file: ${file}`, { error });
+          }
+        }));
+        // Small delay between batches
+        if (i + BATCH_SIZE < files.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+    } catch (error) {
+      await logger.error('Failed to discover project files', error);
+      // Don't throw, just continue with whatever diagnostics we have
     }
   }
 
