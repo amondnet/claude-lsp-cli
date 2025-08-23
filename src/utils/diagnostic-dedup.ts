@@ -5,6 +5,7 @@
 
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "fs";
+import { relative, resolve, normalize } from "path";
 import { secureHash } from "./security";
 import { logger } from "./logger";
 
@@ -27,11 +28,13 @@ interface DiagnosticDiff {
 export class DiagnosticDeduplicator {
   private db: Database;
   private projectHash: string;
+  private projectPath: string;
   // Time window for considering diagnostics as "recent" (default: 4 hours)
   // After this time, a resolved diagnostic can be reported again if it reappears
   private readonly DIAGNOSTIC_MEMORY_WINDOW = 4 * 60 * 60 * 1000; // 4 hours
 
   constructor(projectPath: string) {
+    this.projectPath = normalize(projectPath);
     this.projectHash = secureHash(projectPath).substring(0, 16);
     
     // Initialize SQLite database
@@ -83,9 +86,29 @@ export class DiagnosticDeduplicator {
     `);
   }
 
+  private normalizePath(filePath: string): string {
+    // Normalize the file path to be relative to project root
+    try {
+      const absolutePath = resolve(this.projectPath, filePath);
+      const relativePath = relative(this.projectPath, absolutePath);
+      
+      // If the file is outside the project root, use the absolute path
+      if (relativePath.startsWith('..')) {
+        return normalize(absolutePath);
+      }
+      
+      return relativePath;
+    } catch (error) {
+      // Fallback to original path if normalization fails
+      return filePath;
+    }
+  }
+
   private createDiagnosticKey(diag: Diagnostic): string {
-    // Create a unique key for each diagnostic
-    return secureHash(`${diag.file}:${diag.line}:${diag.column}:${diag.message}`).substring(0, 16);
+    // Normalize the file path before creating the key
+    const normalizedPath = this.normalizePath(diag.file);
+    // Create a unique key for each diagnostic using normalized path
+    return secureHash(`${normalizedPath}:${diag.line}:${diag.column}:${diag.message}`).substring(0, 16);
   }
 
   private createReportHash(diagnostics: Diagnostic[]): string {
@@ -154,11 +177,11 @@ export class DiagnosticDeduplicator {
       const key = this.createDiagnosticKey(diag);
       currentMap.set(key, diag);
       
-      // Upsert into database
+      // Upsert into database with normalized path
       stmt.run(
         this.projectHash,
         key,
-        diag.file,
+        this.normalizePath(diag.file),
         diag.line,
         diag.column,
         diag.severity,
