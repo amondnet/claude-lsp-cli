@@ -46,5 +46,3 @@ The system automatically limits diagnostic output to prevent context overflow:
 - **Summary field** includes count of additional diagnostics when >5 total exist
 - **All languages supported** (TypeScript, JavaScript, Python, Java, Go, Rust, PHP, C++, Scala, Lua, etc.)
 - **Deduplication** prevents duplicate error reports
-
-TODO(human)
