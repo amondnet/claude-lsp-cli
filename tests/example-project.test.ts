@@ -46,6 +46,13 @@ describe("Example Project Tests", () => {
       });
     });
     
+    // Debug output for CI troubleshooting
+    if (result.code !== 2) {
+      console.log("Exit code:", result.code);
+      console.log("Stdout:", result.stdout);
+      console.log("Stderr:", result.stderr);
+    }
+    
     // Should exit with code 2 when errors are found
     expect(result.code).toBe(2);
     
@@ -54,6 +61,7 @@ describe("Example Project Tests", () => {
     expect(result.stderr).toContain("errors_found");
     
     // Should find specific errors we know are in the file
-    expect(result.stderr).toContain("Type 'number' is not assignable to type 'string'");
+    // Note: Error message might vary slightly between TypeScript versions
+    expect(result.stderr).toMatch(/Type '(number|3000)' is not assignable to type 'string'/i);
   }, 30000);
 });

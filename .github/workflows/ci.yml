@@ -7,29 +7,8 @@ on:
     branches: [main, master]
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      
-      - name: Install dependencies
-        run: bun install
-      
-      - name: Run tests
-        run: bun test
-      
-      - name: Test CLI
-        run: bun run src/cli.ts --help
-
-  build:
-    name: Build
-    needs: test
+  test-and-build:
+    name: Test and Build
     runs-on: ubuntu-latest
     
     steps:
@@ -45,5 +24,17 @@ jobs:
       - name: Build binaries
         run: bun run build
       
-      - name: Test binaries
+      - name: Run tests
+        run: bun test
+      
+      - name: Test CLI source
+        run: bun run src/cli.ts --help
+      
+      - name: Test CLI binary
         run: ./bin/claude-lsp-cli --help
+      
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: bin/
