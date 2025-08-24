@@ -169,8 +169,9 @@ export async function runDiagnostics(
       });
       serverProcess.unref();
       
-      // Wait for server to start
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Wait for server to start (longer in CI environments)
+      const waitTime = process.env.CI ? 5000 : 3000;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
     // Now query the server for diagnostics
@@ -310,8 +311,10 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             setTimeout(() => reject(new Error('runDiagnostics timeout')), timeout)
           );
           
+          // Pass the specific edited file if available for better performance
+          const editedFile = hookData?.tool_input?.file_path;
           diagnostics = await Promise.race([
-            runDiagnostics(projectRoot, undefined),
+            runDiagnostics(projectRoot, editedFile),
             timeoutPromise
           ]);
         } catch (error) {

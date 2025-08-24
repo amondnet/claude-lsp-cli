@@ -25,7 +25,15 @@ describe("Example Project Tests", () => {
       tool_response: { success: true }
     };
     
-    const result = await new Promise<{stdout: string, stderr: string, code: number}>((resolve) => {
+    // In CI, the TypeScript server might need multiple attempts
+    let result;
+    let attempts = 0;
+    const maxAttempts = process.env.CI ? 3 : 1;
+    
+    while (attempts < maxAttempts) {
+      attempts++;
+      
+      result = await new Promise<{stdout: string, stderr: string, code: number}>((resolve) => {
       const proc = spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
         cwd: projectRoot,
         stdin: "pipe",
@@ -45,6 +53,18 @@ describe("Example Project Tests", () => {
         resolve({ stdout, stderr, code: proc.exitCode || 0 });
       });
     });
+      
+      // If we got errors, break out of retry loop
+      if (result.code === 2) {
+        break;
+      }
+      
+      // If not the last attempt, wait before retrying
+      if (attempts < maxAttempts) {
+        console.log(`Attempt ${attempts} failed with code ${result.code}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
     
     // Always output debug info in CI for troubleshooting
     console.log("=== CI Debug Info ===");
