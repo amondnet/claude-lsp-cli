@@ -66,29 +66,6 @@ describe("Example Project Tests", () => {
       }
     }
     
-    // Always output debug info in CI for troubleshooting
-    console.log("=== CI Debug Info ===");
-    console.log("Exit code:", result.code);
-    console.log("Stdout length:", result.stdout.length);
-    console.log("Stdout:", result.stdout || "(empty)");
-    console.log("Stderr length:", result.stderr.length);
-    console.log("Stderr first 500 chars:", result.stderr.substring(0, 500) || "(empty)");
-    console.log("Working dir:", EXAMPLE_PROJECT);
-    console.log("Hook data file:", hookData.tool_input.file_path);
-    
-    // Check if the file actually exists and has the expected error
-    try {
-      const fs = await import('fs');
-      const fileContent = fs.readFileSync(hookData.tool_input.file_path, 'utf8');
-      const lines = fileContent.split('\n');
-      console.log("File exists:", true);
-      console.log("File line 7:", lines[6]); // Line 7 should have the error
-      console.log("Contains 'port: string = 3000':", fileContent.includes('port: string = 3000'));
-    } catch (e) {
-      console.log("File exists:", false);
-      console.log("Error reading file:", e);
-    }
-    console.log("===================");
     
     // Should exit with code 2 when errors are found
     expect(result.code).toBe(2);

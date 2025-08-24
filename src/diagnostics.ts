@@ -321,12 +321,6 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
           await logger.debug('runDiagnostics error', { error });
           await logger.error('Failed to run diagnostics', { error: error instanceof Error ? error.message : String(error), projectRoot });
           
-          // Log to stderr for CI debugging
-          if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-            console.error(`[HOOK DEBUG] runDiagnostics failed, entering fallback`);
-            console.error(`[HOOK DEBUG] Error: ${error instanceof Error ? error.message : String(error)}`);
-          }
-          
           // In test/hook mode, try to detect errors from the file content
           // This ensures tests work even when LSP server isn't running
           await logger.debug('Diagnostics failed, attempting fallback detection');
@@ -353,14 +347,6 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                             content.includes('message: string = 123') || 
                             content.includes('const x: number = 42') ||
                             content.includes('message'); // Check for common patterns
-              
-              // Log to stderr for CI debugging
-              if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-                console.error(`[FALLBACK DEBUG] File: ${editedFile}`);
-                console.error(`[FALLBACK DEBUG] Has errors: ${hasMockErrors}`);
-                console.error(`[FALLBACK DEBUG] Port error: ${portErrorPattern.test(content)}`);
-                console.error(`[FALLBACK DEBUG] Type error: ${typeErrorPattern.test(content)}`);
-              }
               
               await logger.debug('File content check for errors', { 
                 editedFile, 
@@ -446,15 +432,6 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         await logger.debug('Raw diagnostics count', { count: diagnostics.diagnostics?.length || 0 });
         
         await logger.debug("Diagnostics response received", diagnostics);
-        
-        // Log to stderr for CI debugging
-        if (process.env.CLAUDE_LSP_HOOK_MODE === 'true') {
-          console.error(`[HOOK DEBUG] runDiagnostics succeeded`);
-          console.error(`[HOOK DEBUG] Diagnostics count: ${diagnostics.diagnostics?.length || 0}`);
-          if (diagnostics.diagnostics?.length > 0) {
-            console.error(`[HOOK DEBUG] First diagnostic: ${JSON.stringify(diagnostics.diagnostics[0])}`);
-          }
-        }
         
           // Output diagnostics as system message
           if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
