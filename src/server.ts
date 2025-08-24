@@ -344,10 +344,9 @@ class LSPHttpServer {
       
       // Get diagnostics
       const diagnostics = this.client.getDiagnostics(fullPath);
-      const relativePath = relative(this.projectRoot, fullPath);
       
       const response: DiagnosticResponse[] = diagnostics.map(d => ({
-        file: relativePath,
+        file: fullPath,  // Return absolute path for consistency
         line: d.range.start.line + 1,
         column: d.range.start.character + 1,
         severity: this.mapSeverity(d.severity),
@@ -377,11 +376,9 @@ class LSPHttpServer {
       const allDiagnostics: DiagnosticResponse[] = [];
       
       for (const [filePath, diagnostics] of this.client.getAllDiagnostics()) {
-        const relativePath = relative(this.projectRoot, filePath);
-        
         for (const d of diagnostics) {
           allDiagnostics.push({
-            file: relativePath,
+            file: filePath,  // Return absolute path for consistency
             line: d.range.start.line + 1,
             column: d.range.start.character + 1,
             severity: this.mapSeverity(d.severity),
