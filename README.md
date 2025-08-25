@@ -6,23 +6,173 @@ A Language Server Protocol (LSP) client that integrates with Claude Code to prov
 
 This LSP server integrates with Claude Code through a **PostToolUse hook** that automatically checks your code after every edit, providing instant feedback about errors, warnings, and code issues directly in your Claude conversation.
 
-## ⚠️ CRITICAL: Working Directory Requirement
+## 🔍 How Project Detection Works
 
-**You MUST start Claude from your project directory for diagnostics to work!**
+The LSP client automatically detects your project root using a smart algorithm:
 
-```bash
-# ✅ CORRECT: Start Claude from your project directory
-cd ~/my-project
-claude
+1. **Starts from the edited file's directory** and walks UP the directory tree
+2. **Looks for version control markers** (primary indicator):
+   - `.git` (Git)
+   - `.hg` (Mercurial)  
+   - `.svn` (Subversion)
+3. **Also checks for language-specific files**:
+   - **TypeScript/JavaScript**: `tsconfig.json`, `package.json`
+   - **Python**: `setup.py`, `pyproject.toml`, `requirements.txt`, `.venv`, `Pipfile`
+4. **Scans common subdirectories** (`ui/`, `frontend/`, `backend/`, `api/`, `web/`, `server/`, `client/`)
+5. **Returns the FIRST directory with version control** as the project root
+6. **Falls back to directory with language files** if no version control found
 
-# ❌ WRONG: Starting from parent directory will NOT work
-cd ~/workspace
-claude  # Diagnostics will fail for ~/workspace/my-project
+### Important Notes
+
+- **One project per detection**: Only finds the first/nearest project root
+- **Walks UP only**: Starts from file location and goes up to find root
+- **Version control wins**: `.git` directory takes precedence over language files
+- **Works from any file**: Edit any file in the project, it finds the root
+
+### Example Project Structure
+
+```
+~/my-project/           # <- Project root (has .git)
+├── .git/              # <- Version control marker (detected!)
+├── package.json       # <- Also detected for TypeScript
+├── src/
+│   └── index.ts      # <- Edit this file
+└── backend/
+    ├── requirements.txt  # <- Python detected in subdir
+    └── main.py
 ```
 
-**Why this matters**: The LSP hooks run with the directory Claude was started from, not the directory you `cd` to within Claude. The `cd` command in Claude only affects shell commands, not the hook system.
+When you edit `src/index.ts`, the LSP:
+1. Starts at `~/my-project/src/`
+2. Walks up to `~/my-project/`
+3. Finds `.git` and `package.json`
+4. Uses `~/my-project/` as the project root
 
-**For multiple projects**: Start separate Claude sessions from each project directory, or restart Claude when switching projects.
+## 🔄 Multi-Project Detection
+
+**IMPORTANT**: The PostToolUse hook cannot determine which specific file was edited due to Claude Code's architecture. Therefore, the system uses a comprehensive approach:
+
+### How It Works:
+1. **Tool executes** (Edit, Bash, Grep, etc.) - triggers PostToolUse hook
+2. **System receives only `cwd`** - current working directory, NOT the file path
+3. **Discovers ALL projects** in the workspace using `findAllProjects()`
+4. **Scans each project** for language-specific files and diagnostics
+5. **Aggregates results** from all language servers
+
+### Key Behaviors:
+- **Broad scanning**: Checks entire workspace since we can't target specific files
+- **Multi-project support**: Handles monorepos and multiple project directories
+- **Language detection**: Each project gets its own language servers based on detected files
+- **Efficient batching**: Opens files in small batches to avoid overwhelming language servers
+
+### Example Multi-Project Workspace:
+```
+~/workspace/
+├── frontend/           # <- React/TypeScript project
+│   ├── package.json
+│   └── src/
+├── backend/           # <- Python project  
+│   ├── requirements.txt
+│   └── api/
+└── infrastructure/    # <- Terraform project
+    └── main.tf
+```
+
+When ANY tool runs in this workspace, the system:
+1. Detects 3 separate projects
+2. Starts TypeScript, Python, and Terraform language servers
+3. Scans all relevant files in each project
+4. Reports diagnostics from any project with issues
+
+## 🧠 Smart Deduplication System
+
+To prevent spam while ensuring you see important changes, the system uses **server-side deduplication**:
+
+### Architecture:
+
+1. **Server-Side Processing**: LSP server handles all deduplication logic
+   - Receives raw diagnostics from language servers
+   - Processes through deduplication system
+   - Returns max 5 display-ready diagnostics
+
+2. **Hook-Side Simplicity**: PostToolUse hook just reports what server returns
+   - No complex deduplication logic in hook
+   - Clean separation of concerns
+
+### How Deduplication Works:
+
+1. **Diagnostic Fingerprinting**: Each diagnostic gets a unique key based on:
+   - File path + line + column + severity + message + source
+
+2. **SQLite Database Storage**: Server tracks diagnostic history per project:
+   - First seen timestamp
+   - Last seen timestamp  
+   - Display history
+
+3. **Server Processing Logic**:
+   - a. **Remove old items** not in new results
+   - b. **Update timestamps** for items still present  
+   - c. **Map to latest 5 items** for display
+   - d. **Add displayed items** to dedup list (non-displayed stay out for next time)
+
+4. **Memory Window**: **10 minutes** (configurable)
+   - After 10 minutes, resolved issues can be reported again if they reappear
+   - Prevents long-term spam while allowing periodic reminders
+
+### Server Response Format:
+```json
+{
+  "diagnostics": [
+    {
+      "file": "/path/to/file.ts",
+      "line": 10,
+      "column": 5,
+      "severity": "error",
+      "message": "Type 'string' is not assignable to type 'number'",
+      "source": "typescript",
+      "ruleId": "2322"
+    }
+    // ... max 5 items returned
+  ],
+  "timestamp": "2025-08-25T20:00:00.000Z"
+}
+```
+
+### Cache Management:
+- **Database location**: `~/.claude/data/claude-code-lsp.db`
+- **Clear cache**: `rm -f ~/.claude/data/claude-code-lsp.db`
+- **Memory window**: 10 minutes (recently reduced from 4 hours)
+
+## ⚠️ Architectural Limitations
+
+### File Change Detection
+
+**The system cannot detect which specific file was edited.** This is a fundamental limitation of Claude Code's hook architecture:
+
+#### What We Get:
+- ✅ `cwd` (current working directory)
+- ✅ `tool_name` (Edit, Bash, etc.)
+- ✅ `session_id` and basic metadata
+
+#### What We DON'T Get:
+- ❌ Which files were modified
+- ❌ What changes were made
+
+#### Implications:
+- **Cannot send targeted `didChange` notifications** to language servers
+- **Must scan entire workspace** to catch changes
+- **LSP servers may cache stale content** from disk
+- **Less efficient** than file-specific updates
+
+#### Workarounds:
+1. **Reset server cache**: `claude-lsp-cli reset /path/to/project` - Fast, graceful refresh (recommended)
+2. **Kill stale servers**: `claude-lsp-cli kill-all` - Nuclear option if reset fails
+3. **Comprehensive scanning**: Check all projects to ensure nothing is missed
+4. **Smart deduplication**: Prevent spam from repeated scans
+
+### PostToolUse Hook Behavior
+- **No file path information**: All tools provide only `cwd` and `tool_name`
+- **Workspace-wide scanning**: Necessary due to lack of targeted information
 
 ## ✨ Features
 
@@ -174,16 +324,6 @@ bun run build
           }
         ]
       }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_LSP_CLI_PATH} hook SessionStart"
-          }
-        ]
-      }
     ]
   }
 }
@@ -192,7 +332,6 @@ bun run build
 This configuration:
 - **Environment variables**: Set paths to the binaries
 - **PostToolUse**: Only runs on tools that can modify files (Write/Edit/etc.)
-- **SessionStart**: Checks initial project state when Claude starts  
 - **No Stop hook**: Servers persist between sessions for optimal performance
 - **Efficient filtering**: Skips Read, WebFetch, Grep and other read-only tools
 

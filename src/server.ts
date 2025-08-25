@@ -13,6 +13,7 @@ import {
 import { RateLimiter } from "./utils/rate-limiter";
 import { logger } from "./utils/logger";
 import { ProjectConfigDetector } from "./project-config-detector";
+import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
 
 interface DiagnosticResponse {
   file: string;
@@ -30,6 +31,7 @@ class LSPHttpServer {
   private projectHash: string;
   private openDocuments: Set<string> = new Set();
   private rateLimiter: RateLimiter;
+  private deduplicator: DiagnosticDeduplicator;
 
   constructor(projectRoot: string) {
     // Normalize to absolute path for consistent hashing
@@ -37,6 +39,7 @@ class LSPHttpServer {
     this.projectHash = secureHash(this.projectRoot).substring(0, 16);
     this.client = new LSPClient();
     this.rateLimiter = new RateLimiter(100, 60000); // 100 requests per minute
+    this.deduplicator = new DiagnosticDeduplicator(this.projectRoot);
     
     logger.setProject(this.projectHash);
   }
@@ -305,6 +308,13 @@ class LSPHttpServer {
         case "/languages":
           return this.handleLanguages(headers);
         
+        case "/reset":
+          if (req.method === "POST") {
+            return this.handleReset(headers);
+          } else {
+            return new Response("Method Not Allowed", { status: 405 });
+          }
+        
         case "/shutdown":
           if (req.method === "POST") {
             // Graceful shutdown
@@ -350,10 +360,10 @@ class LSPHttpServer {
       // Open document and wait for diagnostics to be published
       await this.openDocument(fullPath, true);
       
-      // Get diagnostics
-      const diagnostics = this.client.getDiagnostics(fullPath);
+      // Get raw diagnostics from LSP
+      const rawDiagnostics = this.client.getDiagnostics(fullPath);
       
-      const response: DiagnosticResponse[] = diagnostics.map(d => ({
+      const diagnosticResponses: DiagnosticResponse[] = rawDiagnostics.map(d => ({
         file: fullPath,  // Return absolute path for consistency
         line: d.range.start.line + 1,
         column: d.range.start.character + 1,
@@ -363,8 +373,21 @@ class LSPHttpServer {
         ruleId: d.code?.toString()
       }));
       
+      // Filter to only errors and warnings
+      const relevantDiagnostics = diagnosticResponses.filter(d => 
+        d.severity === 'error' || d.severity === 'warning'
+      );
+      
+      // Run server-side deduplication  
+      const deduplicationResult = await this.deduplicator.processDiagnostics(relevantDiagnostics);
+      
+      // Return latest 5 items that should be displayed
+      const displayDiagnostics = deduplicationResult.shouldReport 
+        ? relevantDiagnostics.slice(0, 5)  // Latest 5 items for display
+        : [];  // Nothing to display if no changes
+      
       return new Response(JSON.stringify({
-        diagnostics: response,
+        diagnostics: displayDiagnostics,
         timestamp: new Date().toISOString()
       }), { headers });
     } catch (error) {
@@ -381,11 +404,12 @@ class LSPHttpServer {
       // Wait a bit for diagnostics to be collected
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      const allDiagnostics: DiagnosticResponse[] = [];
+      // Get raw diagnostics from LSP
+      const rawDiagnostics: DiagnosticResponse[] = [];
       
       for (const [filePath, diagnostics] of this.client.getAllDiagnostics()) {
         for (const d of diagnostics) {
-          allDiagnostics.push({
+          rawDiagnostics.push({
             file: filePath,  // Return absolute path for consistency
             line: d.range.start.line + 1,
             column: d.range.start.character + 1,
@@ -397,8 +421,22 @@ class LSPHttpServer {
         }
       }
       
+      // Filter to only errors and warnings
+      const relevantDiagnostics = rawDiagnostics.filter(d => 
+        d.severity === 'error' || d.severity === 'warning'
+      );
+      
+      // Run server-side deduplication
+      const deduplicationResult = await this.deduplicator.processDiagnostics(relevantDiagnostics);
+      
+      // Logic: a. remove old items, b. update timestamps, c. map to latest 5 items, d. add displayed to dedup list
+      // The deduplicator handles a, b, d internally, we just need to return the latest 5
+      const displayDiagnostics = deduplicationResult.shouldReport 
+        ? relevantDiagnostics.slice(0, 5)  // Latest 5 items for display
+        : [];  // Nothing to display if no changes
+      
       return new Response(JSON.stringify({
-        diagnostics: allDiagnostics,
+        diagnostics: displayDiagnostics,
         timestamp: new Date().toISOString()
       }), { headers });
     } catch (error) {
@@ -429,6 +467,47 @@ class LSPHttpServer {
     } catch (error) {
       await logger.error('Failed to get languages', error);
       return new Response(JSON.stringify([]), { headers });
+    }
+  }
+
+  private async handleReset(headers: any): Promise<Response> {
+    try {
+      await logger.info('Reset requested', { projectHash: this.projectHash });
+      
+      // Close all open documents to force refresh from disk
+      const openDocuments = Array.from(this.openDocuments);
+      for (const filePath of openDocuments) {
+        this.closeDocument(filePath);
+      }
+      
+      // Clear the client's diagnostic cache
+      this.client.clearDiagnostics();
+      
+      // Restart language servers to get fresh state
+      await this.client.restartServers();
+      
+      // Wait a moment for servers to initialize
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Re-discover and open project files
+      await this.discoverAndOpenProjectFiles();
+      
+      await logger.info('Reset completed', { projectHash: this.projectHash });
+      
+      return new Response(JSON.stringify({ 
+        status: "reset_completed",
+        projectHash: this.projectHash,
+        documentsReset: openDocuments.length
+      }), { headers });
+    } catch (error) {
+      await logger.error('Failed to reset server', error);
+      return new Response(JSON.stringify({
+        status: "reset_failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      }), { 
+        status: 500,
+        headers 
+      });
     }
   }
 

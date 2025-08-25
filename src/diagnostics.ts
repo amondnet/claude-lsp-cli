@@ -8,23 +8,8 @@ import {
   safeDeleteFile
 } from "./utils/security";
 import { logger } from "./utils/logger";
-import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
 
 
-// Cache of deduplicators per project
-const deduplicatorCache = new Map<string, DiagnosticDeduplicator>();
-
-function getDeduplicator(projectPath: string): DiagnosticDeduplicator {
-  let deduplicator = deduplicatorCache.get(projectPath);
-  if (!deduplicator) {
-    deduplicator = new DiagnosticDeduplicator(projectPath);
-    deduplicatorCache.set(projectPath, deduplicator);
-  }
-  return deduplicator;
-}
-
-// Note: createDiagnosticsHash is no longer needed as DiagnosticDeduplicator
-// handles hash generation internally for each diagnostic
 
 // LSP Client Functions
 
@@ -239,8 +224,8 @@ export async function runDiagnostics(
       });
       
       if (response.ok) {
-        const data = await response.json();
-        if (data.diagnostics && Array.isArray(data.diagnostics)) {
+        const data = await response.json() as { diagnostics?: any[] };
+        if (data?.diagnostics && Array.isArray(data.diagnostics)) {
           diagnostics.push(...data.diagnostics);
         }
       } else {
@@ -347,11 +332,11 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
       // This allows the hook to work even when Claude is started from a parent directory
       const projects = await findAllProjects(baseDir);
       
-      // For now, if we find projects, use the first one
-      // TODO: In future, could run diagnostics for all projects or be smarter about selection
-      const projectRoot = projects.length > 0 ? projects[0] : await findProjectRoot(baseDir);
-      if (projectRoot) {
-        await logger.debug('Found project root', { projectRoot });
+      // Run diagnostics for ALL projects found in the workspace
+      // Since we don't know which files were modified, check everything
+      const projectRoots = projects.length > 0 ? projects : [baseDir];
+      if (projectRoots.length > 0) {
+        await logger.debug('Found project roots', { count: projectRoots.length, roots: projectRoots });
         
         await logger.debug('Calling runDiagnostics');
         
@@ -364,132 +349,39 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             setTimeout(() => reject(new Error('runDiagnostics timeout')), timeout)
           );
           
-          // Pass the specific edited file if available for better performance
-          const editedFile = hookData?.tool_input?.file_path;
-          diagnostics = await Promise.race([
-            runDiagnostics(projectRoot, editedFile),
-            timeoutPromise
-          ]);
+          // Run diagnostics for all projects
+          const allDiagnostics = [];
+          for (const projectRoot of projectRoots) {
+            const projectDiags = await Promise.race([
+              runDiagnostics(projectRoot, undefined),
+              timeoutPromise
+            ]);
+            // runDiagnostics returns { diagnostics: [...], timestamp: ... }
+            allDiagnostics.push(...(projectDiags?.diagnostics || []));
+          }
+          diagnostics = allDiagnostics;
         } catch (error) {
           await logger.debug('runDiagnostics error', { error });
-          await logger.error('Failed to run diagnostics', { error: error instanceof Error ? error.message : String(error), projectRoot });
+          await logger.error('Failed to run diagnostics', { error: error instanceof Error ? error.message : String(error), projectRoots });
           
-          // In test/hook mode, try to detect errors from the file content
-          // This ensures tests work even when LSP server isn't running
-          await logger.debug('Diagnostics failed, attempting fallback detection');
+          // In test/hook mode, diagnostics might fail if LSP server isn't running
+          await logger.debug('Diagnostics failed, no fallback available');
           
-          // Check if the edited file contains errors by reading it
-          const editedFile = hookData?.tool_input?.file_path;
-          let hasMockErrors = false;
-          
-          if (editedFile) {
-            try {
-              const { readFileSync } = await import('fs');
-              const content = readFileSync(editedFile, 'utf8');
-              // Detect common TypeScript errors for testing
-              // Look for type mismatches (string = number)
-              const typeErrorPattern = /(?:const|let|var)\s+\w+\s*:\s*string\s*=\s*\d+/;
-              const portErrorPattern = /const\s+port\s*:\s*string\s*=\s*3000/; // Specific error in our example
-              const typoPattern = new RegExp('console\\.log\\(mes' + 'age\\)'); // Common typo (intentional for detection)
-              const wrongArgPattern = /add\(".*?",\s*".*?"\)/; // String args to number function
-              
-              hasMockErrors = typeErrorPattern.test(content) || 
-                            portErrorPattern.test(content) ||
-                            typoPattern.test(content) ||
-                            wrongArgPattern.test(content) ||
-                            content.includes('message: string = 123') || 
-                            content.includes('const x: number = 42') ||
-                            content.includes('message'); // Check for common patterns
-              
-              await logger.debug('File content check for errors', { 
-                editedFile, 
-                hasMockErrors,
-                contentLength: content.length,
-                hasPortError: portErrorPattern.test(content)
-              });
-            } catch (err) {
-              await logger.debug('Could not read file for error detection', { editedFile, error: err });
-            }
-          }
-          
-          // Create mock diagnostics based on detected errors
-          const mockDiagnostics = [];
-          if (hasMockErrors && editedFile) {
-            try {
-              const { readFileSync } = await import('fs');
-              const content = readFileSync(editedFile, 'utf8');
-              const lines = content.split('\n');
-              
-              lines.forEach((line, index) => {
-                // Check for type mismatch: assigning number to string type
-                if (/(?:const|let|var)\s+\w+\s*:\s*string\s*=\s*\d+/.test(line) || 
-                    /const\s+port\s*:\s*string\s*=\s*3000/.test(line)) {
-                  mockDiagnostics.push({
-                    file: editedFile,
-                    line: index + 1,
-                    column: line.indexOf(':') + 1,
-                    severity: "error",
-                    message: "Type 'number' is not assignable to type 'string'.",
-                    source: "typescript",
-                    ruleId: "2322"
-                  });
-                }
-                
-                // Check for typo: console.log with misspelled variable
-                const typoWord = 'mes' + 'age';  // Split to avoid TS recognizing it
-                if (line.includes(typoWord)) {
-                  mockDiagnostics.push({
-                    file: editedFile,
-                    line: index + 1,
-                    column: line.indexOf(typoWord) + 1,
-                    severity: "error",
-                    message: `Cannot find name '${typoWord}'. Did you mean 'message'?`,
-                    source: "typescript",
-                    ruleId: "2304"
-                  });
-                }
-                
-                // Check for wrong argument types: add("1", "2")
-                if (/add\(".*?",\s*".*?"\)/.test(line)) {
-                  mockDiagnostics.push({
-                    file: editedFile,
-                    line: index + 1,
-                    column: line.indexOf('add(') + 5,
-                    severity: "error",
-                    message: "Argument of type 'string' is not assignable to parameter of type 'number'.",
-                    source: "typescript",
-                    ruleId: "2345"
-                  });
-                }
-              });
-            } catch (err) {
-              // Fall back to simple mock diagnostic
-              mockDiagnostics.push({
-                file: editedFile,
-                line: 2,
-                column: 7,
-                severity: "error",
-                message: "Type 'number' is not assignable to type 'string'.",
-                source: "typescript",
-                ruleId: "2322"
-              });
-            }
-          }
-          
-          diagnostics = {
-            diagnostics: mockDiagnostics,
-            timestamp: new Date().toISOString()
-          };
+          // Create empty diagnostics array to match the successful case
+          diagnostics = [];
         }
         
-        await logger.debug('Raw diagnostics count', { count: diagnostics.diagnostics?.length || 0 });
+        await logger.debug('Raw diagnostics count', { count: diagnostics.length || 0 });
         
         await logger.debug("Diagnostics response received", diagnostics);
         
+        // Use first project root as context for deduplication and filtering
+        const currentProjectRoot = projectRoots[0];
+        
           // Output diagnostics as system message
-          if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
+          if (diagnostics && diagnostics.length > 0) {
             // Filter out ignored files (node_modules, .git, etc.)
-            const filteredDiagnostics = await filterDiagnostics(diagnostics.diagnostics, projectRoot);
+            const filteredDiagnostics = await filterDiagnostics(diagnostics, currentProjectRoot);
             
             
             if (filteredDiagnostics.length === 0) {
@@ -510,37 +402,7 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 d.severity === 'error' || d.severity === 'warning'
               );
               
-              // Always use DiagnosticDeduplicator for exactly-once delivery
-              const dedup = getDeduplicator(projectRoot);
-              
-              // Process diagnostics and check if we should report
-              const result = await dedup.processDiagnostics(
-                relevantDiagnostics
-              );
-              const diff = result.diff;
-              
-              // In test mode, always report diagnostics to ensure tests work correctly
-              const isTestMode = process.env.NODE_ENV === 'test' ||
-                                projectRoot.includes('claude-lsp-comprehensive-test') ||
-                                projectRoot.includes('/tmp/claude-lsp-diagnostics-test');
-              
-              if (!result.shouldReport && !isTestMode) {
-                // No changes in diagnostics, don't send duplicate (unless in test mode)
-                await logger.debug('Skipping unchanged diagnostics', { 
-                  projectRoot, 
-                  unchanged: diff.unchanged.length 
-                });
-                return false;
-              }
-              
-              if (diff) {
-                await logger.debug('Diagnostic changes detected', {
-                  projectRoot,
-                  added: diff.added.length,
-                  resolved: diff.resolved.length,
-                  unchanged: diff.unchanged.length
-                });
-              }
+              // Server-side deduplication: just report whatever diagnostics were returned
               
               // Show compact summary for users
               if (errors > 0) {
@@ -609,18 +471,8 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
           } else {
             await logger.info("No diagnostic issues found - all clear");
             
-            // Check if we previously had errors for this project
-            const dedup = getDeduplicator(projectRoot);
-            
-            // Process empty diagnostics array to check if we had errors before
-            const { shouldReport } = await dedup.processDiagnostics(
-                [] // Empty array means all issues are resolved
-            );
-            
-            if (shouldReport) {
-              // We had errors before, now they're fixed - send all clear
-              
-              if (process.env.CLAUDE_LSP_QUIET !== 'true') {
+            // Server-side deduplication: send all clear if no diagnostics returned
+            if (process.env.CLAUDE_LSP_QUIET !== 'true') {
                 console.error(`[[system-message]]: ${JSON.stringify({
                   status: 'diagnostics_report',
                   result: 'all_clear',
@@ -629,93 +481,12 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                     turn: 'claude_-1'
                   }
                 })}`);
-              }
-            } else {
-              // No errors before and none now - stay quiet  
-              await logger.debug('No errors to report, staying quiet', { projectRoot });
             }
             
             return false; // No errors - exit normally
           }
         }
         return false; // No project root found
-    } else if (eventType === 'SessionStart') {
-      // Check initial project state only if it's a code project
-      // Handle SessionStart - use cwd field from base hook data
-      const workDir = hookData?.cwd || hookData?.workingDirectory;
-      if (workDir) {
-        const projectRoot = await findProjectRoot(workDir);
-        if (projectRoot) {
-          // Check if this is the first run for this project
-          const dedup = getDeduplicator(projectRoot);
-          const isFirstRun = dedup.isFirstRun();
-          
-          if (isFirstRun) {
-            // Only report diagnostics on the very first run for this project
-            const diagnostics = await runDiagnostics(projectRoot);
-            if (diagnostics.diagnostics && diagnostics.diagnostics.length > 0) {
-              // Filter out ignored files for session start too
-              const filteredDiagnostics = await filterDiagnostics(diagnostics.diagnostics, projectRoot);
-              
-              // Only report errors and warnings, not hints
-              const relevantDiagnostics = filteredDiagnostics.filter((d: any) => 
-                d.severity === 'error' || d.severity === 'warning'
-              );
-              
-              if (relevantDiagnostics.length > 0) {
-                // Process initial diagnostics through deduplicator to establish baseline
-                await dedup.processDiagnostics(relevantDiagnostics, 'session-start');
-                
-                // Group diagnostics by language/source
-                const diagnosticsBySource = new Map<string, any[]>();
-                for (const diag of relevantDiagnostics) {
-                  const source = diag.source || 'unknown';
-                  if (!diagnosticsBySource.has(source)) {
-                    diagnosticsBySource.set(source, []);
-                  }
-                  diagnosticsBySource.get(source)!.push(diag);
-                }
-                
-                // Format diagnostics with 5 per language limit
-                const displayDiagnostics: any[] = [];
-                const summaryParts: string[] = [];
-                
-                for (const [source, sourceDiagnostics] of diagnosticsBySource) {
-                  // Take first 5 from each language
-                  const toDisplay = sourceDiagnostics.slice(0, 5);
-                  displayDiagnostics.push(...toDisplay);
-                  
-                  // Add to summary if there are more than 5
-                  const totalForSource = sourceDiagnostics.length;
-                  if (totalForSource > 5) {
-                    const remaining = totalForSource - 5;
-                    summaryParts.push(`${source}: ${remaining} more`);
-                  }
-                }
-                
-                // Create a comprehensive summary  
-                const languageCounts = Array.from(diagnosticsBySource.entries())
-                  .map(([source, diags]) => `${diags.length} for ${source}`)
-                  .join(', ');
-                const summary = `total: ${relevantDiagnostics.length} diagnostics (${languageCounts})`;
-                
-                console.error(`[[system-message]]: ${JSON.stringify({
-                  status: 'diagnostics_report',
-                  result: 'initial_errors_found',
-                  diagnostics: displayDiagnostics,
-                  summary,
-                  total_count: relevantDiagnostics.length,
-                  by_source: Object.fromEntries(
-                    Array.from(diagnosticsBySource.entries()).map(([k, v]) => [k, v.length])
-                  )
-                })}`);  
-              }
-            }
-          } else {
-            await logger.debug('Skipping SessionStart diagnostics - not first run', { projectRoot });
-          }
-        }
-      }
     } else if (eventType === 'Stop') {
       // Clean shutdown - stop LSP servers for this session
       // Handle Stop event - use cwd field from base hook data
@@ -756,26 +527,13 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
 }
 
 async function findProjectRoot(filePath: string): Promise<string | null> {
-  // Implementation to find project root from file path
-  // Walk up directory tree looking for .git, package.json, etc.
-  let currentPath = filePath;
-  
-  while (currentPath !== '/') {
-    if (existsSync(`${currentPath}/.git`) || 
-        existsSync(`${currentPath}/package.json`) ||
-        existsSync(`${currentPath}/pyproject.toml`)) {
-      return currentPath;
-    }
-    
-    const parent = currentPath.split('/').slice(0, -1).join('/');
-    if (parent === currentPath) break;
-    currentPath = parent;
-  }
-  
-  return null;
+  // Use the more comprehensive implementation from manager.ts
+  const { findProjectRoot: findProjectRootFromManager } = await import('./manager');
+  const projectInfo = findProjectRootFromManager(filePath);
+  return projectInfo?.root || null;
 }
 
-async function findAllProjects(baseDir: string): Promise<string[]> {
+export async function findAllProjects(baseDir: string): Promise<string[]> {
   // Use Bun's fast file system APIs to find all project roots
   const { readdir } = await import('fs/promises');
   const { join } = await import('path');
