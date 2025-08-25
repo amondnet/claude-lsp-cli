@@ -111,7 +111,7 @@ if [ -f "$CLAUDE_CONFIG" ]; then
     echo "  Then ask: \"Please remove the Claude Code LSP diagnostics system:"
     echo ""
     echo "  1. Remove all claude-lsp-cli hooks from ~/.claude/settings.json"
-    echo "     (PreToolUse, PostToolUse, and any others)"
+    echo "     (PostToolUse, and any others)"
     echo ""
     echo "  2. Remove the 'Diagnostics & Self-Correction Protocol' section"
     echo "     from ~/.claude/CLAUDE.md that handles [[system-message]] reports\""

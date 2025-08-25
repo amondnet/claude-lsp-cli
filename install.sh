@@ -102,12 +102,6 @@ echo "  1. First, read my existing ~/.claude/settings.json file. Then intelligen
 echo "     merge or replace the hooks section to include these LSP hooks:"
 echo '     {
        "hooks": {
-         "PreToolUse": [
-           {
-             "type": "command",
-             "command": "claude-lsp-cli hook PreToolUse"
-           }
-         ],
          "PostToolUse": [
            {
              "type": "command",

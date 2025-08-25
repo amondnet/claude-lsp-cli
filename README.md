@@ -6,6 +6,24 @@ A Language Server Protocol (LSP) client that integrates with Claude Code to prov
 
 This LSP server integrates with Claude Code through a **PostToolUse hook** that automatically checks your code after every edit, providing instant feedback about errors, warnings, and code issues directly in your Claude conversation.
 
+## ⚠️ CRITICAL: Working Directory Requirement
+
+**You MUST start Claude from your project directory for diagnostics to work!**
+
+```bash
+# ✅ CORRECT: Start Claude from your project directory
+cd ~/my-project
+claude
+
+# ❌ WRONG: Starting from parent directory will NOT work
+cd ~/workspace
+claude  # Diagnostics will fail for ~/workspace/my-project
+```
+
+**Why this matters**: The LSP hooks run with the directory Claude was started from, not the directory you `cd` to within Claude. The `cd` command in Claude only affects shell commands, not the hook system.
+
+**For multiple projects**: Start separate Claude sessions from each project directory, or restart Claude when switching projects.
+
 ## ✨ Features
 
 - 🚀 **Multi-Language Support**: 13 languages working (TypeScript, JavaScript, Python, Go, Java, C++, Ruby, PHP, Scala, Rust, Lua, Elixir, Terraform)
@@ -105,13 +123,9 @@ Then ask Claude to configure the system:
 ```
 "Please help me set up the Claude Code LSP diagnostics system:
 
-1. First, update my ~/.claude/settings.json to include these LSP hooks:
-   - PreToolUse: claude-lsp-cli hook PreToolUse
-   - PostToolUse: claude-lsp-cli hook PostToolUse
-   
-2. Then, add the Diagnostics & Self-Correction Protocol to my ~/.claude/CLAUDE.md
-   file. This protocol teaches you how to handle [[system-message]] diagnostic
-   reports.
+Add the Diagnostics & Self-Correction Protocol to my ~/.claude/CLAUDE.md
+file. This protocol teaches you how to handle [[system-message]] diagnostic
+reports.
 
 Please set up both the hooks in settings.json and the protocol in CLAUDE.md."
 ```

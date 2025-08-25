@@ -237,7 +237,7 @@ async function main() {
       if (projectInfo) {
         const file = process.argv[4];
         const diagnostics = await getDiagnostics(projectInfo.hash, file);
-        console.log(JSON.stringify(diagnostics, null, 2));
+        console.log(JSON.stringify(diagnostics));
       } else {
         console.log("No project found at", path);
       }

@@ -163,14 +163,60 @@ export async function runDiagnostics(
     // If server not running, start it
     if (!serverRunning) {
       const { spawn } = await import('child_process');
-      const serverProcess = spawn('bun', ['run', join(import.meta.dir, 'server.ts'), projectRoot], {
-        detached: true,
-        stdio: 'ignore'
-      });
+      const { existsSync } = await import('fs');
+      
+      // Try multiple paths to find the server
+      const possiblePaths = [
+        // Same directory as the CLI binary (most common in production)
+        join(process.argv[0].replace(/\/[^\/]+$/, ''), 'claude-lsp-server'),
+        // If running from compiled binary in bin/
+        join(process.cwd(), 'bin', 'claude-lsp-server'),
+        // If running from source in src/
+        join(import.meta.dir, '..', 'bin', 'claude-lsp-server'),
+        // Global installation path
+        '/usr/local/bin/claude-lsp-server',
+        // Home directory installation
+        join(process.env.HOME || '', '.claude', 'claude-code-lsp', 'bin', 'claude-lsp-server'),
+      ];
+      
+      let serverBinaryPath: string | null = null;
+      await logger.debug('Searching for server binary...');
+      for (const path of possiblePaths) {
+        await logger.debug(`Checking: ${path}`);
+        if (existsSync(path)) {
+          serverBinaryPath = path;
+          await logger.debug(`Found server at: ${path}`);
+          break;
+        }
+      }
+      
+      let serverProcess;
+      if (serverBinaryPath) {
+        // Use compiled binary
+        await logger.debug(`Starting server binary: ${serverBinaryPath}`);
+        serverProcess = spawn(serverBinaryPath, [projectRoot], {
+          detached: true,
+          stdio: 'ignore'
+        });
+      } else {
+        // Fall back to running TypeScript source
+        const serverTsPath = join(import.meta.dir, 'server.ts');
+        if (existsSync(serverTsPath)) {
+          await logger.debug(`Starting server from source: ${serverTsPath}`);
+          serverProcess = spawn('bun', ['run', serverTsPath, projectRoot], {
+            detached: true,
+            stdio: 'ignore'
+          });
+        } else {
+          await logger.error('Could not find server binary or source file');
+          throw new Error('LSP server binary not found. Please ensure claude-lsp-server is built.');
+        }
+      }
       serverProcess.unref();
       
       // Wait for server to start (longer in CI environments)
-      const waitTime = process.env.CI ? 5000 : 3000;
+      // Note: Server needs time to initialize language servers
+      const waitTime = process.env.CI ? 8000 : 5000;
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
@@ -295,8 +341,15 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
       // or through ways we don't detect (vim in bash, file watchers, etc.)
       // Get working directory from hook data or current directory
       // Note: Claude passes 'cwd' not 'workingDirectory' in base fields
-      const workingDir = hookData?.cwd || hookData?.workingDirectory || process.cwd();
-      const projectRoot = await findProjectRoot(workingDir);
+      const baseDir = hookData?.cwd || hookData?.workingDirectory || process.cwd();
+      
+      // Use fd to find all projects under the current directory
+      // This allows the hook to work even when Claude is started from a parent directory
+      const projects = await findAllProjects(baseDir);
+      
+      // For now, if we find projects, use the first one
+      // TODO: In future, could run diagnostics for all projects or be smarter about selection
+      const projectRoot = projects.length > 0 ? projects[0] : await findProjectRoot(baseDir);
       if (projectRoot) {
         await logger.debug('Found project root', { projectRoot });
         
@@ -720,6 +773,73 @@ async function findProjectRoot(filePath: string): Promise<string | null> {
   }
   
   return null;
+}
+
+async function findAllProjects(baseDir: string): Promise<string[]> {
+  // Use Bun's fast file system APIs to find all project roots
+  const { readdir } = await import('fs/promises');
+  const { join } = await import('path');
+  
+  try {
+    const projects = new Set<string>();
+    
+    // Project markers to search for
+    const markers = new Set([
+      'package.json',      // Node.js/TypeScript
+      'tsconfig.json',     // TypeScript
+      'pyproject.toml',    // Python
+      'Cargo.toml',        // Rust
+      'go.mod',            // Go
+      'pom.xml',           // Java Maven
+      'build.gradle',      // Java Gradle
+      'Gemfile',           // Ruby
+      'composer.json',     // PHP
+      'build.sbt',         // Scala
+    ]);
+    
+    // Directories to skip
+    const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt', 'target', 'coverage', '__pycache__']);
+    
+    // Recursive function to search directories
+    async function searchDir(dir: string, depth: number = 0): Promise<void> {
+      // Don't go too deep
+      if (depth > 4) return;
+      
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            // Skip certain directories
+            if (skipDirs.has(entry.name)) continue;
+            
+            // Recursively search subdirectories
+            await searchDir(join(dir, entry.name), depth + 1);
+          } else if (entry.isFile() && markers.has(entry.name)) {
+            // Found a project marker - add the directory to projects
+            projects.add(dir);
+            // Once we find one marker in a directory, we can stop checking for others
+            break;
+          }
+        }
+      } catch (error) {
+        // Directory might not be readable, skip it
+      }
+    }
+    
+    // Start searching from base directory
+    await searchDir(baseDir);
+    
+    const projectArray = Array.from(projects).sort();
+    if (projectArray.length > 0) {
+      await logger.debug('Found projects using Bun file system', { projects: projectArray });
+    }
+    
+    return projectArray;
+  } catch (error) {
+    await logger.debug('Failed to discover projects', { error });
+    return [];
+  }
 }
 
 // Main execution

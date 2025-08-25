@@ -64,5 +64,50 @@ class Server {
 }
 
 const server = new Server();
-server.start();// trigger change
-const newError: string = 999; // New type error
+server.start();
+
+// Essential test errors for LSP diagnostics (keep these for testing)
+const typeError: string = 123; // Type mismatch error for testing
+const anotherTypeError: number = "hello"; // Another type error for testing
+
+// Adding new errors to trigger diagnostics
+const newError1: boolean = 42; // Type error: number to boolean
+const newError2: string[] = { name: "test" }; // Type error: object to string array
+const newError3: Date = "not a date"; // Type error: string to Date
+
+// Function with wrong return type
+function getNumber(): number {
+  return "I should return a number"; // Type error in return
+}
+
+// Unused variable and wrong assignment
+let unusedVar: number;
+const wrongAssign: readonly string[] = ["a", "b"];
+wrongAssign.push("c"); // Error: cannot push to readonly array
+
+// Adding a new error after session restart to test diagnostics
+const testAfterRestart: boolean = "this should be boolean but is string"; // Type error
+function missingReturn(): string {
+  // Missing return statement - should return string
+}
+
+// Testing from correct directory - should trigger diagnostics now!
+const fromCorrectDir: number = "testing from typescript-project directory"; // Type error
+
+// Testing after reinstall and restart - checking CWD logging
+const afterReinstall: string = 123; // Another type error to trigger hook
+
+// Test dedup issue - adding a comment to trigger hook
+const dedupTest: boolean = "not a boolean"; // Type error
+
+// Testing fd-based project discovery - should find this TypeScript project!
+const fdDiscoveryTest: number = "This should trigger diagnostics with fd"; // Type error
+
+// Test change to trigger diagnostics system
+const testDiagnostics: number = "This should trigger a type error"; // New type error
+
+// Testing after session restart with Bun-based discovery
+const bunDiscoveryTest: boolean = "Should trigger diagnostics with new implementation"; // Type error
+
+// Testing from parent directory - project discovery should work!
+const parentDirTest: string = 42; // Type error from parent dir

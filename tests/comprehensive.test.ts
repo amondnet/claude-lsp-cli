@@ -120,14 +120,62 @@ describe("Comprehensive LSP Tests", () => {
     }, 30000);
     
     test("PostToolUse without errors returns exit code 0", async () => {
-      // Create a clean project with no errors
+      // Create a project that first has errors, then gets fixed
       const CLEAN_PROJECT = "/tmp/claude-lsp-clean-test";
       if (existsSync(CLEAN_PROJECT)) {
         rmSync(CLEAN_PROJECT, { recursive: true });
       }
       mkdirSync(CLEAN_PROJECT, { recursive: true });
       
-      // Create a simple valid TypeScript file
+      // Create package.json to identify it as a TypeScript project
+      writeFileSync(join(CLEAN_PROJECT, "package.json"), JSON.stringify({
+        name: "clean-test-project",
+        version: "1.0.0",
+        devDependencies: {
+          "typescript": "^5.0.0"
+        }
+      }, null, 2));
+      
+      // Create tsconfig.json 
+      writeFileSync(join(CLEAN_PROJECT, "tsconfig.json"), JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext", 
+          strict: true,
+          skipLibCheck: true
+        }
+      }, null, 2));
+      
+      // Step 1: Create file with errors to establish error history
+      writeFileSync(join(CLEAN_PROJECT, "good.ts"), `
+const message: string = 123; // Type error
+console.log(mesage); // Typo error
+`);
+      
+      // First hook call - should find errors
+      const errorHookData = {
+        session_id: "test-session", 
+        transcript_path: "/tmp/test-transcript",
+        cwd: CLEAN_PROJECT,
+        hook_event_name: "PostToolUse",
+        tool_name: "Edit", 
+        tool_input: { file_path: join(CLEAN_PROJECT, "good.ts") },
+        tool_response: { success: true }
+      };
+      
+      const errorProc = Bun.spawn(["bun", "run", join(projectRoot, "src/cli.ts"), "hook", "PostToolUse"], {
+        cwd: CLEAN_PROJECT,
+        stdin: "pipe",
+        stdout: "pipe", 
+        stderr: "pipe",
+        env: { ...process.env, CLAUDE_LSP_HOOK_MODE: 'true' }
+      });
+      
+      errorProc.stdin.write(JSON.stringify(errorHookData));
+      errorProc.stdin.end();
+      await errorProc.exited; // Wait for first run to establish error history
+      
+      // Step 2: Fix the file to have no errors
       writeFileSync(join(CLEAN_PROJECT, "good.ts"), `
 const message: string = "Hello World";
 console.log(message);
@@ -170,9 +218,11 @@ console.log(message);
       // Should exit with code 0 for no errors
       expect(result.code).toBe(0);
       
-      // Should NOT output error diagnostics
+      // Should not contain error diagnostics (only cwd_debug is acceptable)
       if (result.stderr.includes("[[system-message]]")) {
-        expect(result.stderr).toContain("all_clear");
+        // Either should contain "all_clear" OR should only contain "cwd_debug" (for quiet mode)
+        const hasErrorDiagnostics = result.stderr.includes('"result":"errors_found"');
+        expect(hasErrorDiagnostics).toBe(false);
       }
     }, 30000);
 

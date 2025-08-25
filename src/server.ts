@@ -2,6 +2,7 @@
 
 import { LSPClient } from "./lsp-client";
 import { existsSync, watch } from "fs";
+import * as fs from "fs";
 import { join, relative, resolve } from "path";
 import { 
   validatePathWithinRoot, 
@@ -117,6 +118,25 @@ class LSPHttpServer {
     // Register cleanup handler
     cleanupManager.addCleanupHandler(async () => {
       await this.client.stopAllServers();
+      
+      // Clean up socket and related files
+      const filesToClean = [
+        socketPath,
+        `${socketDir}/claude-lsp-${this.projectHash}.pid`,
+        `${socketDir}/claude-lsp-${this.projectHash}.start`
+      ];
+      
+      for (const file of filesToClean) {
+        try {
+          if (fs.existsSync(file)) {
+            fs.unlinkSync(file);
+            await logger.debug(`Cleaned up: ${file}`);
+          }
+        } catch (error) {
+          await logger.error(`Failed to clean up ${file}:`, error);
+        }
+      }
+      
       // Restore original umask
       process.umask(oldUmask);
     });
@@ -286,31 +306,15 @@ class LSPHttpServer {
             // Graceful shutdown
             await logger.info('Shutdown requested', { projectHash: this.projectHash });
             
-            // Cleanup LSP client connections
-            if (this.client) {
-              await this.client.stopAllServers();
-            }
-            
-            // Remove PID file
-            const socketDir = process.env.XDG_RUNTIME_DIR || 
-                             (process.platform === 'darwin' 
-                               ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
-                               : `${process.env.HOME}/.claude-lsp/run`);
-            const pidFile = `${socketDir}/claude-lsp-${this.projectHash}.pid`;
-            try {
-              await safeDeleteFile(pidFile);
-            } catch (error) {
-              await logger.debug('PID file cleanup failed', { error });
-            }
-            
             // Send success response before shutting down
             const response = new Response(JSON.stringify({ 
               status: "shutdown_initiated",
               projectHash: this.projectHash
             }), { headers });
             
-            // Exit gracefully after a short delay
-            setTimeout(() => {
+            // Perform full cleanup and exit gracefully after a short delay
+            setTimeout(async () => {
+              await this.shutdown();
               process.exit(0);
             }, 100);
             
@@ -487,6 +491,29 @@ class LSPHttpServer {
   async shutdown() {
     await logger.info('Shutting down LSP server...');
     await this.client.stopAllServers();
+    
+    // Clean up socket and related files
+    const socketDir = process.env.XDG_RUNTIME_DIR || 
+                     (process.platform === 'darwin' 
+                       ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
+                       : `${process.env.HOME}/.claude-lsp/run`);
+    
+    const filesToClean = [
+      `${socketDir}/claude-lsp-${this.projectHash}.sock`,
+      `${socketDir}/claude-lsp-${this.projectHash}.pid`,
+      `${socketDir}/claude-lsp-${this.projectHash}.start`
+    ];
+    
+    for (const file of filesToClean) {
+      try {
+        if (fs.existsSync(file)) {
+          fs.unlinkSync(file);
+          await logger.debug(`Cleaned up: ${file}`);
+        }
+      } catch (error) {
+        await logger.error(`Failed to clean up ${file}:`, error);
+      }
+    }
   }
 }
 

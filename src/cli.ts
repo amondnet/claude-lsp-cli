@@ -15,6 +15,9 @@ import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
 import { resolve, join } from "path";
 
+// Test: Adding type error to verify Bun project discovery from parent dir
+const testBunDiscovery: number = "this should be a number not string"; // Type error
+
 async function runAsLanguageServer(language: string) {
   // This binary is now acting as a language server
   switch (language) {
@@ -90,6 +93,22 @@ async function handleHookEvent(eventType: string) {
   // Set hook mode to suppress INFO/DEBUG logging to console
   process.env.CLAUDE_LSP_HOOK_MODE = 'true';
   
+  // DEBUG: Output CWD as system message immediately
+  if (eventType === 'PostToolUse') {
+    console.error(`[[system-message]]: ${JSON.stringify({
+      status: "cwd_debug",
+      cwd: process.cwd(),
+      event: eventType,
+      timestamp: new Date().toISOString()
+    })}`);
+  }
+  
+  // Add debug logging to /tmp
+  const debugLog = `/tmp/claude-lsp-hook-debug.log`;
+  const timestamp = new Date().toISOString();
+  await Bun.write(debugLog, `\n[${timestamp}] Hook event triggered: ${eventType}\n`, { flag: 'a' });
+  await Bun.write(debugLog, `[${timestamp}] Process CWD: ${process.cwd()}\n`, { flag: 'a' });
+  
   // Exit codes based on Claude source code analysis:
   // 0 = success (no issues found)
   // 1 = error (hook failed to run properly)
@@ -117,6 +136,7 @@ async function handleHookEvent(eventType: string) {
     const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
     
     // Run diagnostics with the event type
+    // Note: handleDiagnostics will read stdin itself
     const hasErrors = await handleDiagnostics(eventType);
     
     // Clear timeout on success
@@ -125,13 +145,17 @@ async function handleHookEvent(eventType: string) {
     // For PostToolUse with errors, exit 2 to show feedback
     // For other hooks or no errors, exit 0
     if (eventType === 'PostToolUse' && hasErrors) {
+      await Bun.write(debugLog, `[${timestamp}] Exiting with feedback code (2) due to errors\n`, { flag: 'a' });
       process.exit(feedbackExitCode); // Exit 2 shows feedback in Claude
     } else {
+      await Bun.write(debugLog, `[${timestamp}] Exiting with success code (0)\n`, { flag: 'a' });
       process.exit(successExitCode);
     }
     
   } catch (error) {
     clearTimeout(timeoutId);
+    await Bun.write(debugLog, `[${timestamp}] ERROR in hook handler: ${error}\n`, { flag: 'a' });
+    await Bun.write(debugLog, `[${timestamp}] Error stack: ${error instanceof Error ? error.stack : 'No stack'}\n`, { flag: 'a' });
     await logger.error('Hook handler error', { eventType, error });
     
     // Format error as system message for Claude
@@ -143,47 +167,21 @@ async function handleHookEvent(eventType: string) {
       reference: { type: "hook_error", event: eventType }
     })}`);
     
+    await Bun.write(debugLog, `[${timestamp}] Exiting with error code (1)\n`, { flag: 'a' });
     process.exit(errorExitCode);
   }
 }
 
 async function queryDiagnostics(projectRoot: string, filePath?: string) {
-  // Generate project hash using SHA-256
-  const projectHash = secureHash(projectRoot).substring(0, 16);
-  
-  // Determine socket directory based on platform
-  const socketDir = process.env.XDG_RUNTIME_DIR || 
-                   (process.platform === 'darwin' 
-                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
-                     : `${process.env.HOME}/.claude-lsp/run`);
-  
-  const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
-  
   try {
-    // Query the LSP server via Unix socket
-    const url = filePath 
-      ? `http://localhost/diagnostics?file=${encodeURIComponent(filePath)}`
-      : `http://localhost/diagnostics/all`;
+    // Use runDiagnostics from diagnostics.ts which has auto-start logic
+    const { runDiagnostics } = await import("./diagnostics");
     
-    const response = await fetch(url, { 
-      // @ts-ignore - Bun supports unix option
-      unix: socketPath,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // Run diagnostics with auto-start capability
+    const result = await runDiagnostics(projectRoot, filePath);
     
-    if (!response.ok) {
-      if (response.status === 429) {
-        console.error("Rate limit exceeded. Please wait before trying again.");
-      } else {
-        console.error(`Server error: ${response.status} ${response.statusText}`);
-      }
-      process.exit(1);
-    }
-    
-    const data = await response.json();
-    console.log(JSON.stringify(data, null, 2));
+    // Output the result as JSON
+    console.log(JSON.stringify(result));
     
   } catch (error) {
     await logger.error('Failed to query diagnostics', error, { projectRoot, filePath });
