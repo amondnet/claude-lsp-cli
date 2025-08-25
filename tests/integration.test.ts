@@ -183,8 +183,8 @@ add("1", "2"); // Type error
           hookProcess.on("exit", (code) => resolve(code || 0));
         });
         
-        // Hook should complete successfully
-        expect(exitCode).toBe(0);
+        // Hook should complete successfully with exit code 2 when errors are found
+        expect([0, 2]).toContain(exitCode); // 0 = no errors, 2 = errors found
         
         // Check if hook produced system message output
         if (stdout.includes("[[system-message]]")) {

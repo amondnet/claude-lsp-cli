@@ -155,6 +155,7 @@ class LSPHttpServer {
     await logger.info(`\n📌 API Endpoints (protected by Unix socket permissions):`);
     await logger.info(`  GET /diagnostics?file= - Get diagnostics for specific file`);
     await logger.info(`  GET /diagnostics/all   - Get all project diagnostics`);
+    await logger.info(`  GET /languages         - Get detected project languages`);
     await logger.info(`  GET /health           - Health check (no auth required)`);
     
     // Write PID file for process management
@@ -301,6 +302,9 @@ class LSPHttpServer {
             uptime: process.uptime()
           }), { headers });
         
+        case "/languages":
+          return this.handleLanguages(headers);
+        
         case "/shutdown":
           if (req.method === "POST") {
             // Graceful shutdown
@@ -400,6 +404,31 @@ class LSPHttpServer {
     } catch (error) {
       await logger.error('Failed to get all diagnostics', error);
       throw error;
+    }
+  }
+
+  private async handleLanguages(headers: any): Promise<Response> {
+    try {
+      // Import language detection utilities
+      const { detectProjectLanguages, languageServers } = await import('./language-servers');
+      
+      // Detect project languages based on project files
+      const detectedLanguages = detectProjectLanguages(this.projectRoot);
+      
+      // Create language info objects with details
+      const languages = detectedLanguages.map(lang => {
+        const config = languageServers[lang];
+        return {
+          language: lang,
+          extensions: config?.extensions || [],
+          installed: true // Assume installed if detected
+        };
+      });
+      
+      return new Response(JSON.stringify(languages), { headers });
+    } catch (error) {
+      await logger.error('Failed to get languages', error);
+      return new Response(JSON.stringify([]), { headers });
     }
   }
 
