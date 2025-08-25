@@ -26,7 +26,7 @@ describe("Example Project Tests", () => {
     };
     
     // In CI, the TypeScript server might need multiple attempts
-    let result;
+    let result: {stdout: string, stderr: string, code: number} | undefined;
     let attempts = 0;
     const maxAttempts = process.env.CI ? 3 : 1;
     
@@ -68,14 +68,14 @@ describe("Example Project Tests", () => {
     
     
     // Should exit with code 2 when errors are found
-    expect(result.code).toBe(2);
+    expect(result!.code).toBe(2);
     
     // Should output system message with diagnostics
-    expect(result.stderr).toContain("[[system-message]]:");
-    expect(result.stderr).toContain("errors_found");
+    expect(result!.stderr).toContain("[[system-message]]:");
+    expect(result!.stderr).toContain("errors_found");
     
     // Should find specific errors we know are in the file
     // Note: Error message might vary slightly between TypeScript versions
-    expect(result.stderr).toMatch(/Type '(number|3000)' is not assignable to type 'string'/i);
+    expect(result!.stderr).toMatch(/Type '(number|3000)' is not assignable to type 'string'/i);
   }, 30000);
 });

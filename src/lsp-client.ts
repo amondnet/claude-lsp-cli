@@ -588,6 +588,25 @@ export class LSPClient {
     return Array.from(this.servers.keys());
   }
 
+  clearDiagnostics(): void {
+    this.diagnostics.clear();
+    this.receivedDiagnostics.clear();
+  }
+
+  async restartServers(): Promise<void> {
+    // Get active languages before stopping servers
+    const activeLanguages = Array.from(this.servers.keys());
+    
+    // Stop all current servers
+    await this.stopAllServers();
+    
+    // Wait a moment for cleanup
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Restart servers for the same languages (they'll be auto-started when files are opened)
+    await logger.info(`Reset completed for languages: ${activeLanguages.join(', ')}`);
+  }
+
   getActiveFileExtensions(): string[] {
     const extensions = new Set<string>();
     for (const lang of this.servers.keys()) {

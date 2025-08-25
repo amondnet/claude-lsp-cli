@@ -15,8 +15,6 @@ import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
 import { resolve, join } from "path";
 
-// Test: Adding type error to verify Bun project discovery from parent dir
-const testBunDiscovery: number = "this should be a number not string"; // Type error
 
 async function runAsLanguageServer(language: string) {
   // This binary is now acting as a language server
@@ -106,8 +104,10 @@ async function handleHookEvent(eventType: string) {
   // Add debug logging to /tmp
   const debugLog = `/tmp/claude-lsp-hook-debug.log`;
   const timestamp = new Date().toISOString();
-  await Bun.write(debugLog, `\n[${timestamp}] Hook event triggered: ${eventType}\n`, { flag: 'a' });
-  await Bun.write(debugLog, `[${timestamp}] Process CWD: ${process.cwd()}\n`, { flag: 'a' });
+  const existingContent = await Bun.file(debugLog).text().catch(() => '');
+  await Bun.write(debugLog, existingContent + `\n[${timestamp}] Hook event triggered: ${eventType}\n`);
+  const updatedContent = await Bun.file(debugLog).text();
+  await Bun.write(debugLog, updatedContent + `[${timestamp}] Process CWD: ${process.cwd()}\n`);
   
   // Exit codes based on Claude source code analysis:
   // 0 = success (no issues found)
@@ -145,17 +145,21 @@ async function handleHookEvent(eventType: string) {
     // For PostToolUse with errors, exit 2 to show feedback
     // For other hooks or no errors, exit 0
     if (eventType === 'PostToolUse' && hasErrors) {
-      await Bun.write(debugLog, `[${timestamp}] Exiting with feedback code (2) due to errors\n`, { flag: 'a' });
+      const content1 = await Bun.file(debugLog).text().catch(() => '');
+      await Bun.write(debugLog, content1 + `[${timestamp}] Exiting with feedback code (2) due to errors\n`);
       process.exit(feedbackExitCode); // Exit 2 shows feedback in Claude
     } else {
-      await Bun.write(debugLog, `[${timestamp}] Exiting with success code (0)\n`, { flag: 'a' });
+      const content2 = await Bun.file(debugLog).text().catch(() => '');
+      await Bun.write(debugLog, content2 + `[${timestamp}] Exiting with success code (0)\n`);
       process.exit(successExitCode);
     }
     
   } catch (error) {
     clearTimeout(timeoutId);
-    await Bun.write(debugLog, `[${timestamp}] ERROR in hook handler: ${error}\n`, { flag: 'a' });
-    await Bun.write(debugLog, `[${timestamp}] Error stack: ${error instanceof Error ? error.stack : 'No stack'}\n`, { flag: 'a' });
+    const errorContent1 = await Bun.file(debugLog).text().catch(() => '');
+    await Bun.write(debugLog, errorContent1 + `[${timestamp}] ERROR in hook handler: ${error}\n`);
+    const errorContent2 = await Bun.file(debugLog).text().catch(() => '');
+    await Bun.write(debugLog, errorContent2 + `[${timestamp}] Error stack: ${error instanceof Error ? error.stack : 'No stack'}\n`);
     await logger.error('Hook handler error', { eventType, error });
     
     // Format error as system message for Claude
@@ -167,7 +171,8 @@ async function handleHookEvent(eventType: string) {
       reference: { type: "hook_error", event: eventType }
     })}`);
     
-    await Bun.write(debugLog, `[${timestamp}] Exiting with error code (1)\n`, { flag: 'a' });
+    const errorContent3 = await Bun.file(debugLog).text().catch(() => '');
+    await Bun.write(debugLog, errorContent3 + `[${timestamp}] Exiting with error code (1)\n`);
     process.exit(errorExitCode);
   }
 }
@@ -205,15 +210,16 @@ Usage:
   claude-lsp-cli start <project>             Start LSP server for project
   claude-lsp-cli stop <project>              Stop LSP server for project
   claude-lsp-cli kill-all                    Kill all running LSP servers
+  claude-lsp-cli reset <project>             Reset LSP server cache (fast)
   claude-lsp-cli install <language>          Install language server
   claude-lsp-cli install-all                 Install all supported language servers
   claude-lsp-cli list-servers                List available language servers
+  claude-lsp-cli list-projects <directory>   Find all projects in directory
   claude-lsp-cli help                        Show this help message
 
 Hook Event Types:
   PreToolUse     - Before tool execution  
   PostToolUse    - After tool execution (main use case)
-  SessionStart   - When session starts
   
 Examples:
   # Handle PostToolUse hook (called by Claude Code)
@@ -233,6 +239,9 @@ Examples:
   
   # Kill all LSP servers
   claude-lsp-cli kill-all
+
+  # List all projects in current directory
+  claude-lsp-cli list-projects .
 
 Configuration:
   The CLI reads hook data from stdin when handling hook events.
@@ -376,6 +385,44 @@ async function killAllServers() {
   }
 }
 
+async function resetServer(projectRoot: string) {
+  const { secureHash } = await import("./utils/security");
+  const projectHash = secureHash(projectRoot).substring(0, 16);
+  
+  const socketDir = process.env.XDG_RUNTIME_DIR || 
+                   (process.platform === 'darwin' 
+                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
+                     : `${process.env.HOME}/.claude-lsp/run`);
+
+  const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
+
+  try {
+    console.log(`Resetting LSP server for project: ${projectRoot}`);
+    console.log(`Using socket: ${socketPath}`);
+    
+    const response = await fetch('http://localhost/reset', { 
+      method: 'POST',
+      unix: socketPath,
+      signal: AbortSignal.timeout(10000) // 10 second timeout
+    });
+    
+    if (response.ok) {
+      const data = await response.json() as any;
+      console.log(`✅ Reset completed: ${data.documentsReset} documents refreshed`);
+    } else {
+      const errorText = await response.text();
+      console.error(`❌ Reset failed: ${response.status} - ${errorText}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error("❌ Reset timed out - server may be unresponsive");
+    } else {
+      console.error("❌ Reset failed:", error instanceof Error ? error.message : String(error));
+      console.log("💡 Try 'claude-lsp-cli kill-all' if the server is stuck");
+    }
+  }
+}
+
 async function installLanguageServer(language: string) {
   const { languageServers } = await import("./language-servers");
   const { spawn } = await import("child_process");
@@ -474,6 +521,17 @@ async function listLanguageServers() {
   console.log("To install all servers: claude-lsp-cli install-all");
 }
 
+async function listProjects(baseDir: string) {
+  // Import findAllProjects from diagnostics
+  const { findAllProjects } = await import("./diagnostics");
+  
+  const absolutePath = resolve(baseDir);
+  const projects = await findAllProjects(absolutePath);
+  
+  // Output as JSON array for the test to consume
+  console.log(JSON.stringify(projects, null, 2));
+}
+
 // Main execution
 if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
@@ -490,12 +548,16 @@ if (command === "hook" && eventType) {
   await stopServer(args[1]);
 } else if (command === "kill-all") {
   await killAllServers();
+} else if (command === "reset" && args[1]) {
+  await resetServer(args[1]);
 } else if (command === "install" && args[1]) {
   await installLanguageServer(args[1]);
 } else if (command === "install-all") {
   await installAllLanguageServers();
 } else if (command === "list-servers") {
   await listLanguageServers();
+} else if (command === "list-projects" && args[1]) {
+  await listProjects(args[1]);
 } else if (command === "help" || command === "--help" || command === "-h") {
   showHelp();
 } else if (command === "--version" || command === "-v") {

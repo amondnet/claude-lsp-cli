@@ -29,9 +29,9 @@ export class DiagnosticDeduplicator {
   private db: Database;
   private projectHash: string;
   private projectPath: string;
-  // Time window for considering diagnostics as "recent" (default: 4 hours)
+  // Time window for considering diagnostics as "recent" (default: 10 minutes)
   // After this time, a resolved diagnostic can be reported again if it reappears
-  private readonly DIAGNOSTIC_MEMORY_WINDOW = 4 * 60 * 60 * 1000; // 4 hours
+  private readonly DIAGNOSTIC_MEMORY_WINDOW = 10 * 60 * 1000; // 10 minutes
 
   constructor(projectPath: string) {
     this.projectPath = normalize(projectPath);
