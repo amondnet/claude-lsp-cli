@@ -72,7 +72,8 @@ describe("Example Project Tests", () => {
     
     // Should output system message with diagnostics
     expect(result!.stderr).toContain("[[system-message]]:");
-    expect(result!.stderr).toContain("errors_found");
+    // New format: should contain diagnostics array and summary
+    expect(result!.stderr).toContain("diagnostics");
     
     // Should find specific errors we know are in the file
     // Note: Error message might vary slightly between TypeScript versions

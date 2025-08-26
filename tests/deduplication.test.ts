@@ -25,6 +25,11 @@ describe("DiagnosticDeduplicator", () => {
   });
 
   afterEach(() => {
+    // Close the database connection first
+    if (dedup) {
+      dedup.close();
+    }
+    
     // Clean up test database
     if (existsSync(testDbPath)) {
       try {
@@ -35,11 +40,23 @@ describe("DiagnosticDeduplicator", () => {
     }
   });
 
-  test("isFirstRun returns true for new project", () => {
-    expect(dedup.isFirstRun()).toBe(true);
+  test("returns all diagnostics when database is empty", async () => {
+    const diagnostics = [
+      {
+        file: "/test/file.ts",
+        line: 10,
+        column: 5,
+        severity: "error" as const,
+        message: "Type error"
+      }
+    ];
+    
+    // Database is empty, so all diagnostics are new
+    const result = await dedup.processDiagnostics(diagnostics);
+    expect(result).toHaveLength(1);
   });
 
-  test("isFirstRun returns false after processing diagnostics", async () => {
+  test("markAsDisplayed adds diagnostics to dedup database", async () => {
     const diagnostics = [
       {
         file: "/test/file.ts",
@@ -51,11 +68,19 @@ describe("DiagnosticDeduplicator", () => {
       }
     ];
 
-    await dedup.processDiagnostics(diagnostics);
-    expect(dedup.isFirstRun()).toBe(false);
+    // First time - should return the diagnostic
+    const result1 = await dedup.processDiagnostics(diagnostics);
+    expect(result1).toHaveLength(1);
+    
+    // Mark as displayed
+    dedup.markAsDisplayed(result1);
+    
+    // Second time - should be filtered (already displayed)
+    const result2 = await dedup.processDiagnostics(diagnostics);
+    expect(result2).toHaveLength(0);
   });
 
-  test("returns shouldReport=true for first diagnostic report", async () => {
+  test("returns new diagnostic on first report", async () => {
     const diagnostics = [
       {
         file: "/test/file.ts",
@@ -68,13 +93,12 @@ describe("DiagnosticDeduplicator", () => {
 
     const result = await dedup.processDiagnostics(diagnostics);
     
-    expect(result.shouldReport).toBe(true);
-    expect(result.diff.added).toHaveLength(1);
-    expect(result.diff.resolved).toHaveLength(0);
-    expect(result.diff.unchanged).toHaveLength(0);
+    // Should return the new diagnostic (first time seeing it)
+    expect(result).toHaveLength(1);
+    expect(result[0].message).toBe("Type error");
   });
 
-  test("returns shouldReport=false for duplicate diagnostics", async () => {
+  test("returns empty array for duplicate diagnostics", async () => {
     const diagnostics = [
       {
         file: "/test/file.ts",
@@ -85,19 +109,19 @@ describe("DiagnosticDeduplicator", () => {
       }
     ];
 
-    // First report
+    // First report - should return the new diagnostic
     const result1 = await dedup.processDiagnostics(diagnostics);
-    expect(result1.shouldReport).toBe(true);
+    expect(result1).toHaveLength(1);
+    
+    // Mark as displayed (simulate server behavior)
+    dedup.markAsDisplayed(result1);
 
-    // Duplicate report - should not report
+    // Duplicate report - should return empty array (already seen)
     const result2 = await dedup.processDiagnostics(diagnostics);
-    expect(result2.shouldReport).toBe(false);
-    expect(result2.diff.unchanged).toHaveLength(1);
-    expect(result2.diff.added).toHaveLength(0);
-    expect(result2.diff.resolved).toHaveLength(0);
+    expect(result2).toHaveLength(0);
   });
 
-  test("correctly identifies added diagnostics", async () => {
+  test("returns only new diagnostics when some are already seen", async () => {
     const diagnostics1 = [
       {
         file: "/test/file.ts",
@@ -125,18 +149,19 @@ describe("DiagnosticDeduplicator", () => {
       }
     ];
 
-    await dedup.processDiagnostics(diagnostics1);
-    const result = await dedup.processDiagnostics(diagnostics2);
+    // First report - mark as displayed
+    const result1 = await dedup.processDiagnostics(diagnostics1);
+    dedup.markAsDisplayed(result1);
+    
+    // Second report - should only return the new diagnostic
+    const result2 = await dedup.processDiagnostics(diagnostics2);
 
-    expect(result.shouldReport).toBe(true);
-    expect(result.diff.added).toHaveLength(1);
-    expect(result.diff.added[0].message).toBe("Unused variable");
-    expect(result.diff.unchanged).toHaveLength(1);
-    expect(result.diff.resolved).toHaveLength(0);
+    expect(result2).toHaveLength(1);
+    expect(result2[0].message).toBe("Unused variable");
   });
 
-  test("correctly identifies resolved diagnostics", async () => {
-    const diagnostics1 = [
+  test("returns empty when all diagnostics already seen", async () => {
+    const diagnostics = [
       {
         file: "/test/file.ts",
         line: 10,
@@ -153,27 +178,17 @@ describe("DiagnosticDeduplicator", () => {
       }
     ];
 
-    const diagnostics2 = [
-      {
-        file: "/test/file.ts",
-        line: 10,
-        column: 5,
-        severity: "error" as const,
-        message: "Type error"
-      }
-    ];
+    // First report - mark all as displayed
+    const result1 = await dedup.processDiagnostics(diagnostics);
+    dedup.markAsDisplayed(result1);
+    
+    // Second report with same diagnostics - should return empty
+    const result2 = await dedup.processDiagnostics(diagnostics);
 
-    await dedup.processDiagnostics(diagnostics1);
-    const result = await dedup.processDiagnostics(diagnostics2);
-
-    expect(result.shouldReport).toBe(true);
-    expect(result.diff.resolved).toHaveLength(1);
-    expect(result.diff.resolved[0].message).toBe("Unused variable");
-    expect(result.diff.unchanged).toHaveLength(1);
-    expect(result.diff.added).toHaveLength(0);
+    expect(result2).toHaveLength(0);
   });
 
-  test("reports when all diagnostics are resolved", async () => {
+  test("returns empty array when no diagnostics", async () => {
     const diagnostics = [
       {
         file: "/test/file.ts",
@@ -184,25 +199,20 @@ describe("DiagnosticDeduplicator", () => {
       }
     ];
 
-    // First report with errors
-    await dedup.processDiagnostics(diagnostics);
+    // First report with errors - mark as displayed
+    const result1 = await dedup.processDiagnostics(diagnostics);
+    dedup.markAsDisplayed(result1);
 
-    // All errors resolved
+    // No diagnostics (all resolved)
     const result = await dedup.processDiagnostics([]);
 
-    expect(result.shouldReport).toBe(true);
-    expect(result.diff.resolved).toHaveLength(1);
-    expect(result.diff.added).toHaveLength(0);
-    expect(result.diff.unchanged).toHaveLength(0);
+    expect(result).toHaveLength(0);
   });
 
-  test("does not report when no diagnostics and no history", async () => {
+  test("returns empty array for no diagnostics and no history", async () => {
     const result = await dedup.processDiagnostics([]);
 
-    expect(result.shouldReport).toBe(false);
-    expect(result.diff.resolved).toHaveLength(0);
-    expect(result.diff.added).toHaveLength(0);
-    expect(result.diff.unchanged).toHaveLength(0);
+    expect(result).toHaveLength(0);
   });
 
   test("handles diagnostics with optional fields", async () => {
@@ -220,10 +230,9 @@ describe("DiagnosticDeduplicator", () => {
 
     const result = await dedup.processDiagnostics(diagnostics);
     
-    expect(result.shouldReport).toBe(true);
-    expect(result.diff.added).toHaveLength(1);
-    expect(result.diff.added[0].source).toBe("typescript");
-    expect(result.diff.added[0].ruleId).toBe("TS2322");
+    expect(result).toHaveLength(1);
+    expect(result[0].source).toBe("typescript");
+    expect(result[0].ruleId).toBe("TS2322");
   });
 
   test("cleanup removes old diagnostics", async () => {

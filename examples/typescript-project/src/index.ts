@@ -111,3 +111,4 @@ const bunDiscoveryTest: boolean = "Should trigger diagnostics with new implement
 
 // Testing from parent directory - project discovery should work!
 const parentDirTest: string = 42; // Type error from parent dir
+const testNewFormat: number = "testing relative paths now";

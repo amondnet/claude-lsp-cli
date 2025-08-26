@@ -117,7 +117,6 @@ async function filterDiagnostics(diagnostics: any[], projectRoot: string): Promi
 // Main diagnostic function
 export async function runDiagnostics(
   projectRoot: string,
-  filePath?: string,
 ): Promise<any> {
   const projectHash = secureHash(projectRoot).substring(0, 16);
   
@@ -206,13 +205,11 @@ export async function runDiagnostics(
     }
     
     // Now query the server for diagnostics
-    const diagnostics: any[] = [];
+    let serverResponse: any = null;
     
-    // Query the server for diagnostics
+    // Query the server for diagnostics (project-level only)
     try {
-      const url = filePath 
-        ? `http://localhost/diagnostics?file=${encodeURIComponent(filePath)}`
-        : `http://localhost/diagnostics/all`;
+      const url = `http://localhost/diagnostics/all`;
       
       const response = await fetch(url, {
         // @ts-ignore - Bun supports unix option
@@ -224,10 +221,9 @@ export async function runDiagnostics(
       });
       
       if (response.ok) {
-        const data = await response.json() as { diagnostics?: any[] };
-        if (data?.diagnostics && Array.isArray(data.diagnostics)) {
-          diagnostics.push(...data.diagnostics);
-        }
+        const data = await response.json();
+        // Pass server response directly - no need to reconstruct
+        serverResponse = data;
       } else {
         await logger.error(`Server returned error: ${response.status}`, { url });
       }
@@ -235,8 +231,8 @@ export async function runDiagnostics(
       await logger.error('Failed to query diagnostics from server', error);
     }
     
-    return {
-      diagnostics,
+    return serverResponse || {
+      diagnostics: [],
       timestamp: new Date().toISOString()
     };
     
@@ -248,7 +244,7 @@ export async function runDiagnostics(
       await logger.debug('Using mock diagnostics for test');
       return {
         diagnostics: [{
-          file: filePath || join(projectRoot, 'test.ts'),
+          file: join(projectRoot, 'test.ts'),
           line: 2,
           column: 7,
           severity: 'error',
@@ -342,6 +338,7 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         
         
         let diagnostics;
+        let serverResponse: any = null;
         try {
           // In test mode, use a longer timeout and better error handling
           const timeout = process.env.CLAUDE_LSP_HOOK_MODE === 'true' ? 15000 : 30000;
@@ -353,11 +350,14 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
           const allDiagnostics = [];
           for (const projectRoot of projectRoots) {
             const projectDiags = await Promise.race([
-              runDiagnostics(projectRoot, undefined),
+              runDiagnostics(projectRoot),
               timeoutPromise
             ]);
-            // runDiagnostics returns { diagnostics: [...], timestamp: ... }
-            allDiagnostics.push(...(projectDiags?.diagnostics || []));
+            // runDiagnostics returns { diagnostics: [...], timestamp: ..., summary?: ... }
+            if (projectDiags) {
+              serverResponse = projectDiags; // Keep the full response for summary access
+              allDiagnostics.push(...(projectDiags.diagnostics || []));
+            }
           }
           diagnostics = allDiagnostics;
         } catch (error) {
@@ -421,69 +421,31 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
                 diagnosticsBySource.get(source)!.push(diag);
               }
               
-              // Format diagnostics with 5 per language limit
-              const displayDiagnostics: any[] = [];
-              const summaryParts: string[] = [];
+              // Server-side deduplication already handled limiting - just display what we got
+              const displayDiagnostics: any[] = relevantDiagnostics;
               
-              for (const [source, sourceDiagnostics] of diagnosticsBySource) {
-                // Take first 5 from each language
-                const toDisplay = sourceDiagnostics.slice(0, 5);
-                displayDiagnostics.push(...toDisplay);
-                
-                // Add to summary if there are more than 5
-                const totalForSource = sourceDiagnostics.length;
-                if (totalForSource > 5) {
-                  const remaining = totalForSource - 5;
-                  summaryParts.push(`${source}: ${remaining} more`);
-                }
+              // Only send message if server response has a summary
+              if (serverResponse && serverResponse.summary) {
+                console.error(`[[system-message]]: ${JSON.stringify(serverResponse)}`)
+                await logger.debug('RETURNING TRUE - Sent message to user, exit with code 2');
+                return true; // Any message sent to user - exit with code 2 for feedback
+              } else {
+                await logger.debug('No summary from server - silently exit code 0');
+                return false; // No summary to report - exit code 0
               }
-              
-              // Create a comprehensive summary
-              let summary: string | undefined;
-              if (summaryParts.length > 0 || relevantDiagnostics.length > 5) {
-                // Show total count with breakdown by language
-                const languageCounts = Array.from(diagnosticsBySource.entries())
-                  .map(([source, diags]) => `${diags.length} for ${source}`)
-                  .join(', ');
-                summary = `total: ${relevantDiagnostics.length} diagnostics (${languageCounts})`;
-              }
-              
-              console.error(`[[system-message]]: ${JSON.stringify({
-                status: 'diagnostics_report',
-                result: 'errors_found',
-                diagnostics: displayDiagnostics,
-                summary,
-                total_count: relevantDiagnostics.length,
-                by_source: Object.fromEntries(
-                  Array.from(diagnosticsBySource.entries()).map(([k, v]) => [k, v.length])
-                ),
-                reference: {
-                  type: 'previous_code_edit',
-                  turn: 'claude_-1'
-                }
-              })}`)
-              await logger.debug('RETURNING TRUE - Found errors will exit with code 2');
-              return true; // Found errors - will exit with code 2 to show feedback
             } else {
               // Only hints - don't report to avoid noise
               return false;
             }
           } else {
-            await logger.info("No diagnostic issues found - all clear");
+            await logger.info("No diagnostic issues found");
             
-            // Server-side deduplication: send all clear if no diagnostics returned
-            if (process.env.CLAUDE_LSP_QUIET !== 'true') {
-                console.error(`[[system-message]]: ${JSON.stringify({
-                  status: 'diagnostics_report',
-                  result: 'all_clear',
-                  reference: {
-                    type: 'previous_code_edit',
-                    turn: 'claude_-1'
-                  }
-                })}`);
+            // Only send message if server response has a summary
+            if (serverResponse && serverResponse.summary) {
+              console.error(`[[system-message]]: ${JSON.stringify(serverResponse)}`)
             }
             
-            return false; // No errors - exit normally
+            return false; // No summary or all clear - exit code 0
           }
         }
         return false; // No project root found
@@ -534,18 +496,20 @@ async function findProjectRoot(filePath: string): Promise<string | null> {
 }
 
 export async function findAllProjects(baseDir: string): Promise<string[]> {
-  // Use Bun's fast file system APIs to find all project roots
+  // Smart hierarchical project detection with controlled expansion
   const { readdir } = await import('fs/promises');
-  const { join } = await import('path');
+  const { join, resolve } = await import('path');
   
   try {
     const projects = new Set<string>();
+    const MAX_PROJECTS = 16;
     
     // Project markers to search for
     const markers = new Set([
       'package.json',      // Node.js/TypeScript
       'tsconfig.json',     // TypeScript
-      'pyproject.toml',    // Python
+      'pyproject.toml',    // Python (modern)
+      'requirements.txt',  // Python (traditional)
       'Cargo.toml',        // Rust
       'go.mod',            // Go
       'pom.xml',           // Java Maven
@@ -553,50 +517,135 @@ export async function findAllProjects(baseDir: string): Promise<string[]> {
       'Gemfile',           // Ruby
       'composer.json',     // PHP
       'build.sbt',         // Scala
+      'CMakeLists.txt',    // C/C++
+      'mix.exs',           // Elixir
+      'main.tf',           // Terraform
+      // Note: Lua projects handled separately by checking for .lua files
     ]);
     
     // Directories to skip
     const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt', 'target', 'coverage', '__pycache__']);
     
-    // Recursive function to search directories
-    async function searchDir(dir: string, depth: number = 0): Promise<void> {
-      // Don't go too deep
-      if (depth > 4) return;
-      
-      try {
-        const entries = await readdir(dir, { withFileTypes: true });
-        
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            // Skip certain directories
-            if (skipDirs.has(entry.name)) continue;
-            
-            // Recursively search subdirectories
-            await searchDir(join(dir, entry.name), depth + 1);
-          } else if (entry.isFile() && markers.has(entry.name)) {
-            // Found a project marker - add the directory to projects
-            projects.add(dir);
-            // Once we find one marker in a directory, we can stop checking for others
-            break;
-          }
-        }
-      } catch (error) {
-        // Directory might not be readable, skip it
-      }
+    // First: Find root project (priority)
+    const rootProject = await findRootProject(baseDir, markers);
+    if (rootProject) {
+      projects.add(rootProject);
     }
     
-    // Start searching from base directory
-    await searchDir(baseDir);
+    // Second: Find sibling projects with controlled expansion
+    if (projects.size < MAX_PROJECTS) {
+      await findSiblingProjects(baseDir, markers, skipDirs, projects, MAX_PROJECTS);
+    }
     
     const projectArray = Array.from(projects).sort();
     if (projectArray.length > 0) {
-      await logger.debug('Found projects using Bun file system', { projects: projectArray });
+      await logger.debug('Found projects with smart detection', { 
+        projects: projectArray.length, 
+        root: rootProject || 'none',
+        limit: MAX_PROJECTS 
+      });
     }
     
     return projectArray;
   } catch (error) {
     await logger.debug('Failed to discover projects', { error });
     return [];
+  }
+}
+
+// Helper: Check if a directory is a project based on markers or special cases
+async function isProjectDirectory(entries: any[], markers: Set<string>): Promise<boolean> {
+  let hasLuaFiles = false;
+  
+  for (const entry of entries) {
+    if (entry.isFile()) {
+      // Check for standard project markers
+      if (markers.has(entry.name)) {
+        return true;
+      }
+      // Special case: Lua projects (any directory with .lua files)
+      if (entry.name.endsWith('.lua')) {
+        hasLuaFiles = true;
+      }
+    }
+  }
+  
+  // If no standard marker but has Lua files, consider it a Lua project
+  return hasLuaFiles;
+}
+
+// Helper: Find the root project (directory containing project marker)
+async function findRootProject(dir: string, markers: Set<string>): Promise<string | null> {
+  const { readdir } = await import('fs/promises');
+  const { resolve } = await import('path');
+  
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    
+    if (await isProjectDirectory(entries, markers)) {
+      return resolve(dir);
+    }
+  } catch (error) {
+    // Directory not readable
+  }
+  
+  return null;
+}
+
+// Helper: Find sibling projects with boundary logic
+async function findSiblingProjects(
+  baseDir: string, 
+  markers: Set<string>, 
+  skipDirs: Set<string>, 
+  projects: Set<string>, 
+  maxProjects: number
+): Promise<void> {
+  const { readdir } = await import('fs/promises');
+  const { join } = await import('path');
+  
+  // Search only subdirectories of the base directory, not the base directory itself
+  // (since root project already handled)
+  try {
+    const entries = await readdir(baseDir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      if (entry.isDirectory() && !skipDirs.has(entry.name) && projects.size < maxProjects) {
+        await searchSubdirectoryForProjects(join(baseDir, entry.name), 1);
+      }
+    }
+  } catch (error) {
+    // Directory not readable
+  }
+  
+  async function searchSubdirectoryForProjects(dir: string, depth: number): Promise<void> {
+    // Respect hard limits
+    if (depth > 3 || projects.size >= maxProjects) return;
+    
+    const { resolve } = await import('path');
+    
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      
+      // Check if current directory is a project using shared logic
+      const isProject = await isProjectDirectory(entries, markers);
+      if (isProject) {
+        projects.add(resolve(dir));
+      }
+      
+      // If this directory is a project, don't recurse deeper (your boundary logic)
+      if (isProject) {
+        return;
+      }
+      
+      // Continue searching subdirectories if this is not a project
+      for (const entry of entries) {
+        if (entry.isDirectory() && !skipDirs.has(entry.name) && projects.size < maxProjects) {
+          await searchSubdirectoryForProjects(join(dir, entry.name), depth + 1);
+        }
+      }
+    } catch (error) {
+      // Directory might not be readable, skip it
+    }
   }
 }
 

@@ -144,7 +144,7 @@ console.log(obj.nmae); // Property typo
     
     test("Diagnostics have correct format", async () => {
       const testFile = join(TEST_PROJECT, "test.ts");
-      const result = await runDiagnostics(TEST_PROJECT, testFile);
+      const result = await runDiagnostics(TEST_PROJECT);
       
       if (result.diagnostics && result.diagnostics.length > 0) {
         const diag = result.diagnostics[0];

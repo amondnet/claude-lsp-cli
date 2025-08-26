@@ -5,7 +5,6 @@ import { existsSync, watch } from "fs";
 import * as fs from "fs";
 import { join, relative, resolve } from "path";
 import { 
-  validatePathWithinRoot, 
   secureHash,
   cleanupManager,
   safeDeleteFile
@@ -37,9 +36,9 @@ class LSPHttpServer {
     // Normalize to absolute path for consistent hashing
     this.projectRoot = resolve(projectRoot);
     this.projectHash = secureHash(this.projectRoot).substring(0, 16);
-    this.client = new LSPClient();
-    this.rateLimiter = new RateLimiter(100, 60000); // 100 requests per minute
     this.deduplicator = new DiagnosticDeduplicator(this.projectRoot);
+    this.client = new LSPClient(this.projectHash, this.deduplicator);
+    this.rateLimiter = new RateLimiter(100, 60000); // 100 requests per minute
     
     logger.setProject(this.projectHash);
   }
@@ -280,21 +279,6 @@ class LSPHttpServer {
     try {
       switch (path) {
         case "/diagnostics":
-          const fileParam = url.searchParams.get("file");
-          if (fileParam) {
-            // Validate path to prevent traversal
-            const validatedPath = validatePathWithinRoot(this.projectRoot, fileParam);
-            if (!validatedPath) {
-              return new Response(
-                JSON.stringify({ error: "Invalid file path" }), 
-                { headers, status: 400 }
-              );
-            }
-            return this.handleFileDiagnostics(validatedPath, headers);
-          } else {
-            return this.handleAllDiagnostics(headers);
-          }
-        
         case "/diagnostics/all":
           return this.handleAllDiagnostics(headers);
         
@@ -355,46 +339,6 @@ class LSPHttpServer {
     }
   }
 
-  private async handleFileDiagnostics(fullPath: string, headers: any): Promise<Response> {
-    try {
-      // Open document and wait for diagnostics to be published
-      await this.openDocument(fullPath, true);
-      
-      // Get raw diagnostics from LSP
-      const rawDiagnostics = this.client.getDiagnostics(fullPath);
-      
-      const diagnosticResponses: DiagnosticResponse[] = rawDiagnostics.map(d => ({
-        file: fullPath,  // Return absolute path for consistency
-        line: d.range.start.line + 1,
-        column: d.range.start.character + 1,
-        severity: this.mapSeverity(d.severity),
-        message: d.message,
-        source: d.source || "lsp",
-        ruleId: d.code?.toString()
-      }));
-      
-      // Filter to only errors and warnings
-      const relevantDiagnostics = diagnosticResponses.filter(d => 
-        d.severity === 'error' || d.severity === 'warning'
-      );
-      
-      // Run server-side deduplication  
-      const deduplicationResult = await this.deduplicator.processDiagnostics(relevantDiagnostics);
-      
-      // Return latest 5 items that should be displayed
-      const displayDiagnostics = deduplicationResult.shouldReport 
-        ? relevantDiagnostics.slice(0, 5)  // Latest 5 items for display
-        : [];  // Nothing to display if no changes
-      
-      return new Response(JSON.stringify({
-        diagnostics: displayDiagnostics,
-        timestamp: new Date().toISOString()
-      }), { headers });
-    } catch (error) {
-      await logger.error('Failed to get file diagnostics', error, { fullPath });
-      throw error;
-    }
-  }
 
   private async handleAllDiagnostics(headers: any): Promise<Response> {
     try {
@@ -426,17 +370,41 @@ class LSPHttpServer {
         d.severity === 'error' || d.severity === 'warning'
       );
       
-      // Run server-side deduplication
-      const deduplicationResult = await this.deduplicator.processDiagnostics(relevantDiagnostics);
+      // Run server-side deduplication - returns only NEW items not seen before
+      const newItemsToDisplay = await this.deduplicator.processDiagnostics(relevantDiagnostics);
       
-      // Logic: a. remove old items, b. update timestamps, c. map to latest 5 items, d. add displayed to dedup list
-      // The deduplicator handles a, b, d internally, we just need to return the latest 5
-      const displayDiagnostics = deduplicationResult.shouldReport 
-        ? relevantDiagnostics.slice(0, 5)  // Latest 5 items for display
-        : [];  // Nothing to display if no changes
+      // Take first 5 new items for display and convert to relative paths for AI
+      const displayDiagnostics = newItemsToDisplay.slice(0, 5).map(diag => ({
+        ...diag,
+        file: relative(this.projectRoot, diag.file)
+      }));
       
+      // Mark only the displayed items as shown (add to dedup database)
+      // Non-displayed items remain "new" for next time
+      if (displayDiagnostics.length > 0) {
+        await this.deduplicator.markAsDisplayed(displayDiagnostics);
+      }
+      
+      // Calculate summary statistics by language/source
+      const bySource: Record<string, number> = {};
+      for (const diag of relevantDiagnostics) {
+        const source = diag.source || 'unknown';
+        bySource[source] = (bySource[source] || 0) + 1;
+      }
+      
+      // Generate descriptive summary
+      let summary: string;
+      if (relevantDiagnostics.length === 0) {
+        summary = "no warnings or errors";
+      } else {
+        summary = `total: ${relevantDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')})`;
+      }
+
       return new Response(JSON.stringify({
         diagnostics: displayDiagnostics,
+        summary,
+        total_count: relevantDiagnostics.length,
+        by_source: bySource,
         timestamp: new Date().toISOString()
       }), { headers });
     } catch (error) {
@@ -510,6 +478,7 @@ class LSPHttpServer {
       });
     }
   }
+
 
   private async discoverAndOpenProjectFiles(): Promise<void> {
     try {

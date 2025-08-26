@@ -5,7 +5,7 @@
  * 
  * Usage:
  *   claude-lsp-cli hook <event-type>  - Handle Claude Code hook events
- *   claude-lsp-cli diagnostics <project> [file] - Query diagnostics directly
+ *   claude-lsp-cli diagnostics <project> - Query project-level diagnostics
  * 
  * This CLI acts as the entry point for Claude Code hooks and manages
  * the LSP server lifecycle and diagnostics.
@@ -91,15 +91,6 @@ async function handleHookEvent(eventType: string) {
   // Set hook mode to suppress INFO/DEBUG logging to console
   process.env.CLAUDE_LSP_HOOK_MODE = 'true';
   
-  // DEBUG: Output CWD as system message immediately
-  if (eventType === 'PostToolUse') {
-    console.error(`[[system-message]]: ${JSON.stringify({
-      status: "cwd_debug",
-      cwd: process.cwd(),
-      event: eventType,
-      timestamp: new Date().toISOString()
-    })}`);
-  }
   
   // Add debug logging to /tmp
   const debugLog = `/tmp/claude-lsp-hook-debug.log`;
@@ -177,19 +168,22 @@ async function handleHookEvent(eventType: string) {
   }
 }
 
-async function queryDiagnostics(projectRoot: string, filePath?: string) {
+async function queryDiagnostics(projectRoot: string) {
   try {
     // Use runDiagnostics from diagnostics.ts which has auto-start logic
     const { runDiagnostics } = await import("./diagnostics");
     
-    // Run diagnostics with auto-start capability
-    const result = await runDiagnostics(projectRoot, filePath);
+    // Run diagnostics for entire project (no file-specific diagnostics)
+    const result = await runDiagnostics(projectRoot);
     
-    // Output the result as JSON
-    console.log(JSON.stringify(result));
+    // Only output if there's a meaningful summary to report
+    if (result && result.summary) {
+      console.log(JSON.stringify(result));
+    }
+    // If no summary, exit silently (code 0)
     
   } catch (error) {
-    await logger.error('Failed to query diagnostics', error, { projectRoot, filePath });
+    await logger.error('Failed to query diagnostics', error, { projectRoot });
     console.error(JSON.stringify({
       error: "DIAGNOSTICS_QUERY_ERROR",
       message: error instanceof Error ? error.message : "Unknown error",
@@ -205,7 +199,7 @@ Claude LSP CLI - Language Server Protocol client for Claude Code
 
 Usage:
   claude-lsp-cli hook <event-type>           Handle Claude Code hook events
-  claude-lsp-cli diagnostics <project> [file] Query diagnostics directly
+  claude-lsp-cli diagnostics <project>       Query project-level diagnostics
   claude-lsp-cli status [project]            Show running LSP servers
   claude-lsp-cli start <project>             Start LSP server for project
   claude-lsp-cli stop <project>              Stop LSP server for project
@@ -537,8 +531,7 @@ if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
 } else if (command === "diagnostics" && args[1]) {
   const projectRoot = resolve(args[1]);
-  const filePath = args[2] ? resolve(args[2]) : undefined;
-  await queryDiagnostics(projectRoot, filePath);
+  await queryDiagnostics(projectRoot);
 } else if (command === "status") {
   const projectRoot = args[1] ? resolve(args[1]) : undefined;
   await showStatus(projectRoot);

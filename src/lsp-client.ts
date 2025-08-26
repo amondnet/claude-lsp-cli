@@ -30,12 +30,21 @@ interface LSPServer {
   metalsReady?: boolean;
 }
 
+import { DiagnosticDeduplicator } from './utils/diagnostic-dedup.js';
+
 export class LSPClient {
   private servers: Map<string, LSPServer> = new Map();
   private diagnostics: Map<string, Diagnostic[]> = new Map();
   private documentVersions: Map<string, number> = new Map();
   private fileLanguageMap: Map<string, string> = new Map();
   private receivedDiagnostics: Set<string> = new Set(); // Track files that have received diagnostics
+  private projectHash: string;
+  private deduplicator: DiagnosticDeduplicator | null;
+
+  constructor(projectHash?: string, deduplicator?: DiagnosticDeduplicator) {
+    this.projectHash = projectHash || 'default';
+    this.deduplicator = deduplicator || null;
+  }
 
   /**
    * Safely install a language server using spawn instead of execSync
@@ -89,6 +98,17 @@ export class LSPClient {
       return;
     }
 
+    // Check if we already have a server running for this language/project combo
+    if (this.deduplicator) {
+      const existing = this.deduplicator.getLanguageServer(this.projectHash, language);
+      if (existing) {
+        await logger.info(`♻️  Reusing existing ${config.name} server (PID: ${existing.pid})`);
+        // TODO: Connect to existing server instead of spawning new one
+        // For now, just log that we found it
+        return;
+      }
+    }
+
     await logger.info(`Starting ${config.name} Language Server...`);
     
     // Check if server is installed
@@ -126,8 +146,18 @@ export class LSPClient {
         env: { ...process.env, CLAUDE_LSP_PROJECT_ROOT: rootPath }
       });
 
+      // Register the server in the database
+      if (this.deduplicator && serverProcess.pid) {
+        this.deduplicator.registerLanguageServer(this.projectHash, language, serverProcess.pid);
+        await logger.info(`📝 Registered ${config.name} server (PID: ${serverProcess.pid})`);
+      }
+
       serverProcess.on('error', async (err) => {
         await logger.error(`Failed to start ${config.name} server:`, err);
+        // Clean up database entry on error
+        if (this.deduplicator) {
+          this.deduplicator.removeLanguageServer(this.projectHash, language);
+        }
       });
 
       serverProcess.stderr?.on('data', async (data) => {
@@ -265,6 +295,15 @@ export class LSPClient {
       
       // Store the server
       this.servers.set(language, server);
+
+      // Handle process exit to clean up database
+      serverProcess.on('exit', (code, signal) => {
+        if (this.deduplicator) {
+          this.deduplicator.removeLanguageServer(this.projectHash, language);
+          logger.info(`🗑️  Cleaned up ${config.name} server entry (exit code: ${code})`);
+        }
+        this.servers.delete(language);
+      });
       
       // For Scala, wait for Metals to be ready
       if (language === "scala") {

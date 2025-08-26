@@ -29,9 +29,9 @@ export class DiagnosticDeduplicator {
   private db: Database;
   private projectHash: string;
   private projectPath: string;
-  // Time window for considering diagnostics as "recent" (default: 10 minutes)
+  // Time window for considering diagnostics as "recent" (default: 24 hours)
   // After this time, a resolved diagnostic can be reported again if it reappears
-  private readonly DIAGNOSTIC_MEMORY_WINDOW = 10 * 60 * 1000; // 10 minutes
+  private readonly DIAGNOSTIC_MEMORY_WINDOW = 24 * 60 * 60 * 1000; // 24 hours
 
   constructor(projectPath: string) {
     this.projectPath = normalize(projectPath);
@@ -84,6 +84,22 @@ export class DiagnosticDeduplicator {
         diagnostics_count INTEGER DEFAULT 0
       )
     `);
+
+    // Table for tracking language server processes
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS language_servers (
+        project_hash TEXT NOT NULL,
+        language TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        started_at INTEGER NOT NULL,
+        last_checked INTEGER NOT NULL,
+        socket_path TEXT,
+        PRIMARY KEY (project_hash, language)
+      )
+    `);
+
+    // Clean up stale language server entries on startup
+    this.cleanupStaleLanguageServers();
   }
 
   private normalizePath(filePath: string): string {
@@ -129,12 +145,13 @@ export class DiagnosticDeduplicator {
   }
 
   /**
-   * Process diagnostics and return only the changes
+   * Process diagnostics and return only new items to display
+   * Returns array of diagnostics not seen before (filtered)
    */
   async processDiagnostics(
     currentDiagnostics: Diagnostic[], 
     sessionId?: string
-  ): Promise<{ diff: DiagnosticDiff; shouldReport: boolean }> {
+  ): Promise<Diagnostic[]> {
     const now = Date.now();
     
     // Get previous diagnostics from database (within memory window)
@@ -162,7 +179,53 @@ export class DiagnosticDeduplicator {
       });
     }
     
-    // Build current map and update database
+    // Build current map WITHOUT updating database yet
+    // Only displayed items will be added to DB later via markAsDisplayed
+    for (const diag of currentDiagnostics) {
+      const key = this.createDiagnosticKey(diag);
+      currentMap.set(key, diag);
+    }
+
+    // Compute new items to display
+    const newItemsToDisplay: Diagnostic[] = [];
+    
+    // Find only NEW diagnostics not seen before (not in dedup DB)
+    for (const [key, diag] of currentMap.entries()) {
+      if (!previousMap.has(key)) {
+        // New diagnostic not seen before - should be displayed
+        newItemsToDisplay.push(diag);
+      }
+      // Note: Items that ARE in previousMap are filtered out (already displayed)
+    }
+
+    await logger.debug('Diagnostic filtering complete', {
+      projectHash: this.projectHash,
+      totalCurrent: currentDiagnostics.length,
+      newItems: newItemsToDisplay.length,
+      filtered: currentDiagnostics.length - newItemsToDisplay.length
+    });
+
+    // Return filtered array - empty array means nothing new to display
+    return newItemsToDisplay;
+  }
+
+  /**
+   * Check if this is the first run for a project
+   */
+  isFirstRun(): boolean {
+    const result = this.db.prepare(`
+      SELECT COUNT(*) as count FROM diagnostic_reports WHERE project_hash = ?
+    `).get(this.projectHash) as any;
+    
+    return result.count === 0;
+  }
+
+  /**
+   * Mark specific diagnostics as displayed (add to dedup database)
+   * Only the displayed items should be added, so non-displayed items remain "new"
+   */
+  markAsDisplayed(displayedDiagnostics: Diagnostic[], sessionId?: string): void {
+    const now = Date.now();
     const stmt = this.db.prepare(`
       INSERT INTO diagnostic_history (
         project_hash, diagnostic_key, file_path, line, column, 
@@ -173,11 +236,8 @@ export class DiagnosticDeduplicator {
         session_id = excluded.session_id
     `);
 
-    for (const diag of currentDiagnostics) {
+    for (const diag of displayedDiagnostics) {
       const key = this.createDiagnosticKey(diag);
-      currentMap.set(key, diag);
-      
-      // Upsert into database with normalized path
       stmt.run(
         this.projectHash,
         key,
@@ -193,87 +253,6 @@ export class DiagnosticDeduplicator {
         sessionId || null
       );
     }
-
-    // Compute diff
-    const added: Diagnostic[] = [];
-    const resolved: Diagnostic[] = [];
-    const unchanged: Diagnostic[] = [];
-
-    // Check if this is the first report for this project
-    const isFirstReport = this.isFirstRun();
-
-    // Find added and unchanged
-    for (const [key, diag] of currentMap.entries()) {
-      if (!previousMap.has(key)) {
-        // New diagnostic not seen before
-        added.push(diag);
-      } else {
-        // Diagnostic was seen before and still exists
-        unchanged.push(diag);
-      }
-    }
-
-    // Find resolved
-    for (const [key, diag] of previousMap.entries()) {
-      if (!currentMap.has(key)) {
-        resolved.push(diag);
-      }
-    }
-    
-    // Create hash of current diagnostics for comparison
-    const currentHash = this.createReportHash(currentDiagnostics);
-    
-    // Get previous report hash
-    const previousReport = this.db.prepare(`
-      SELECT last_report_hash FROM diagnostic_reports WHERE project_hash = ?
-    `).get(this.projectHash) as any;
-    
-    const previousHash = previousReport?.last_report_hash;
-    
-    // Check if we should report
-    // Report if: first report with diagnostics, or there are changes (added/resolved), or hash changed
-    // Don't report if: no diagnostics and no previous report (nothing to report)
-    const shouldReport = (isFirstReport && currentDiagnostics.length > 0) || 
-                        added.length > 0 || 
-                        resolved.length > 0 ||
-                        (currentHash !== previousHash && (currentDiagnostics.length > 0 || previousHash != null));
-    
-    // Update last report time and hash only if we're actually reporting
-    // Don't create a record for first run with no diagnostics
-    if (shouldReport) {
-      this.db.run(`
-        INSERT INTO diagnostic_reports (project_hash, last_report_time, last_report_hash, diagnostics_count)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(project_hash) DO UPDATE SET
-          last_report_time = excluded.last_report_time,
-          last_report_hash = excluded.last_report_hash,
-          diagnostics_count = excluded.diagnostics_count
-      `, [this.projectHash, now, currentHash, currentDiagnostics.length]);
-    }
-
-    await logger.debug('Diagnostic diff computed', {
-      projectHash: this.projectHash,
-      added: added.length,
-      resolved: resolved.length,
-      unchanged: unchanged.length,
-      shouldReport
-    });
-
-    return {
-      diff: { added, resolved, unchanged },
-      shouldReport
-    };
-  }
-
-  /**
-   * Check if this is the first run for a project
-   */
-  isFirstRun(): boolean {
-    const result = this.db.prepare(`
-      SELECT COUNT(*) as count FROM diagnostic_reports WHERE project_hash = ?
-    `).get(this.projectHash) as any;
-    
-    return result.count === 0;
   }
 
   /**
@@ -289,5 +268,77 @@ export class DiagnosticDeduplicator {
 
   close(): void {
     this.db.close();
+  }
+
+  // Language Server Management Methods
+  registerLanguageServer(projectHash: string, language: string, pid: number, socketPath?: string): void {
+    const now = Date.now();
+    this.db.run(`
+      INSERT OR REPLACE INTO language_servers 
+      (project_hash, language, pid, started_at, last_checked, socket_path)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [projectHash, language, pid, now, now, socketPath || null]);
+  }
+
+  getLanguageServer(projectHash: string, language: string): { pid: number; socket_path: string | null } | null {
+    const result = this.db.prepare(`
+      SELECT pid, socket_path FROM language_servers
+      WHERE project_hash = ? AND language = ?
+    `).get(projectHash, language) as { pid: number; socket_path: string | null } | undefined;
+
+    if (result) {
+      // Check if the process is still alive
+      if (this.isPidAlive(result.pid)) {
+        // Update last_checked timestamp
+        this.db.run(`
+          UPDATE language_servers 
+          SET last_checked = ?
+          WHERE project_hash = ? AND language = ?
+        `, [Date.now(), projectHash, language]);
+        return result;
+      } else {
+        // Process is dead, clean up the entry
+        this.removeLanguageServer(projectHash, language);
+        return null;
+      }
+    }
+    return null;
+  }
+
+  removeLanguageServer(projectHash: string, language: string): void {
+    this.db.run(`
+      DELETE FROM language_servers
+      WHERE project_hash = ? AND language = ?
+    `, [projectHash, language]);
+  }
+
+  getAllLanguageServers(): Array<{ project_hash: string; language: string; pid: number }> {
+    return this.db.prepare(`
+      SELECT project_hash, language, pid FROM language_servers
+    `).all() as Array<{ project_hash: string; language: string; pid: number }>;
+  }
+
+  private isPidAlive(pid: number): boolean {
+    try {
+      // Send signal 0 to check if process exists
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private cleanupStaleLanguageServers(): void {
+    const servers = this.getAllLanguageServers();
+    let cleaned = 0;
+    for (const server of servers) {
+      if (!this.isPidAlive(server.pid)) {
+        this.removeLanguageServer(server.project_hash, server.language);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`Cleaned up ${cleaned} stale language server entries`);
+    }
   }
 }

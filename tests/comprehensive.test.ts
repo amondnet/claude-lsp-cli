@@ -218,11 +218,13 @@ console.log(message);
       // Should exit with code 0 for no errors
       expect(result.code).toBe(0);
       
-      // Should not contain error diagnostics (only cwd_debug is acceptable)
+      // Should not contain error diagnostics (only no warnings or errors is acceptable)
       if (result.stderr.includes("[[system-message]]")) {
-        // Either should contain "all_clear" OR should only contain "cwd_debug" (for quiet mode)
-        const hasErrorDiagnostics = result.stderr.includes('"result":"errors_found"');
+        // Should contain "no warnings or errors" summary when no errors
+        const hasErrorDiagnostics = result.stderr.includes('"diagnostics":[');
         expect(hasErrorDiagnostics).toBe(false);
+        // Should have no warnings or errors summary if any output
+        expect(result.stderr).toContain('"summary":"no warnings or errors"');
       }
     }, 30000);
 

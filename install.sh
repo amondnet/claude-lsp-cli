@@ -63,6 +63,8 @@ echo "📁 Creating directories..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$DATA_DIR"
 
+"$SCRIPT_DIR/bin/claude-lsp-cli" kill-all
+
 # Install the locally built binaries
 echo "📋 Installing local binaries..."
 cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
@@ -115,11 +117,10 @@ echo "     preserve them and add the LSP hooks alongside them."
 echo ""
 echo "  2. Then, read my existing ~/.claude/CLAUDE.md file. If a 'Diagnostics &"
 echo "     Self-Correction Protocol' section already exists, update it. If not,"
-echo "     add it with this exact content:"
+echo "     add this exact content:"
 echo ""
 echo "===== START OF DIAGNOSTICS PROTOCOL ====="
 cat "$SCRIPT_DIR/templates/CLAUDE_DIAGNOSTICS_PROTOCOL.md"
-echo ""
 echo "===== END OF DIAGNOSTICS PROTOCOL ====="
 echo ""
 echo "  Please read existing configurations first, then intelligently update both"

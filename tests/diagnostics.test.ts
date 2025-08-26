@@ -55,17 +55,17 @@ greet(456); // Wrong argument type
     expect(Array.isArray(result.diagnostics)).toBe(true);
   }, 15000);
   
-  test("runDiagnostics with specific file", async () => {
-    const testFile = join(TEST_PROJECT, "test.ts");
-    const result = await runDiagnostics(TEST_PROJECT, testFile);
+  test("runDiagnostics returns project-level diagnostics", async () => {
+    const result = await runDiagnostics(TEST_PROJECT);
     
     expect(result).toHaveProperty("diagnostics");
     expect(result).toHaveProperty("timestamp");
     
-    // All diagnostics should be for the specified file
+    // Should return diagnostics from all files in the project
     if (result.diagnostics.length > 0) {
       result.diagnostics.forEach((d: any) => {
-        expect(d.file).toBe(testFile);
+        // All files should be within the project
+        expect(d.file).toMatch(TEST_PROJECT);
       });
     }
   }, 15000);
@@ -177,11 +177,12 @@ const test = "hello";
     try {
       await handleHookEvent("SessionStart");
       
-      // Should only output if there are initial errors
+      // Should only output if there are diagnostics with summary
       if (outputCaptured && outputCaptured.includes("[[system-message]]")) {
         const message = outputCaptured.split("[[system-message]]:")[1];
         const parsed = JSON.parse(message);
-        expect(parsed.result).toBe("initial_errors_found");
+        // New format: should have diagnostics array OR summary field
+        expect(parsed.diagnostics || parsed.summary).toBeTruthy();
       }
     } finally {
       // @ts-ignore

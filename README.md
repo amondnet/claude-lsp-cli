@@ -438,11 +438,15 @@ The LSP hook communicates with Claude using a **system message protocol** that r
 The hook outputs specially formatted messages that Claude recognizes:
 
 ```javascript
+// When diagnostics are found:
 console.error(`[[system-message]]: ${JSON.stringify({
-  status: 'diagnostics_report',
-  result: 'errors_found',
   diagnostics: [...],
-  reference: { type: 'previous_code_edit', turn: 'claude_-1' }
+  summary: "total: 5 diagnostics (typescript: 3, python: 2)"
+})}`);
+
+// When no issues found:
+console.error(`[[system-message]]: ${JSON.stringify({
+  summary: "no warnings or errors"
 })}`);
 ```
 
@@ -457,32 +461,37 @@ When you see `[[system-message]]:` followed by JSON, this is an automated system
 
 **DIAGNOSTIC REPORT FORMAT:**
 
+**When errors found:**
+```json
 {
-  "status": "diagnostics_report",
-  "result": "errors_found" | "all_clear",
-  "reference": {
-    "type": "previous_code_edit", 
-    "turn": "claude_-1"
-  },
-  "diagnostics": [    // Only present when result is "errors_found"
+  "diagnostics": [
     {
       "file": "/absolute/path/to/file.ts",
       "line": 10,
       "column": 5,
-      "severity": "error" | "warning",  // Only errors and warnings are reported
+      "severity": "error" | "warning",  // Only errors and warnings are reported (hints filtered out)
       "message": "Type 'string' is not assignable to type 'number'",
-      "source": "TypeScript",
+      "source": "TypeScript" | "ESLint" | "Python" | "Rust" | etc,
       "ruleId": "TS2322"  // Optional: error code if available
     }
-  ]
+  ],
+  "summary": "total: 25 diagnostics (typescript: 20, python: 5)"  // Shows full scope when displaying max 5
+}
+```
+
+**When no errors:**
+```json
+{
+  "summary": "no warnings or errors"
 }
 ```
 
 This teaches Claude to:
-1. **Recognize diagnostic reports** with `"status": "diagnostics_report"`
-2. **Prioritize fixing errors** before continuing with new requests
-3. **Parse the diagnostic format** and fix issues at correct locations
-4. **Follow the correction protocol** automatically
+1. **Recognize diagnostic reports** by the system message format
+2. **Prioritize fixing errors** when diagnostics array is present
+3. **Parse the diagnostic format** and fix issues at correct locations  
+4. **Understand summary information** showing total diagnostics by language
+5. **Handle "no warnings or errors" status** when no issues are found
 
 ## 🛠️ Standalone Usage (Without Claude)
 
