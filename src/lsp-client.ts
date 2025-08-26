@@ -98,16 +98,16 @@ export class LSPClient {
       return;
     }
 
-    // Check if we already have a server running for this language/project combo
-    if (this.deduplicator) {
-      const existing = this.deduplicator.getLanguageServer(this.projectHash, language);
-      if (existing) {
-        await logger.info(`♻️  Reusing existing ${config.name} server (PID: ${existing.pid})`);
-        // TODO: Connect to existing server instead of spawning new one
-        // For now, just log that we found it
-        return;
-      }
+    // Check if we already have a server in our local cache (same LSPClient instance)
+    if (this.servers.has(language)) {
+      await logger.info(`✅  Reusing local ${config.name} server connection`);
+      return;
     }
+
+    // Clean up any stale servers before starting a new one (temporarily disabled for debugging)
+    // if (this.deduplicator) {
+    //   await this.cleanupStaleServersForProject(language);
+    // }
 
     await logger.info(`Starting ${config.name} Language Server...`);
     
@@ -644,6 +644,65 @@ export class LSPClient {
     
     // Restart servers for the same languages (they'll be auto-started when files are opened)
     await logger.info(`Reset completed for languages: ${activeLanguages.join(', ')}`);
+  }
+
+  /**
+   * Clean up stale language server processes for the current project
+   */
+  private async cleanupStaleServersForProject(language: string): Promise<void> {
+    try {
+      const { spawn } = require('child_process');
+      
+      // Get the server command to search for
+      const serverCmd = language === 'typescript' ? 'tsserver' : `${language}-language-server`;
+      
+      // Find all processes for this language server type
+      const proc = spawn('bash', ['-c', `ps aux | grep "${serverCmd}" | grep -v grep`], 
+                         { stdio: ['ignore', 'pipe', 'pipe'] });
+      
+      let output = '';
+      proc.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+      
+      await new Promise<void>((resolve) => {
+        proc.on('close', () => {
+          const lines = output.trim().split('\n').filter(line => line.trim());
+          let cleaned = 0;
+          
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parseInt(parts[1]);
+            
+            // Only clean up servers for the current project path
+            if (line.includes(this.projectRoot)) {
+              try {
+                // Check if process still exists and is stale
+                process.kill(pid, 0); // Test signal
+                
+                // If we get here, process exists - kill it
+                process.kill(pid, 'SIGTERM');
+                cleaned++;
+                logger.info(`🗑️  Cleaned up stale ${language} server (PID: ${pid})`);
+              } catch (e) {
+                // Process doesn't exist or no permission
+              }
+            }
+          }
+          
+          if (cleaned > 0) {
+            logger.info(`Cleaned up ${cleaned} stale ${language} server(s)`);
+          }
+          resolve();
+        });
+      });
+      
+      // Give processes time to terminate
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+    } catch (error) {
+      await logger.debug(`Error during stale server cleanup: ${error}`);
+    }
   }
 
   getActiveFileExtensions(): string[] {

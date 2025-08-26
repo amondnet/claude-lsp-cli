@@ -29,9 +29,9 @@ export class DiagnosticDeduplicator {
   private db: Database;
   private projectHash: string;
   private projectPath: string;
-  // Time window for considering diagnostics as "recent" (default: 24 hours)
+  // Time window for considering diagnostics as "recent" (configurable via CLAUDE_LSP_RETENTION_HOURS)
   // After this time, a resolved diagnostic can be reported again if it reappears
-  private readonly DIAGNOSTIC_MEMORY_WINDOW = 24 * 60 * 60 * 1000; // 24 hours
+  private readonly DIAGNOSTIC_MEMORY_WINDOW = this.getRetentionWindow();
 
   constructor(projectPath: string) {
     this.projectPath = normalize(projectPath);
@@ -47,6 +47,20 @@ export class DiagnosticDeduplicator {
     
     this.db = new Database(`${dataDir}/claude-code-lsp.db`);
     this.initializeSchema();
+  }
+
+  private getRetentionWindow(): number {
+    const hoursEnv = process.env.CLAUDE_LSP_RETENTION_HOURS;
+    const hours = hoursEnv ? parseInt(hoursEnv, 10) : 24;
+    
+    // Validate the hours value (must be positive)
+    if (isNaN(hours) || hours <= 0) {
+      // Note: Not awaited since this is called from constructor
+      logger.warn(`Invalid CLAUDE_LSP_RETENTION_HOURS value: ${hoursEnv}. Using default 24 hours.`).catch(() => {});
+      return 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    }
+    
+    return hours * 60 * 60 * 1000; // Convert hours to milliseconds
   }
 
   private initializeSchema(): void {
@@ -99,7 +113,7 @@ export class DiagnosticDeduplicator {
     `);
 
     // Clean up stale language server entries on startup
-    this.cleanupStaleLanguageServers();
+    this.cleanupStaleLanguageServers().catch(() => {});
   }
 
   private normalizePath(filePath: string): string {
@@ -256,14 +270,14 @@ export class DiagnosticDeduplicator {
   }
 
   /**
-   * Clean up old diagnostics (older than 24 hours)
+   * Clean up old diagnostics (older than retention window)
    */
   cleanup(): void {
-    const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+    const cutoffTime = Date.now() - this.DIAGNOSTIC_MEMORY_WINDOW;
     this.db.run(`
       DELETE FROM diagnostic_history 
       WHERE project_hash = ? AND last_seen < ?
-    `, [this.projectHash, oneDayAgo]);
+    `, [this.projectHash, cutoffTime]);
   }
 
   close(): void {
@@ -328,7 +342,7 @@ export class DiagnosticDeduplicator {
     }
   }
 
-  private cleanupStaleLanguageServers(): void {
+  private async cleanupStaleLanguageServers(): Promise<void> {
     const servers = this.getAllLanguageServers();
     let cleaned = 0;
     for (const server of servers) {
@@ -338,7 +352,28 @@ export class DiagnosticDeduplicator {
       }
     }
     if (cleaned > 0) {
-      console.log(`Cleaned up ${cleaned} stale language server entries`);
+      await logger.info(`Cleaned up ${cleaned} stale language server entries`);
+    }
+  }
+
+  /**
+   * Reset all diagnostic history for this project
+   * This allows previously seen diagnostics to be displayed again
+   */
+  async resetAll(): Promise<void> {
+    try {
+      await logger.info(`Resetting all diagnostic history for project: ${this.projectHash}`);
+      
+      // Clear all diagnostic history for this project
+      const result = this.db.run(`
+        DELETE FROM diagnostic_history 
+        WHERE project_hash = ?
+      `, [this.projectHash]);
+      
+      await logger.info(`Reset complete: removed ${result.changes} diagnostic entries`);
+    } catch (error) {
+      await logger.error('Failed to reset diagnostic history', error);
+      throw error;
     }
   }
 }
