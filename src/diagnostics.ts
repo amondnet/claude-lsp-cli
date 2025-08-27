@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "fs";
 import ignore from "ignore";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
 import { 
   secureHash, 
   safeDeleteFile
@@ -331,11 +331,124 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
       const fileSpecificTool = hookData?.toolName && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(hookData.toolName);
       const targetFile = hookData?.input?.file_path || hookData?.input?.input_path || hookData?.input?.path;
       
-      let filterToFile: string | undefined;
+      // Determine current project root early
+      let currentProjectRoot: string | null = null;
+      if (fileSpecificTool && targetFile) {
+        currentProjectRoot = await findProjectRoot(targetFile);
+      }
+      if (!currentProjectRoot) {
+        // Fall back to working directory
+        const baseDir = hookData?.cwd || hookData?.workingDirectory || process.cwd();
+        const projects = await findAllProjects(baseDir);
+        if (projects.length > 0) {
+          currentProjectRoot = projects[0];
+        }
+      }
+      
+      // First, check for any pending file checks from previous hooks
+      // Pass the current project root to prioritize checks for the same project
+      await processPendingFileChecks(currentProjectRoot || undefined);
+      
+      // Handle file-specific diagnostics
       if (fileSpecificTool && targetFile) {
         await logger.debug('File-specific tool detected', { tool: hookData.toolName, file: targetFile });
-        // For file-specific tools, only show diagnostics for the edited file
-        filterToFile = targetFile;
+        
+        const fileProjectRoot = currentProjectRoot || await findProjectRoot(targetFile);
+        if (!fileProjectRoot) {
+          await logger.debug('No project root found for file', { file: targetFile });
+          return false;
+        }
+        
+        // We have a total of ~30 seconds for the hook (from cli.ts timeout)
+        // But we want to be responsive, so we'll use aggressive timeouts
+        const TOTAL_TIMEOUT = 4500; // 4.5 seconds to leave buffer
+        const startTime = Date.now();
+        
+        try {
+          // Quick check if server is already running (100ms max)
+          const projectHash = secureHash(fileProjectRoot).substring(0, 16);
+          const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+          let serverRunning = false;
+          
+          if (existsSync(socketPath)) {
+            try {
+              const healthCheck = await Promise.race([
+                fetch('http://localhost/health', { unix: socketPath } as any),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 100))
+              ]);
+              serverRunning = (healthCheck as Response).ok;
+            } catch {
+              serverRunning = false;
+            }
+          }
+          
+          // If server not running, start it in background (don't wait)
+          if (!serverRunning) {
+            // Start server asynchronously - it will continue running after hook exits
+            import("./manager").then(({ startLspServer }) => {
+              startLspServer(fileProjectRoot).catch(err => 
+                logger.error('Background LSP server start failed', { error: err })
+              );
+            });
+            
+            // Store a pending task to check this file later
+            await storePendingFileCheck(targetFile, fileProjectRoot);
+            
+            // Return early - we can't get diagnostics yet
+            await logger.info('LSP server starting in background, diagnostics will be available later', { file: targetFile });
+            return false;
+          }
+          
+          // Server is running, get diagnostics quickly
+          const remainingTime = TOTAL_TIMEOUT - (Date.now() - startTime);
+          if (remainingTime < 500) {
+            await logger.warn('Not enough time left for diagnostics', { remainingTime });
+            return false;
+          }
+          
+          const diagnostics = await Promise.race([
+            runDiagnostics(fileProjectRoot),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), remainingTime))
+          ]) as any;
+          
+          if (diagnostics && diagnostics.diagnostics) {
+            // Filter to only this file
+            const fileDiagnostics = diagnostics.diagnostics.filter((d: any) => 
+              d.file === targetFile || d.file === resolve(targetFile)
+            );
+            
+            // Store file info in SQLite without dedup checking
+            await storeFileModificationInfo(targetFile);
+            
+            // Display up to 5 diagnostics with summary
+            if (fileDiagnostics.length > 0) {
+              const displayDiags = fileDiagnostics.slice(0, 5);
+              const bySource: Record<string, number> = {};
+              for (const diag of fileDiagnostics) {
+                const source = diag.source || 'unknown';
+                bySource[source] = (bySource[source] || 0) + 1;
+              }
+              
+              const response = {
+                diagnostics: displayDiags,
+                summary: `total: ${fileDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')})`
+              };
+              
+              console.error(`[[system-message]]: ${JSON.stringify(response)}`);
+              return true;
+            }
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message === 'timeout') {
+            await logger.warn('Hook timeout reached', { file: targetFile, elapsed: Date.now() - startTime });
+            // Store for later checking
+            await storePendingFileCheck(targetFile, fileProjectRoot);
+          } else {
+            await logger.error('Failed to get file-specific diagnostics', { error, file: targetFile });
+          }
+        }
+        
+        return false; // No diagnostics to report for this file
       }
       
       // Run diagnostics after ANY tool - files could be modified externally
@@ -553,6 +666,281 @@ async function findProjectRoot(filePath: string): Promise<string | null> {
   const { findProjectRoot: findProjectRootFromManager } = await import('./manager');
   const projectInfo = findProjectRootFromManager(filePath);
   return projectInfo?.root || null;
+}
+
+// Ensure LSP server is running for a project
+async function ensureLspServerRunning(projectRoot: string): Promise<void> {
+  try {
+    const projectHash = secureHash(projectRoot).substring(0, 16);
+    const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+    
+    // Check if server is already running
+    if (existsSync(socketPath)) {
+      // Try to ping it
+      try {
+        const response = await fetch('http://localhost/health', {
+          unix: socketPath,
+          signal: AbortSignal.timeout(1000)
+        } as any);
+        
+        if (response.ok) {
+          await logger.debug('LSP server already running', { projectRoot, socketPath });
+          return; // Server is healthy
+        }
+      } catch {
+        // Server not responding, need to start new one
+        await logger.debug('LSP server socket exists but not responding', { socketPath });
+      }
+    }
+    
+    // Start new server
+    await logger.info('Starting LSP server for project', { projectRoot });
+    const { startLspServer } = await import("./manager");
+    await startLspServer(projectRoot);
+    
+    // Wait a bit for server to initialize
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+  } catch (error) {
+    await logger.error('Failed to ensure LSP server running', { error, projectRoot });
+    throw error;
+  }
+}
+
+// Process any pending file checks from previous hooks
+async function processPendingFileChecks(currentProjectRoot?: string): Promise<void> {
+  try {
+    // Quick check - use a very short timeout since this is opportunistic
+    const timeout = 800; // 800ms max for ALL pending checks
+    const startTime = Date.now();
+    
+    const { DiagnosticDeduplicator } = await import("./utils/diagnostic-dedup");
+    // Use current project root if available, otherwise cwd
+    const dedup = new DiagnosticDeduplicator(currentProjectRoot || process.cwd());
+    
+    try {
+      // Check if table exists
+      const tableExists = dedup.db.prepare(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='pending_file_checks'
+      `).get();
+      
+      if (!tableExists) {
+        return; // No pending checks
+      }
+      
+      // Get ALL pending checks, prioritizing current project
+      let pendingChecks = dedup.db.prepare(`
+        SELECT file_path, project_root 
+        FROM pending_file_checks 
+        WHERE checked = 0 
+        ORDER BY 
+          CASE WHEN project_root = ? THEN 0 ELSE 1 END,
+          created_at ASC
+        LIMIT 5
+      `).all(currentProjectRoot || '') as Array<{ file_path: string; project_root: string }>;
+      
+      if (pendingChecks.length === 0) {
+        return; // No pending checks
+      }
+      
+      await logger.debug('Found pending file checks', { count: pendingChecks.length });
+      
+      // Process each pending check quickly
+      for (const pending of pendingChecks) {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > timeout) {
+          break; // Out of time
+        }
+        
+        // Check if LSP server is now running for this project
+        const projectHash = secureHash(pending.project_root).substring(0, 16);
+        const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+        
+        let serverReady = false;
+        if (existsSync(socketPath)) {
+          try {
+            // Quick health check (50ms max)
+            const healthCheck = await Promise.race([
+              fetch('http://localhost/health', { unix: socketPath } as any),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 50))
+            ]);
+            serverReady = (healthCheck as Response).ok;
+          } catch {
+            serverReady = false;
+          }
+        }
+        
+        if (!serverReady) {
+          // Server not ready, try to start it in background if it's for current project
+          if (pending.project_root === currentProjectRoot) {
+            import("./manager").then(({ startLspServer }) => {
+              startLspServer(pending.project_root).catch(err => 
+                logger.error('Background LSP server start failed', { error: err })
+              );
+            });
+          }
+          continue; // Skip this file for now
+        }
+        
+        // Server is running, get diagnostics quickly
+        const remainingTime = timeout - (Date.now() - startTime);
+        if (remainingTime < 100) {
+          break; // Not enough time left
+        }
+        
+        try {
+          const diagnostics = await Promise.race([
+            runDiagnostics(pending.project_root),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), Math.min(remainingTime, 400)))
+          ]) as any;
+          
+          if (diagnostics && diagnostics.diagnostics) {
+            // Filter to only the pending file
+            const fileDiagnostics = diagnostics.diagnostics.filter((d: any) => 
+              d.file === pending.file_path || d.file === resolve(pending.file_path)
+            );
+            
+            if (fileDiagnostics.length > 0) {
+              // Display diagnostics for the pending file
+              const displayDiags = fileDiagnostics.slice(0, 5);
+              const bySource: Record<string, number> = {};
+              for (const diag of fileDiagnostics) {
+                const source = diag.source || 'unknown';
+                bySource[source] = (bySource[source] || 0) + 1;
+              }
+              
+              const response = {
+                diagnostics: displayDiags,
+                summary: `total: ${fileDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')}) [from previous edit: ${pending.file_path}]`
+              };
+              
+              console.error(`[[system-message]]: ${JSON.stringify(response)}`);
+              
+              // Mark as checked since we successfully reported it
+              dedup.db.prepare(`
+                UPDATE pending_file_checks 
+                SET checked = 1 
+                WHERE file_path = ?
+              `).run(pending.file_path);
+              
+              // We reported one file's diagnostics, that's enough for this hook
+              break;
+            }
+          }
+        } catch (error) {
+          // Timeout or error, move on to next file
+          await logger.debug('Failed to get diagnostics for pending file', { file: pending.file_path, error });
+        }
+      }
+      
+      // Clean up old checked entries (older than 1 hour)
+      dedup.db.prepare(`
+        DELETE FROM pending_file_checks 
+        WHERE checked = 1 
+        AND datetime(created_at) < datetime('now', '-1 hour')
+      `).run();
+      
+    } finally {
+      dedup.close();
+    }
+  } catch (error) {
+    await logger.error('Failed to process pending file checks', { error });
+  }
+}
+
+// Store a pending file check for later processing
+async function storePendingFileCheck(filePath: string, projectRoot: string): Promise<void> {
+  try {
+    const { DiagnosticDeduplicator } = await import("./utils/diagnostic-dedup");
+    const dedup = new DiagnosticDeduplicator(projectRoot);
+    
+    try {
+      // Create table if it doesn't exist
+      dedup.db.exec(`
+        CREATE TABLE IF NOT EXISTS pending_file_checks (
+          file_path TEXT PRIMARY KEY,
+          project_root TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          checked BOOLEAN DEFAULT 0
+        )
+      `);
+      
+      // Store pending check
+      const query = dedup.db.prepare(`
+        INSERT OR REPLACE INTO pending_file_checks (
+          file_path, 
+          project_root,
+          created_at,
+          checked
+        ) VALUES (?, ?, ?, 0)
+      `);
+      
+      query.run(
+        filePath,
+        projectRoot,
+        new Date().toISOString()
+      );
+      
+      await logger.debug('Stored pending file check', { filePath, projectRoot });
+    } finally {
+      dedup.close();
+    }
+  } catch (error) {
+    await logger.error('Failed to store pending file check', { error, filePath });
+  }
+}
+
+// Store file modification info without dedup checking
+async function storeFileModificationInfo(filePath: string): Promise<void> {
+  try {
+    const stats = await Bun.file(filePath).exists() ? 
+      await import("fs").then(fs => fs.promises.stat(filePath)) : null;
+    
+    if (!stats) {
+      await logger.debug('File does not exist', { filePath });
+      return;
+    }
+    
+    const { DiagnosticDeduplicator } = await import("./utils/diagnostic-dedup");
+    const projectRoot = await findProjectRoot(filePath) || dirname(filePath);
+    const dedup = new DiagnosticDeduplicator(projectRoot);
+    
+    try {
+      // Create table if it doesn't exist
+      dedup.db.exec(`
+        CREATE TABLE IF NOT EXISTS file_modifications (
+          file_path TEXT PRIMARY KEY,
+          last_modified TEXT NOT NULL,
+          last_checked TEXT NOT NULL
+        )
+      `);
+      
+      // Store file info directly without checking for duplicates
+      const query = dedup.db.prepare(`
+        INSERT OR REPLACE INTO file_modifications (
+          file_path, 
+          last_modified, 
+          last_checked
+        ) VALUES (?, ?, ?)
+      `);
+      
+      query.run(
+        filePath,
+        stats.mtime.toISOString(),
+        new Date().toISOString()
+      );
+      
+      await logger.debug('Stored file modification info', { 
+        filePath, 
+        lastModified: stats.mtime.toISOString() 
+      });
+    } finally {
+      dedup.close();
+    }
+  } catch (error) {
+    await logger.error('Failed to store file modification info', { error, filePath });
+  }
 }
 
 export async function findAllProjects(baseDir: string): Promise<string[]> {
