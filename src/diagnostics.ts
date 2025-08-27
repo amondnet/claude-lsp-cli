@@ -359,96 +359,44 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
           return false;
         }
         
-        // We have a total of ~30 seconds for the hook (from cli.ts timeout)
-        // But we want to be responsive, so we'll use aggressive timeouts
-        const TOTAL_TIMEOUT = 4500; // 4.5 seconds to leave buffer
-        const startTime = Date.now();
+        // ALWAYS store the file as pending first
+        await storePendingFileCheck(targetFile, fileProjectRoot);
         
-        try {
-          // Quick check if server is already running (100ms max)
-          const projectHash = secureHash(fileProjectRoot).substring(0, 16);
-          const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
-          let serverRunning = false;
-          
-          if (existsSync(socketPath)) {
-            try {
-              const healthCheck = await Promise.race([
-                fetch('http://localhost/health', { unix: socketPath } as any),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 100))
-              ]);
-              serverRunning = (healthCheck as Response).ok;
-            } catch {
-              serverRunning = false;
-            }
-          }
-          
-          // If server not running, start it in background (don't wait)
-          if (!serverRunning) {
-            // Start server asynchronously - it will continue running after hook exits
-            import("./manager").then(({ startLspServer }) => {
-              startLspServer(fileProjectRoot).catch(err => 
-                logger.error('Background LSP server start failed', { error: err })
-              );
-            });
-            
-            // Store a pending task to check this file later
-            await storePendingFileCheck(targetFile, fileProjectRoot);
-            
-            // Return early - we can't get diagnostics yet
-            await logger.info('LSP server starting in background, diagnostics will be available later', { file: targetFile });
-            return false;
-          }
-          
-          // Server is running, get diagnostics quickly
-          const remainingTime = TOTAL_TIMEOUT - (Date.now() - startTime);
-          if (remainingTime < 500) {
-            await logger.warn('Not enough time left for diagnostics', { remainingTime });
-            return false;
-          }
-          
-          const diagnostics = await Promise.race([
-            runDiagnostics(fileProjectRoot),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), remainingTime))
-          ]) as any;
-          
-          if (diagnostics && diagnostics.diagnostics) {
-            // Filter to only this file
-            const fileDiagnostics = diagnostics.diagnostics.filter((d: any) => 
-              d.file === targetFile || d.file === resolve(targetFile)
-            );
-            
-            // Store file info in SQLite without dedup checking
-            await storeFileModificationInfo(targetFile);
-            
-            // Display up to 5 diagnostics with summary
-            if (fileDiagnostics.length > 0) {
-              const displayDiags = fileDiagnostics.slice(0, 5);
-              const bySource: Record<string, number> = {};
-              for (const diag of fileDiagnostics) {
-                const source = diag.source || 'unknown';
-                bySource[source] = (bySource[source] || 0) + 1;
-              }
-              
-              const response = {
-                diagnostics: displayDiags,
-                summary: `total: ${fileDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')})`
-              };
-              
-              console.error(`[[system-message]]: ${JSON.stringify(response)}`);
-              return true;
-            }
-          }
-        } catch (error) {
-          if (error instanceof Error && error.message === 'timeout') {
-            await logger.warn('Hook timeout reached', { file: targetFile, elapsed: Date.now() - startTime });
-            // Store for later checking
-            await storePendingFileCheck(targetFile, fileProjectRoot);
-          } else {
-            await logger.error('Failed to get file-specific diagnostics', { error, file: targetFile });
+        // Store file modification info
+        await storeFileModificationInfo(targetFile);
+        
+        // Ensure LSP server is started (but don't wait long)
+        const projectHash = secureHash(fileProjectRoot).substring(0, 16);
+        const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+        let serverRunning = false;
+        
+        // Quick check if server is already running (50ms max)
+        if (existsSync(socketPath)) {
+          try {
+            const healthCheck = await Promise.race([
+              fetch('http://localhost/health', { unix: socketPath } as any),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 50))
+            ]);
+            serverRunning = (healthCheck as Response).ok;
+          } catch {
+            serverRunning = false;
           }
         }
         
-        return false; // No diagnostics to report for this file
+        // Start server in background if not running
+        if (!serverRunning) {
+          import("./manager").then(({ startLspServer }) => {
+            startLspServer(fileProjectRoot).catch(err => 
+              logger.error('Background LSP server start failed', { error: err })
+            );
+          });
+          await logger.info('LSP server starting in background for project', { project: fileProjectRoot });
+        }
+        
+        // Don't process pending checks here - we don't know how much time we have
+        // Let the next hook trigger handle it
+        
+        return false; // Diagnostics will appear on next hook trigger
       }
       
       // Run diagnostics after ANY tool - files could be modified externally
@@ -710,8 +658,9 @@ async function ensureLspServerRunning(projectRoot: string): Promise<void> {
 // Process any pending file checks from previous hooks
 async function processPendingFileChecks(currentProjectRoot?: string): Promise<void> {
   try {
-    // Quick check - use a very short timeout since this is opportunistic
-    const timeout = 800; // 800ms max for ALL pending checks
+    // Claude Code likely kills hooks after ~5 seconds, so we need to be fast
+    // Use only 500ms for pending checks to leave room for the main work
+    const timeout = 500; // 500ms max for pending checks
     const startTime = Date.now();
     
     const { DiagnosticDeduplicator } = await import("./utils/diagnostic-dedup");
@@ -729,52 +678,55 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
         return; // No pending checks
       }
       
-      // Get ALL pending checks, but ensure we process old ones too
-      // Strategy: Take 1 oldest overall + up to 4 from current project
-      const oldestOverall = dedup.db.prepare(`
-        SELECT file_path, project_root, created_at
-        FROM pending_file_checks 
-        WHERE checked = 0 
-        ORDER BY created_at ASC
-        LIMIT 1
-      `).get() as { file_path: string; project_root: string; created_at: string } | undefined;
-      
+      // Get pending checks - but only process 1-2 to stay fast
+      // Strategy: Take 1 oldest overall, or 1 from current project
       let pendingChecks: Array<{ file_path: string; project_root: string }> = [];
       
-      if (oldestOverall) {
-        // Always include the oldest pending check to prevent starvation
-        pendingChecks.push(oldestOverall);
+      if (currentProjectRoot) {
+        // Prefer current project's pending check
+        const currentProjectCheck = dedup.db.prepare(`
+          SELECT file_path, project_root 
+          FROM pending_file_checks 
+          WHERE checked = 0 
+          AND project_root = ?
+          ORDER BY created_at DESC
+          LIMIT 1
+        `).get(currentProjectRoot) as { file_path: string; project_root: string } | undefined;
         
-        // Then add current project checks if we have room
-        if (currentProjectRoot) {
-          const currentProjectChecks = dedup.db.prepare(`
-            SELECT file_path, project_root 
-            FROM pending_file_checks 
-            WHERE checked = 0 
-            AND project_root = ?
-            AND file_path != ?
-            ORDER BY created_at ASC
-            LIMIT 4
-          `).all(currentProjectRoot, oldestOverall.file_path) as Array<{ file_path: string; project_root: string }>;
-          
-          pendingChecks.push(...currentProjectChecks);
+        if (currentProjectCheck) {
+          pendingChecks.push(currentProjectCheck);
         }
+      }
+      
+      // If no current project check, get oldest overall
+      if (pendingChecks.length === 0) {
+        const oldestOverall = dedup.db.prepare(`
+          SELECT file_path, project_root, created_at
+          FROM pending_file_checks 
+          WHERE checked = 0 
+          ORDER BY created_at ASC
+          LIMIT 1
+        `).get() as { file_path: string; project_root: string; created_at: string } | undefined;
         
-        // Check if oldest is too old (> 5 minutes) - if so, just mark it as checked to avoid infinite retries
-        const createdAt = new Date(oldestOverall.created_at).getTime();
-        const now = Date.now();
-        if (now - createdAt > 5 * 60 * 1000) {
-          await logger.warn('Pending check too old, marking as expired', { 
-            file: oldestOverall.file_path, 
-            age: Math.floor((now - createdAt) / 1000) + 's' 
-          });
-          dedup.db.prepare(`
-            UPDATE pending_file_checks 
-            SET checked = 1 
-            WHERE file_path = ?
-          `).run(oldestOverall.file_path);
-          // Remove from our processing list
-          pendingChecks = pendingChecks.filter(p => p.file_path !== oldestOverall.file_path);
+        if (oldestOverall) {
+          pendingChecks.push(oldestOverall);
+          
+          // Check if oldest is too old (> 5 minutes) - if so, just mark it as checked to avoid infinite retries
+          const createdAt = new Date(oldestOverall.created_at).getTime();
+          const now = Date.now();
+          if (now - createdAt > 5 * 60 * 1000) {
+            await logger.warn('Pending check too old, marking as expired', { 
+              file: oldestOverall.file_path, 
+              age: Math.floor((now - createdAt) / 1000) + 's' 
+            });
+            dedup.db.prepare(`
+              UPDATE pending_file_checks 
+              SET checked = 1 
+              WHERE file_path = ?
+            `).run(oldestOverall.file_path);
+            // Remove from our processing list
+            pendingChecks = pendingChecks.filter(p => p.file_path !== oldestOverall.file_path);
+          }
         }
       }
       
