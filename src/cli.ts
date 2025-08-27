@@ -14,6 +14,7 @@
 import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
 import { resolve, join } from "path";
+import { TIMEOUTS } from "./constants";
 
 
 async function runAsLanguageServer(language: string) {
@@ -120,7 +121,7 @@ async function handleHookEvent(eventType: string) {
       reference: { type: "hook_timeout", event: eventType }
     })}`);
     process.exit(errorExitCode);
-  }, 30000);
+  }, TIMEOUTS.DIAGNOSTIC_TIMEOUT_MS);
   
   try {
     // Import and run diagnostics logic directly
@@ -128,16 +129,17 @@ async function handleHookEvent(eventType: string) {
     
     // Run diagnostics with the event type
     // Note: handleDiagnostics will read stdin itself
-    const hasErrors = await handleDiagnostics(eventType);
+    // Returns true if any summary was output (including "no warnings or errors")
+    const hasSummary = await handleDiagnostics(eventType);
     
     // Clear timeout on success
     clearTimeout(timeoutId);
     
-    // For PostToolUse with errors, exit 2 to show feedback
-    // For other hooks or no errors, exit 0
-    if (eventType === 'PostToolUse' && hasErrors) {
+    // For PostToolUse with any summary output, exit 2 to show feedback
+    // For other hooks or no summary, exit 0
+    if (eventType === 'PostToolUse' && hasSummary) {
       const content1 = await Bun.file(debugLog).text().catch(() => '');
-      await Bun.write(debugLog, content1 + `[${timestamp}] Exiting with feedback code (2) due to errors\n`);
+      await Bun.write(debugLog, content1 + `[${timestamp}] Exiting with feedback code (2) due to summary output\n`);
       process.exit(feedbackExitCode); // Exit 2 shows feedback in Claude
     } else {
       const content2 = await Bun.file(debugLog).text().catch(() => '');
@@ -205,10 +207,12 @@ Usage:
   claude-lsp-cli stop <project>              Stop LSP server for project
   claude-lsp-cli kill-all                    Kill all running LSP servers
   claude-lsp-cli reset <project>             Reset LSP server cache (fast)
+  claude-lsp-cli reset-dedup <project>       Reset deduplication only (faster)
   claude-lsp-cli install <language>          Install language server
   claude-lsp-cli install-all                 Install all supported language servers
   claude-lsp-cli list-servers                List available language servers
   claude-lsp-cli list-projects <directory>   Find all projects in directory
+  claude-lsp-cli get-lsp-scope <project>     Get LSP scope for a project
   claude-lsp-cli help                        Show this help message
 
 Hook Event Types:
@@ -256,6 +260,48 @@ async function showStatus(_projectRoot?: string) {
 
   try {
     const { readdir } = await import("fs/promises");
+    const { Database } = await import("bun:sqlite");
+    const { existsSync } = await import("fs");
+    
+    // Get SQLite database path
+    const claudeHome = process.env.CLAUDE_HOME || `${process.env.HOME || process.env.USERPROFILE}/.claude`;
+    const dbPath = `${claudeHome}/data/claude-code-lsp.db`;
+    
+    // Create a map of project hashes to project paths from database
+    const projectMap = new Map<string, string>();
+    
+    if (existsSync(dbPath)) {
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        // Query diagnostic reports table for project info including project_path
+        const projects = db.prepare(`
+          SELECT DISTINCT project_hash, project_path, MAX(last_report_time) as last_seen
+          FROM diagnostic_reports
+          GROUP BY project_hash
+        `).all() as Array<{ project_hash: string; project_path: string | null; last_seen: number }>;
+        
+        // Build map of project hashes to paths
+        for (const project of projects) {
+          if (project.project_path) {
+            projectMap.set(project.project_hash, project.project_path);
+          } else {
+            // Fallback: try to get a file path from diagnostic history to approximate project root
+            const filePath = db.prepare(`
+              SELECT file_path FROM diagnostic_history 
+              WHERE project_hash = ? 
+              LIMIT 1
+            `).get(project.project_hash) as { file_path: string } | undefined;
+            
+            if (filePath) {
+              projectMap.set(project.project_hash, `[from diagnostics]`);
+            }
+          }
+        }
+      } finally {
+        db.close();
+      }
+    }
+    
     const files = await readdir(socketDir).catch(() => []);
     const sockets = files.filter(f => f.startsWith('claude-lsp-') && f.endsWith('.sock'));
     
@@ -265,23 +311,39 @@ async function showStatus(_projectRoot?: string) {
     }
     
     console.log("Running LSP servers:");
+    console.log("─".repeat(80));
+    
     for (const socket of sockets) {
       const hash = socket.replace('claude-lsp-', '').replace('.sock', '');
       
-      // Try to get server info
+      // Try to get server health status
+      let status = 'not responding';
+      let uptime = 0;
+      
       try {
         const response = await fetch('http://localhost/health', { 
-          unix: `${socketDir}/${socket}`
+          unix: `${socketDir}/${socket}`,
+          signal: AbortSignal.timeout(1000) // 1 second timeout
         });
         if (response.ok) {
           const data = await response.json() as any;
-          console.log(`  ${hash}: healthy (uptime: ${Math.floor(data.uptime || 0)}s)`);
+          status = 'healthy';
+          uptime = Math.floor(data.uptime || 0);
         } else {
-          console.log(`  ${hash}: unhealthy`);
+          status = 'unhealthy';
         }
-      } catch (error) {
-        console.log(`  ${hash}: not responding`);
+      } catch {
+        // Server not responding
       }
+      
+      // Get project info from database if available
+      const projectInfo = projectMap.has(hash) ? projectMap.get(hash) : 'unknown';
+      
+      console.log(`  Hash:     ${hash}`);
+      console.log(`  Project:  ${projectInfo}`);
+      console.log(`  Status:   ${status}${status === 'healthy' ? ` (uptime: ${uptime}s)` : ''}`);
+      console.log(`  Socket:   ${socketDir}/${socket}`);
+      console.log("─".repeat(80));
     }
   } catch (error) {
     console.error("Failed to check server status:", error);
@@ -356,26 +418,110 @@ async function killAllServers() {
                      : `${process.env.HOME}/.claude-lsp/run`);
 
   try {
-    const { readdir } = await import("fs/promises");
+    const { readdir, unlink } = await import("fs/promises");
+    const { DiagnosticDeduplicator } = await import("./utils/diagnostic-dedup");
+    
+    // Get all socket files
     const files = await readdir(socketDir).catch(() => []);
     const sockets = files.filter(f => f.startsWith('claude-lsp-') && f.endsWith('.sock'));
     
     let stopped = 0;
-    for (const socket of sockets) {
+    let killed = 0;
+    let cleaned = 0;
+    let dbEntriesRemoved = 0;
+    
+    // Create deduplicator to access database (use dummy path)
+    const dedup = new DiagnosticDeduplicator(process.cwd());
+    
+    try {
+      // Get all registered language servers from database
+      const registeredServers = dedup.getAllLanguageServers();
+      const currentPid = process.pid;
+      
+      // First try graceful shutdown via sockets
+      for (const socket of sockets) {
+        try {
+          const response = await fetch('http://localhost/shutdown', { 
+            method: 'POST',
+            unix: `${socketDir}/${socket}`,
+            signal: AbortSignal.timeout(1000) // 1 second timeout
+          });
+          if (response.ok) {
+            stopped++;
+          }
+        } catch (error) {
+          // Server not responding, will force kill below
+        }
+        
+        // Remove socket file
+        try {
+          await unlink(`${socketDir}/${socket}`);
+          cleaned++;
+        } catch (error) {
+          // Socket already removed or permission denied
+        }
+      }
+      
+      // Force kill any remaining processes from database
+      for (const server of registeredServers) {
+        try {
+          // Skip if it's our own process
+          if (server.pid === currentPid) {
+            continue;
+          }
+          
+          // Check if process exists
+          process.kill(server.pid, 0); // Check if alive
+          
+          // Try graceful termination first
+          process.kill(server.pid, 'SIGTERM');
+          
+          // Give it a moment to terminate gracefully
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Check if still alive and force kill if needed
+          try {
+            process.kill(server.pid, 0); // Check again
+            process.kill(server.pid, 'SIGKILL'); // Force kill
+            killed++;
+          } catch {
+            // Process terminated gracefully
+            stopped++;
+          }
+        } catch {
+          // Process doesn't exist or already dead
+        }
+        
+        // Remove from database regardless
+        try {
+          dedup.removeLanguageServer(server.project_hash, server.language);
+          dbEntriesRemoved++;
+        } catch (error) {
+          // Failed to remove from database
+        }
+      }
+    } finally {
+      // Always close database connection
       try {
-        const response = await fetch('http://localhost/shutdown', { 
-          method: 'POST',
-          unix: `${socketDir}/${socket}`
-        });
-        if (response.ok) stopped++;
-      } catch (error) {
-        // Server already dead
+        dedup.close();
+      } catch {
+        // Ignore close errors
       }
     }
     
-    console.log(`Stopped ${stopped} LSP servers`);
+    // Report results
+    if (stopped > 0 || killed > 0 || cleaned > 0 || dbEntriesRemoved > 0) {
+      console.log(`Stopped ${stopped} servers gracefully, force-killed ${killed}`);
+      console.log(`Cleaned ${cleaned} sockets, removed ${dbEntriesRemoved} database entries`);
+    } else {
+      console.log("No LSP servers were running");
+    }
+    
+    // Exit cleanly
+    process.exit(0);
   } catch (error) {
     console.error("Failed to stop servers:", error);
+    process.exit(1);
   }
 }
 
@@ -383,12 +529,8 @@ async function resetServer(projectRoot: string) {
   const { secureHash } = await import("./utils/security");
   const projectHash = secureHash(projectRoot).substring(0, 16);
   
-  const socketDir = process.env.XDG_RUNTIME_DIR || 
-                   (process.platform === 'darwin' 
-                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
-                     : `${process.env.HOME}/.claude-lsp/run`);
-
-  const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
+  // Use the same socket path as the server
+  const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
 
   try {
     console.log(`Resetting LSP server for project: ${projectRoot}`);
@@ -397,7 +539,7 @@ async function resetServer(projectRoot: string) {
     const response = await fetch('http://localhost/reset', { 
       method: 'POST',
       unix: socketPath,
-      signal: AbortSignal.timeout(10000) // 10 second timeout
+      signal: AbortSignal.timeout(TIMEOUTS.SERVER_REQUEST_TIMEOUT_MS) // 10 second timeout
     });
     
     if (response.ok) {
@@ -413,6 +555,39 @@ async function resetServer(projectRoot: string) {
     } else {
       console.error("❌ Reset failed:", error instanceof Error ? error.message : String(error));
       console.log("💡 Try 'claude-lsp-cli kill-all' if the server is stuck");
+    }
+  }
+}
+
+async function resetDedup(projectRoot: string) {
+  const { secureHash } = await import("./utils/security");
+  const projectHash = secureHash(projectRoot).substring(0, 16);
+  
+  // Use the same socket path as the server
+  const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+
+  try {
+    console.log(`Resetting deduplication for project: ${projectRoot}`);
+    console.log(`Using socket: ${socketPath}`);
+    
+    const response = await fetch('http://localhost/reset-dedup', { 
+      method: 'POST',
+      unix: socketPath,
+      signal: AbortSignal.timeout(TIMEOUTS.RESET_TIMEOUT_MS) // 5 second timeout - faster than full reset
+    });
+    
+    if (response.ok) {
+      const data = await response.json() as any;
+      console.log(`✅ Deduplication reset completed: ${data.message}`);
+    } else {
+      const errorText = await response.text();
+      console.error(`❌ Deduplication reset failed: ${response.status} - ${errorText}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error("❌ Deduplication reset timed out - server may be unresponsive");
+    } else {
+      console.error("❌ Deduplication reset failed:", error instanceof Error ? error.message : String(error));
     }
   }
 }
@@ -526,6 +701,33 @@ async function listProjects(baseDir: string) {
   console.log(JSON.stringify(projects, null, 2));
 }
 
+async function getLspScope(projectPath: string) {
+  // Return the LSP scope configuration for a given project
+  const absolutePath = resolve(projectPath);
+  
+  // For nested projects, the LSP scope should be isolated to that project only
+  const scope = {
+    root: absolutePath,
+    exclusions: [] as string[]
+  };
+  
+  // Find nested projects within this project to exclude them
+  const { findAllProjects } = await import("./diagnostics");
+  const nestedProjects = await findAllProjects(absolutePath);
+  
+  // Exclude any nested projects found (they should have their own LSP scope)
+  for (const nested of nestedProjects) {
+    if (nested !== absolutePath && nested.startsWith(absolutePath)) {
+      // This is a nested project, exclude it from parent's scope
+      const relativePath = nested.replace(absolutePath + '/', '');
+      scope.exclusions.push(relativePath);
+    }
+  }
+  
+  // Output as JSON for the test to consume
+  console.log(JSON.stringify(scope, null, 2));
+}
+
 // Main execution
 if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
@@ -543,6 +745,8 @@ if (command === "hook" && eventType) {
   await killAllServers();
 } else if (command === "reset" && args[1]) {
   await resetServer(args[1]);
+} else if (command === "reset-dedup" && args[1]) {
+  await resetDedup(args[1]);
 } else if (command === "install" && args[1]) {
   await installLanguageServer(args[1]);
 } else if (command === "install-all") {
@@ -551,6 +755,8 @@ if (command === "hook" && eventType) {
   await listLanguageServers();
 } else if (command === "list-projects" && args[1]) {
   await listProjects(args[1]);
+} else if (command === "get-lsp-scope" && args[1]) {
+  await getLspScope(args[1]);
 } else if (command === "help" || command === "--help" || command === "-h") {
   showHelp();
 } else if (command === "--version" || command === "-v") {
@@ -562,8 +768,11 @@ if (command === "hook" && eventType) {
   } catch (error) {
     console.log("3.0.0"); // Fallback version
   }
+} else if (!command) {
+  // No command provided - just show help
+  showHelp();
 } else {
-  console.error("Invalid command. Use 'claude-lsp-cli help' for usage information.");
+  console.error(`Invalid command: ${command}. Use 'claude-lsp-cli help' for usage information.`);
   showHelp();
   process.exit(1);
 }

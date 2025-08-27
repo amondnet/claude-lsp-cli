@@ -13,6 +13,7 @@ import { RateLimiter } from "./utils/rate-limiter";
 import { logger } from "./utils/logger";
 import { ProjectConfigDetector } from "./project-config-detector";
 import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
+import { TIMEOUTS } from "./constants";
 
 interface DiagnosticResponse {
   file: string;
@@ -38,7 +39,7 @@ class LSPHttpServer {
     this.projectHash = secureHash(this.projectRoot).substring(0, 16);
     this.deduplicator = new DiagnosticDeduplicator(this.projectRoot);
     this.client = new LSPClient(this.projectHash, this.deduplicator);
-    this.rateLimiter = new RateLimiter(100, 60000); // 100 requests per minute
+    this.rateLimiter = new RateLimiter(100, TIMEOUTS.RATE_LIMIT_WINDOW_MS); // 100 requests per minute
     
     logger.setProject(this.projectHash);
   }
@@ -172,7 +173,7 @@ class LSPHttpServer {
     // Periodic cleanup
     setInterval(() => {
       this.rateLimiter.cleanup();
-    }, 60000);
+    }, TIMEOUTS.CLEANUP_INTERVAL_MS);
   }
 
 
@@ -299,6 +300,13 @@ class LSPHttpServer {
             return new Response("Method Not Allowed", { status: 405 });
           }
         
+        case "/reset-dedup":
+          if (req.method === "POST") {
+            return this.handleResetDedup(headers);
+          } else {
+            return new Response("Method Not Allowed", { status: 405 });
+          }
+        
         case "/shutdown":
           if (req.method === "POST") {
             // Graceful shutdown
@@ -313,7 +321,7 @@ class LSPHttpServer {
             // Perform full cleanup and exit gracefully after a short delay
             setTimeout(async () => {
               await this.shutdown();
-              process.exit(0);
+              process.exit(0); // cleanup: shutdown called above
             }, 100);
             
             return response;
@@ -373,8 +381,15 @@ class LSPHttpServer {
       // Run server-side deduplication - returns only NEW items not seen before
       const newItemsToDisplay = await this.deduplicator.processDiagnostics(relevantDiagnostics);
       
+      // Sort by priority: errors before warnings
+      const sortedItems = newItemsToDisplay.sort((a, b) => {
+        if (a.severity === 'error' && b.severity === 'warning') return -1;
+        if (a.severity === 'warning' && b.severity === 'error') return 1;
+        return 0;
+      });
+      
       // Take first 5 new items for display and convert to relative paths for AI
-      const displayDiagnostics = newItemsToDisplay.slice(0, 5).map(diag => ({
+      const displayDiagnostics = sortedItems.slice(0, 5).map(diag => ({
         ...diag,
         file: relative(this.projectRoot, diag.file)
       }));
@@ -471,6 +486,32 @@ class LSPHttpServer {
       await logger.error('Failed to reset server', error);
       return new Response(JSON.stringify({
         status: "reset_failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      }), { 
+        status: 500,
+        headers 
+      });
+    }
+  }
+  
+  private async handleResetDedup(headers: any): Promise<Response> {
+    try {
+      await logger.info('Deduplication reset requested', { projectHash: this.projectHash });
+      
+      // Reset only the deduplication system without restarting servers
+      await this.deduplicator.resetAll();
+      
+      await logger.info('Deduplication reset completed', { projectHash: this.projectHash });
+      
+      return new Response(JSON.stringify({ 
+        status: "dedup_reset_completed",
+        projectHash: this.projectHash,
+        message: "Deduplication system cleared - all diagnostics will be shown again"
+      }), { headers });
+    } catch (error) {
+      await logger.error('Failed to reset deduplication', error);
+      return new Response(JSON.stringify({
+        status: "dedup_reset_failed",
         error: error instanceof Error ? error.message : "Unknown error"
       }), { 
         status: 500,
@@ -605,12 +646,12 @@ if (import.meta.main) {
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
     await server.shutdown();
-    process.exit(0);
+    process.exit(0); // cleanup: shutdown completed
   });
   
   process.on('SIGTERM', async () => {
     await server.shutdown();
-    process.exit(0);
+    process.exit(0); // cleanup: shutdown completed
   });
   
   await server.start();

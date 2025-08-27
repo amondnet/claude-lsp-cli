@@ -97,6 +97,16 @@ else
     echo -e "${YELLOW}⚠${NC} No Unix sockets found"
 fi
 
+# Remove SQLite database
+CLAUDE_DATA_DIR="$HOME/.claude/data"
+if [ -f "$CLAUDE_DATA_DIR/claude-code-lsp.db" ]; then
+    rm -f "$CLAUDE_DATA_DIR/claude-code-lsp.db"
+    echo -e "${GREEN}✓${NC} Removed SQLite database"
+    REMOVED_ITEMS+=("SQLite database")
+else
+    echo -e "${YELLOW}⚠${NC} SQLite database not found"
+fi
+
 # 4. Hook removal instructions
 echo ""
 echo "🔧 Claude Code Hook Removal"

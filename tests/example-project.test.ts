@@ -14,6 +14,24 @@ describe("Example Project Tests", () => {
   });
 
   test("TypeScript example project has errors detected", async () => {
+    // Clear SQLite deduplication database directly to ensure fresh diagnostics
+    try {
+      const { Database } = await import("bun:sqlite");
+      const { secureHash } = await import(join(projectRoot, "src/utils/security"));
+      
+      const claudeHome = process.env.CLAUDE_HOME || `${process.env.HOME}/.claude`;
+      const dbPath = `${claudeHome}/data/claude-code-lsp.db`;
+      const projectHash = secureHash(EXAMPLE_PROJECT).substring(0, 16);
+      
+      console.log(`Clearing diagnostics for project hash: ${projectHash}`);
+      const db = new Database(dbPath);
+      const result = db.run(`DELETE FROM diagnostic_history WHERE project_hash = ?`, [projectHash]);
+      console.log(`Cleared ${result.changes} diagnostic entries`);
+      db.close();
+    } catch (error) {
+      console.log("SQLite reset failed, continuing anyway:", error);
+    }
+    
     // Create hook data for the example project
     const hookData = {
       session_id: "test-example",

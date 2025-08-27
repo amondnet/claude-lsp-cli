@@ -2,12 +2,13 @@
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "fs";
 import ignore from "ignore";
-import { join } from "path";
+import { join, resolve } from "path";
 import { 
   secureHash, 
   safeDeleteFile
 } from "./utils/security";
 import { logger } from "./utils/logger";
+import { TIMEOUTS } from "./constants";
 
 
 
@@ -217,7 +218,7 @@ export async function runDiagnostics(
         headers: {
           'Content-Type': 'application/json'
         },
-        signal: AbortSignal.timeout(30000) // 30 second timeout
+        signal: AbortSignal.timeout(TIMEOUTS.DIAGNOSTIC_TIMEOUT_MS) // 30 second timeout
       });
       
       if (response.ok) {
@@ -318,6 +319,25 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
     
     // Process based on event type
     if (eventType === 'PostToolUse') {
+      // Log the hook data to understand its structure
+      await logger.debug('Hook data received:', hookData);
+      
+      // DEBUG: Output hook data structure to stderr to see what we're getting
+      if (process.env.DEBUG_HOOK_DATA === 'true') {
+        console.error('DEBUG_HOOK_DATA:', JSON.stringify(hookData, null, 2));
+      }
+      
+      // Check if this is a file-specific tool (Edit, Write, MultiEdit, etc.)
+      const fileSpecificTool = hookData?.toolName && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(hookData.toolName);
+      const targetFile = hookData?.input?.file_path || hookData?.input?.input_path || hookData?.input?.path;
+      
+      let filterToFile: string | undefined;
+      if (fileSpecificTool && targetFile) {
+        await logger.debug('File-specific tool detected', { tool: hookData.toolName, file: targetFile });
+        // For file-specific tools, only show diagnostics for the edited file
+        filterToFile = targetFile;
+      }
+      
       // Run diagnostics after ANY tool - files could be modified externally
       // or through ways we don't detect (vim in bash, file watchers, etc.)
       // Get working directory from hook data or current directory
@@ -341,7 +361,7 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         let serverResponse: any = null;
         try {
           // In test mode, use a longer timeout and better error handling
-          const timeout = process.env.CLAUDE_LSP_HOOK_MODE === 'true' ? 15000 : 30000;
+          const timeout = process.env.CLAUDE_LSP_HOOK_MODE === 'true' ? TIMEOUTS.HOOK_TIMEOUT_MS : TIMEOUTS.DIAGNOSTIC_TIMEOUT_MS;
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('runDiagnostics timeout')), timeout)
           );
@@ -374,6 +394,36 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
         await logger.debug('Raw diagnostics count', { count: diagnostics.length || 0 });
         
         await logger.debug("Diagnostics response received", diagnostics);
+        
+        // Filter diagnostics to only the edited file if specified
+        if (filterToFile && diagnostics.length > 0) {
+          const originalCount = diagnostics.length;
+          diagnostics = diagnostics.filter((d: any) => 
+            d.file === filterToFile || d.file === resolve(filterToFile)
+          );
+          await logger.debug('Filtered diagnostics to specific file', { 
+            file: filterToFile, 
+            originalCount, 
+            filteredCount: diagnostics.length 
+          });
+          
+          // Update the server response to reflect filtered diagnostics
+          if (serverResponse) {
+            serverResponse.diagnostics = diagnostics;
+            // Update summary to show only the filtered file's diagnostics
+            if (diagnostics.length === 0) {
+              serverResponse.summary = "no warnings or errors";
+            } else {
+              // Count by source for filtered diagnostics
+              const bySource: Record<string, number> = {};
+              for (const diag of diagnostics) {
+                const source = diag.source || 'unknown';
+                bySource[source] = (bySource[source] || 0) + 1;
+              }
+              serverResponse.summary = `total: ${diagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')})`;
+            }
+          }
+        }
         
         // Use first project root as context for deduplication and filtering
         const currentProjectRoot = projectRoots[0];
@@ -426,7 +476,17 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
               
               // Only send message if server response has a summary
               if (serverResponse && serverResponse.summary) {
-                console.error(`[[system-message]]: ${JSON.stringify(serverResponse)}`)
+                // Build clean response with only needed fields
+                const cleanResponse: any = {
+                  summary: serverResponse.summary
+                };
+                
+                // Only include diagnostics if not empty
+                if (serverResponse.diagnostics && serverResponse.diagnostics.length > 0) {
+                  cleanResponse.diagnostics = serverResponse.diagnostics;
+                }
+                
+                console.error(`[[system-message]]: ${JSON.stringify(cleanResponse)}`)
                 await logger.debug('RETURNING TRUE - Sent message to user, exit with code 2');
                 return true; // Any message sent to user - exit with code 2 for feedback
               } else {
@@ -442,10 +502,14 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
             
             // Only send message if server response has a summary
             if (serverResponse && serverResponse.summary) {
-              console.error(`[[system-message]]: ${JSON.stringify(serverResponse)}`)
+              // For "no warnings or errors", just send the summary
+              const cleanResponse = { summary: serverResponse.summary };
+              console.error(`[[system-message]]: ${JSON.stringify(cleanResponse)}`)
+              await logger.debug('RETURNING TRUE - Sent "no warnings or errors" message, exit with code 2');
+              return true; // Summary was output - exit with code 2 for feedback
             }
             
-            return false; // No summary or all clear - exit code 0
+            return false; // No summary to report - exit code 0
           }
         }
         return false; // No project root found

@@ -6,11 +6,12 @@
  */
 
 import { spawn } from "child_process";
-import { existsSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, statSync } from "fs";
+import { dirname, join, resolve } from "path";
 import { createHash } from "crypto";
 import { $ } from "bun";
 import { logger } from "./utils/logger";
+import { TIMEOUTS } from "./constants";
 
 interface ProjectInfo {
   root: string;
@@ -26,10 +27,10 @@ interface ProjectInfo {
  */
 export function findProjectRoot(startPath: string): ProjectInfo | null {
   // Resolve relative paths to absolute
-  let currentPath = require("path").resolve(startPath);
+  let currentPath = resolve(startPath);
   
   // Start from file's directory if it's a file
-  if (existsSync(currentPath) && !require("fs").statSync(currentPath).isDirectory()) {
+  if (existsSync(currentPath) && !statSync(currentPath).isDirectory()) {
     currentPath = dirname(currentPath);
   }
   
@@ -167,14 +168,14 @@ export async function getDiagnostics(projectHash: string, file?: string): Promis
     
     const response = await fetch(url, { 
       unix: socketPath,
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(TIMEOUTS.MANAGER_TIMEOUT_MS)
     } as any);
     
     if (response.ok) {
       return await response.json();
     }
   } catch (e) {
-    console.error("Failed to get diagnostics:", e);
+    await logger.error(`Failed to get diagnostics: ${e}`);
   }
   return null;
 }
@@ -199,97 +200,25 @@ export async function autoStart(filePath: string) {
   }
 }
 
-// Main CLI interface
-const command = process.argv[2];
-const path = process.argv[3] || process.cwd();
-
-async function main() {
-  switch (command) {
-    case "start": {
-      const projectInfo = findProjectRoot(path);
-      if (projectInfo) {
-        await startLSPServer(projectInfo);
-      } else {
-        console.log("No project found at", path);
-      }
-      break;
-    }
-    
-    case "auto": {
-      // Auto-start for edited file
-      await autoStart(path);
-      break;
-    }
-    
-    case "check": {
-      const projectInfo = findProjectRoot(path);
-      if (projectInfo) {
-        const running = await isLSPRunning(projectInfo.hash);
-        console.log(`LSP server for ${projectInfo.root}: ${running ? "RUNNING" : "NOT RUNNING"}`);
-      } else {
-        console.log("No project found at", path);
-      }
-      break;
-    }
-    
-    case "diagnostics": {
-      const projectInfo = findProjectRoot(path);
-      if (projectInfo) {
-        const file = process.argv[4];
-        const diagnostics = await getDiagnostics(projectInfo.hash, file);
-        console.log(JSON.stringify(diagnostics));
-      } else {
-        console.log("No project found at", path);
-      }
-      break;
-    }
-    
-    case "stop": {
-      const projectInfo = findProjectRoot(path);
-      if (projectInfo) {
-        // Kill LSP server
-        const socketPath = `/tmp/claude-lsp-${projectInfo.hash}.sock`;
-        const pidFile = `/tmp/claude-lsp-${projectInfo.hash}.pid`;
-        
-        await logger.info(`Stopping LSP server for ${projectInfo.root}...`);
-        
-        if (existsSync(pidFile)) {
-          const pid = await Bun.file(pidFile).text();
-          await $`kill ${pid.trim()}`.quiet();
-          await $`rm -f ${pidFile}`.quiet();
-          await logger.info(`Killed LSP server process ${pid.trim()}`);
-        }
-        
-        if (existsSync(socketPath)) {
-          await $`rm -f ${socketPath}`.quiet();
-        }
-        
-        await logger.info("LSP server stopped");
-      }
-      break;
-    }
-    
-    default: {
-      console.log(`
-Real LSP Manager - Manages actual Language Server Protocol servers
-
-Usage: bun real-lsp.ts <command> [path]
-
-Commands:
-  start [path]       - Start LSP server for project at path
-  auto [file]        - Auto-start LSP server for edited file's project
-  check [path]       - Check if LSP server is running
-  diagnostics [path] [file] - Get diagnostics from LSP server
-  stop [path]        - Stop LSP server for project
-
-The LSP servers provide:
-  - Real incremental validation (only changed files)
-  - TypeScript language server for .ts/.tsx/.js/.jsx
-  - Pyright language server for .py files
-  - Instant feedback via Language Server Protocol
-      `);
-    }
+/**
+ * Stop LSP server for a project
+ */
+export async function stopLSPServer(projectInfo: ProjectInfo) {
+  const socketPath = `/tmp/claude-lsp-${projectInfo.hash}.sock`;
+  const pidFile = `/tmp/claude-lsp-${projectInfo.hash}.pid`;
+  
+  await logger.info(`Stopping LSP server for ${projectInfo.root}...`);
+  
+  if (existsSync(pidFile)) {
+    const pid = await Bun.file(pidFile).text();
+    await $`kill ${pid.trim()}`.quiet();
+    await $`rm -f ${pidFile}`.quiet();
+    await logger.info(`Killed LSP server process ${pid.trim()}`);
   }
+  
+  if (existsSync(socketPath)) {
+    await $`rm -f ${socketPath}`.quiet();
+  }
+  
+  await logger.info("LSP server stopped");
 }
-
-main().catch(console.error);

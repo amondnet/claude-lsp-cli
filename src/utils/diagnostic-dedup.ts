@@ -95,9 +95,17 @@ export class DiagnosticDeduplicator {
         project_hash TEXT PRIMARY KEY,
         last_report_time INTEGER NOT NULL,
         last_report_hash TEXT,
-        diagnostics_count INTEGER DEFAULT 0
+        diagnostics_count INTEGER DEFAULT 0,
+        project_path TEXT
       )
     `);
+    
+    // Update existing rows to include project path if missing
+    this.db.run(`
+      UPDATE diagnostic_reports 
+      SET project_path = ? 
+      WHERE project_hash = ? AND (project_path IS NULL OR project_path = '')
+    `, [this.projectPath, this.projectHash]);
 
     // Table for tracking language server processes
     this.db.run(`

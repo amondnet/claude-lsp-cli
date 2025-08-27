@@ -13,6 +13,7 @@ import {
 import { readFileSync, existsSync } from "fs";
 import { join, resolve, extname } from "path";
 import { logger } from "./utils/logger";
+import { TIMEOUTS } from "./constants";
 import { 
   languageServers, 
   detectProjectLanguages, 
@@ -104,10 +105,8 @@ export class LSPClient {
       return;
     }
 
-    // Clean up any stale servers before starting a new one (temporarily disabled for debugging)
-    // if (this.deduplicator) {
-    //   await this.cleanupStaleServersForProject(language);
-    // }
+    // Clean up any stale servers before starting a new one
+    await this.checkProcessAlive();
 
     await logger.info(`Starting ${config.name} Language Server...`);
     
@@ -309,7 +308,7 @@ export class LSPClient {
       if (language === "scala") {
         await logger.info(`Waiting for Metals to index and compile...`);
         const startTime = Date.now();
-        while (!server.metalsReady && Date.now() - startTime < 60000) {
+        while (!server.metalsReady && Date.now() - startTime < TIMEOUTS.METALS_READY_TIMEOUT_MS) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         if (server.metalsReady) {
@@ -651,8 +650,6 @@ export class LSPClient {
    */
   private async cleanupStaleServersForProject(language: string): Promise<void> {
     try {
-      const { spawn } = require('child_process');
-      
       // Get the server command to search for
       const serverCmd = language === 'typescript' ? 'tsserver' : `${language}-language-server`;
       
@@ -718,6 +715,47 @@ export class LSPClient {
 
   getSupportedLanguages(): string[] {
     return Object.keys(languageServers);
+  }
+
+  /**
+   * Check if a process ID is still alive
+   */
+  private isPidAlive(pid: number): boolean {
+    try {
+      // Send signal 0 to check if process exists without actually sending a signal
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if all locally cached servers are still alive and clean up stale ones
+   */
+  async checkProcessAlive(): Promise<void> {
+    const staleLanguages: string[] = [];
+    
+    for (const [language, server] of this.servers.entries()) {
+      if (server.process.pid && !this.isPidAlive(server.process.pid)) {
+        await logger.info(`🗑️  Removing stale ${language} server (PID: ${server.process.pid})`);
+        staleLanguages.push(language);
+        
+        // Remove from deduplicator tracking if available
+        if (this.deduplicator) {
+          this.deduplicator.removeLanguageServer(this.projectHash, language);
+        }
+      }
+    }
+    
+    // Remove stale servers from local cache
+    for (const language of staleLanguages) {
+      this.servers.delete(language);
+    }
+    
+    if (staleLanguages.length > 0) {
+      await logger.info(`Cleaned up ${staleLanguages.length} stale language servers`);
+    }
   }
 
   // Alias for stopAllServers to match test expectations

@@ -115,9 +115,10 @@ To prevent spam while ensuring you see important changes, the system uses **serv
    - c. **Map to latest 5 items** for display
    - d. **Add displayed items** to dedup list (non-displayed stay out for next time)
 
-4. **Memory Window**: **10 minutes** (configurable)
-   - After 10 minutes, resolved issues can be reported again if they reappear
+4. **Memory Window**: **24 hours** (configurable via `CLAUDE_LSP_RETENTION_HOURS`)
+   - After the retention window, resolved issues can be reported again if they reappear
    - Prevents long-term spam while allowing periodic reminders
+   - Default: 24 hours, but can be set to any positive number (e.g., 4 hours, 72 hours)
 
 ### Server Response Format:
 ```json
@@ -141,7 +142,7 @@ To prevent spam while ensuring you see important changes, the system uses **serv
 ### Cache Management:
 - **Database location**: `~/.claude/data/claude-code-lsp.db`
 - **Clear cache**: `rm -f ~/.claude/data/claude-code-lsp.db`
-- **Memory window**: 10 minutes (recently reduced from 4 hours)
+- **Memory window**: 24 hours (configurable via `CLAUDE_LSP_RETENTION_HOURS` environment variable)
 
 ## ⚠️ Architectural Limitations
 
@@ -594,6 +595,11 @@ LSP_PORT=3939              # HTTP server port
 PROJECT_ROOT=/path/to/project
 DEBUG=true                  # Enable debug logging
 AUTO_INSTALL=true           # Auto-install language servers
+
+# Diagnostic deduplication settings
+CLAUDE_LSP_RETENTION_HOURS=24  # Diagnostic memory window in hours (default: 24)
+                               # Controls how long resolved diagnostics are remembered
+                               # before they can be reported again if they reappear
 ```
 
 ### Claude Settings

@@ -79,7 +79,7 @@ describe("Comprehensive LSP Tests", () => {
   });
 
   describe("2. CLI Hook Mode Tests", () => {
-    test("PostToolUse with errors returns exit code 2", async () => {
+    test("PostToolUse with errors returns exit code 2 with summary", async () => {
       const hookData = {
         session_id: "test-session",
         transcript_path: "/tmp/test-transcript", 
@@ -119,7 +119,7 @@ describe("Comprehensive LSP Tests", () => {
       expect(result.stderr).toContain("[[system-message]]:");
     }, 30000);
     
-    test("PostToolUse without errors returns exit code 0", async () => {
+    test("PostToolUse with no warnings or errors returns exit code 2 with summary", async () => {
       // Create a project that first has errors, then gets fixed
       const CLEAN_PROJECT = "/tmp/claude-lsp-clean-test";
       if (existsSync(CLEAN_PROJECT)) {
@@ -215,13 +215,17 @@ console.log(message);
         rmSync(CLEAN_PROJECT, { recursive: true });
       }
       
-      // Should exit with code 0 for no errors
-      expect(result.code).toBe(0);
+      // Debug output
+      console.log("Exit code:", result.code);
+      console.log("Stderr:", result.stderr);
+      
+      // Should exit with code 2 when summary is shown (including "no warnings or errors")
+      expect(result.code).toBe(2);
       
       // Should not contain error diagnostics (only no warnings or errors is acceptable)
       if (result.stderr.includes("[[system-message]]")) {
         // Should contain "no warnings or errors" summary when no errors
-        const hasErrorDiagnostics = result.stderr.includes('"diagnostics":[');
+        const hasErrorDiagnostics = result.stderr.includes('"diagnostics":[{');
         expect(hasErrorDiagnostics).toBe(false);
         // Should have no warnings or errors summary if any output
         expect(result.stderr).toContain('"summary":"no warnings or errors"');
