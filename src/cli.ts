@@ -15,6 +15,7 @@ import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
 import { resolve, join } from "path";
 import { TIMEOUTS } from "./constants";
+import { ServerRegistry } from "./utils/server-registry";
 
 
 async function runAsLanguageServer(language: string) {
@@ -205,7 +206,7 @@ Usage:
   claude-lsp-cli status [project]            Show running LSP servers
   claude-lsp-cli start <project>             Start LSP server for project
   claude-lsp-cli stop <project>              Stop LSP server for project
-  claude-lsp-cli kill-all                    Kill all running LSP servers
+  claude-lsp-cli stop-all                    Stop all running LSP servers
   claude-lsp-cli reset <project>             Reset LSP server cache (fast)
   claude-lsp-cli reset-dedup <project>       Reset deduplication only (faster)
   claude-lsp-cli install <language>          Install language server
@@ -236,7 +237,7 @@ Examples:
   claude-lsp-cli stop /path/to/project
   
   # Kill all LSP servers
-  claude-lsp-cli kill-all
+  claude-lsp-cli stop-all
 
   # List all projects in current directory
   claude-lsp-cli list-projects .
@@ -251,61 +252,31 @@ Environment Variables:
 `);
 }
 
-async function showStatus(_projectRoot?: string) {
-  // Determine socket directory based on platform
-  const socketDir = process.env.XDG_RUNTIME_DIR || 
-                   (process.platform === 'darwin' 
-                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
-                     : `${process.env.HOME}/.claude-lsp/run`);
-
+async function showStatus(projectRoot?: string) {
   try {
-    const { readdir } = await import("fs/promises");
-    const { Database } = await import("bun:sqlite");
-    const { existsSync } = await import("fs");
+    const registry = ServerRegistry.getInstance();
     
-    // Get SQLite database path
-    const claudeHome = process.env.CLAUDE_HOME || `${process.env.HOME || process.env.USERPROFILE}/.claude`;
-    const dbPath = `${claudeHome}/data/claude-code-lsp.db`;
+    // Clean up any dead servers first
+    const cleanedCount = await registry.cleanupDeadServers();
+    if (cleanedCount > 0) {
+      console.log(`Cleaned up ${cleanedCount} dead server(s)\n`);
+    }
     
-    // Create a map of project hashes to project paths from database
-    const projectMap = new Map<string, string>();
+    // Get all active servers or specific server
+    let servers = registry.getAllActiveServers();
     
-    if (existsSync(dbPath)) {
-      const db = new Database(dbPath, { readonly: true });
-      try {
-        // Query diagnostic reports table for project info including project_path
-        const projects = db.prepare(`
-          SELECT DISTINCT project_hash, project_path, MAX(last_report_time) as last_seen
-          FROM diagnostic_reports
-          GROUP BY project_hash
-        `).all() as Array<{ project_hash: string; project_path: string | null; last_seen: number }>;
-        
-        // Build map of project hashes to paths
-        for (const project of projects) {
-          if (project.project_path) {
-            projectMap.set(project.project_hash, project.project_path);
-          } else {
-            // Fallback: try to get a file path from diagnostic history to approximate project root
-            const filePath = db.prepare(`
-              SELECT file_path FROM diagnostic_history 
-              WHERE project_hash = ? 
-              LIMIT 1
-            `).get(project.project_hash) as { file_path: string } | undefined;
-            
-            if (filePath) {
-              projectMap.set(project.project_hash, `[from diagnostics]`);
-            }
-          }
-        }
-      } finally {
-        db.close();
+    if (projectRoot) {
+      const absolutePath = resolve(projectRoot);
+      const server = registry.getServerByPath(absolutePath);
+      if (server) {
+        servers = [server];
+      } else {
+        console.log(`No LSP server running for project: ${absolutePath}`);
+        return;
       }
     }
     
-    const files = await readdir(socketDir).catch(() => []);
-    const sockets = files.filter(f => f.startsWith('claude-lsp-') && f.endsWith('.sock'));
-    
-    if (sockets.length === 0) {
+    if (servers.length === 0) {
       console.log("No LSP servers running");
       return;
     }
@@ -313,38 +284,50 @@ async function showStatus(_projectRoot?: string) {
     console.log("Running LSP servers:");
     console.log("─".repeat(80));
     
-    for (const socket of sockets) {
-      const hash = socket.replace('claude-lsp-', '').replace('.sock', '');
+    for (const server of servers) {
+      // Calculate uptime
+      const startTime = new Date(server.start_time);
+      const now = new Date();
+      const uptime = Math.floor((now.getTime() - startTime.getTime()) / 1000);
       
-      // Try to get server health status
-      let status = 'not responding';
-      let uptime = 0;
-      
+      // Check if server is responsive via socket
+      let actualStatus = server.status;
       try {
         const response = await fetch('http://localhost/health', { 
-          unix: `${socketDir}/${socket}`,
+          unix: server.socket_path,
           signal: AbortSignal.timeout(1000) // 1 second timeout
         });
         if (response.ok) {
-          const data = await response.json() as any;
-          status = 'healthy';
-          uptime = Math.floor(data.uptime || 0);
+          actualStatus = 'healthy';
+          // Update registry if status changed
+          if (server.status !== 'healthy') {
+            registry.updateServerStatus(server.project_hash, 'healthy');
+          }
         } else {
-          status = 'unhealthy';
+          actualStatus = 'unhealthy';
+          registry.updateServerStatus(server.project_hash, 'unhealthy');
         }
       } catch {
-        // Server not responding
+        actualStatus = 'not responding';
+        registry.updateServerStatus(server.project_hash, 'unhealthy');
       }
       
-      // Get project info from database if available
-      const projectInfo = projectMap.has(hash) ? projectMap.get(hash) : 'unknown';
-      
-      console.log(`  Hash:     ${hash}`);
-      console.log(`  Project:  ${projectInfo}`);
-      console.log(`  Status:   ${status}${status === 'healthy' ? ` (uptime: ${uptime}s)` : ''}`);
-      console.log(`  Socket:   ${socketDir}/${socket}`);
+      console.log(`  Hash:     ${server.project_hash}`);
+      console.log(`  Project:  ${server.project_root}`);
+      console.log(`  Languages:${server.languages.join(', ')}`);
+      console.log(`  PID:      ${server.pid}`);
+      console.log(`  Status:   ${actualStatus}${actualStatus === 'healthy' ? ` (uptime: ${uptime}s)` : ''}`);
+      console.log(`  Socket:   ${server.socket_path}`);
       console.log("─".repeat(80));
     }
+    
+    // Show statistics
+    const stats = registry.getStatistics();
+    console.log(`\nTotal: ${stats.activeServers} server(s)`);
+    if (Object.keys(stats.languages).length > 0) {
+      console.log('Languages:', Object.entries(stats.languages).map(([lang, count]) => `${lang} (${count})`).join(', '));
+    }
+    
   } catch (error) {
     console.error("Failed to check server status:", error);
   }
@@ -388,140 +371,197 @@ async function startServer(projectRoot: string) {
 
 async function stopServer(projectRoot: string) {
   const absolutePath = resolve(projectRoot);
-  const projectHash = secureHash(absolutePath).substring(0, 16);
-  
-  const socketDir = process.env.XDG_RUNTIME_DIR || 
-                   (process.platform === 'darwin' 
-                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
-                     : `${process.env.HOME}/.claude-lsp/run`);
+  const registry = ServerRegistry.getInstance();
   
   try {
-    const response = await fetch('http://localhost/shutdown', { 
-      method: 'POST',
-      unix: `${socketDir}/claude-lsp-${projectHash}.sock`
-    });
+    // Get server info from registry
+    const server = registry.getServerByPath(absolutePath);
     
-    if (response.ok) {
-      console.log(`LSP server stopped for project: ${absolutePath}`);
-    } else {
-      console.log("Server not responding to shutdown request");
+    if (!server) {
+      console.log(`No LSP server running for project: ${absolutePath}`);
+      return;
     }
+    
+    console.log(`Stopping LSP server for project: ${absolutePath}`);
+    console.log(`  PID: ${server.pid}, Languages: ${server.languages.join(', ')}`);
+    
+    // Try graceful shutdown via socket first
+    let gracefulShutdown = false;
+    try {
+      const response = await fetch('http://localhost/shutdown', { 
+        method: 'POST',
+        unix: server.socket_path,
+        signal: AbortSignal.timeout(3000) // 3 second timeout
+      });
+      
+      if (response.ok) {
+        gracefulShutdown = true;
+        console.log("✅ Server shutdown gracefully");
+      }
+    } catch (error) {
+      console.log("⚠️  Server not responding to shutdown request, will force stop");
+    }
+    
+    // If graceful shutdown failed, force kill
+    if (!gracefulShutdown) {
+      try {
+        // Check if process still exists
+        process.kill(server.pid, 0);
+        
+        // Try SIGTERM first
+        process.kill(server.pid, 'SIGTERM');
+        console.log("📡 Sent SIGTERM signal");
+        
+        // Wait a moment for graceful termination
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Check if still alive and force kill if needed
+        try {
+          process.kill(server.pid, 0);
+          process.kill(server.pid, 'SIGKILL');
+          console.log("💥 Force killed with SIGKILL");
+        } catch {
+          console.log("✅ Process terminated");
+        }
+      } catch (error) {
+        console.log("✅ Process not found (already stopped)");
+      }
+    }
+    
+    // Mark as stopped in registry
+    registry.markServerStopped(server.project_hash);
+    
+    // Clean up socket file
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(server.socket_path)) {
+        fs.unlinkSync(server.socket_path);
+        console.log("🧹 Cleaned up socket file");
+      }
+    } catch (error) {
+      console.log("⚠️  Could not clean up socket file");
+    }
+    
   } catch (error) {
-    console.log("Server not running or already stopped");
+    console.error("Failed to stop server:", error);
   }
 }
 
-async function killAllServers() {
-  const socketDir = process.env.XDG_RUNTIME_DIR || 
-                   (process.platform === 'darwin' 
-                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
-                     : `${process.env.HOME}/.claude-lsp/run`);
-
+async function stopAllServers() {
+  const registry = ServerRegistry.getInstance();
+  
   try {
-    const { readdir, unlink } = await import("fs/promises");
-    const { DiagnosticDeduplicator } = await import("./utils/diagnostic-dedup");
+    console.log("🛑 Stopping all LSP servers...");
     
-    // Get all socket files
-    const files = await readdir(socketDir).catch(() => []);
-    const sockets = files.filter(f => f.startsWith('claude-lsp-') && f.endsWith('.sock'));
+    // Get all active servers from registry
+    const servers = registry.getAllActiveServers();
     
-    let stopped = 0;
-    let killed = 0;
+    if (servers.length === 0) {
+      console.log("No LSP servers are running");
+      return;
+    }
+    
+    console.log(`Found ${servers.length} active server(s)`);
+    
+    let gracefullyStopped = 0;
+    let forceKilled = 0;
     let cleaned = 0;
-    let dbEntriesRemoved = 0;
+    let alreadyDead = 0;
     
-    // Create deduplicator to access database (use dummy path)
-    const dedup = new DiagnosticDeduplicator(process.cwd());
+    const currentPid = process.pid;
     
-    try {
-      // Get all registered language servers from database
-      const registeredServers = dedup.getAllLanguageServers();
-      const currentPid = process.pid;
-      
-      // First try graceful shutdown via sockets
-      for (const socket of sockets) {
-        try {
-          const response = await fetch('http://localhost/shutdown', { 
-            method: 'POST',
-            unix: `${socketDir}/${socket}`,
-            signal: AbortSignal.timeout(1000) // 1 second timeout
-          });
-          if (response.ok) {
-            stopped++;
-          }
-        } catch (error) {
-          // Server not responding, will force kill below
-        }
-        
-        // Remove socket file
-        try {
-          await unlink(`${socketDir}/${socket}`);
-          cleaned++;
-        } catch (error) {
-          // Socket already removed or permission denied
-        }
+    // Process each server
+    for (const server of servers) {
+      // Skip our own process
+      if (server.pid === currentPid) {
+        console.log(`⏭️  Skipping self (PID ${server.pid})`);
+        continue;
       }
       
-      // Force kill any remaining processes from database
-      for (const server of registeredServers) {
-        try {
-          // Skip if it's our own process
-          if (server.pid === currentPid) {
-            continue;
-          }
-          
-          // Check if process exists
-          process.kill(server.pid, 0); // Check if alive
-          
-          // Try graceful termination first
-          process.kill(server.pid, 'SIGTERM');
-          
-          // Give it a moment to terminate gracefully
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // Check if still alive and force kill if needed
-          try {
-            process.kill(server.pid, 0); // Check again
-            process.kill(server.pid, 'SIGKILL'); // Force kill
-            killed++;
-          } catch {
-            // Process terminated gracefully
-            stopped++;
-          }
-        } catch {
-          // Process doesn't exist or already dead
-        }
-        
-        // Remove from database regardless
-        try {
-          dedup.removeLanguageServer(server.project_hash, server.language);
-          dbEntriesRemoved++;
-        } catch (error) {
-          // Failed to remove from database
-        }
-      }
-    } finally {
-      // Always close database connection
+      console.log(`\n🎯 Stopping server: ${server.project_root}`);
+      console.log(`   PID: ${server.pid}, Languages: ${server.languages.join(', ')}`);
+      
+      // Try graceful shutdown first
+      let gracefulShutdown = false;
       try {
-        dedup.close();
-      } catch {
-        // Ignore close errors
+        const response = await fetch('http://localhost/shutdown', { 
+          method: 'POST',
+          unix: server.socket_path,
+          signal: AbortSignal.timeout(2000) // 2 second timeout
+        });
+        
+        if (response.ok) {
+          gracefulShutdown = true;
+          gracefullyStopped++;
+          console.log("   ✅ Shutdown gracefully");
+        }
+      } catch (error) {
+        console.log("   ⚠️  Not responding to shutdown request");
+      }
+      
+      // Force kill if graceful shutdown failed
+      if (!gracefulShutdown) {
+        try {
+          // Check if process still exists
+          process.kill(server.pid, 0);
+          
+          // Try SIGTERM first
+          process.kill(server.pid, 'SIGTERM');
+          console.log("   📡 Sent SIGTERM");
+          
+          // Wait a moment
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Check if still alive and force kill
+          try {
+            process.kill(server.pid, 0);
+            process.kill(server.pid, 'SIGKILL');
+            forceKilled++;
+            console.log("   💥 Force killed (SIGKILL)");
+          } catch {
+            gracefullyStopped++;
+            console.log("   ✅ Terminated gracefully");
+          }
+        } catch (error) {
+          alreadyDead++;
+          console.log("   👻 Process not found (already stopped)");
+        }
+      }
+      
+      // Mark as stopped in registry
+      registry.markServerStopped(server.project_hash);
+      
+      // Clean up socket file
+      try {
+        const fs = await import("fs");
+        if (fs.existsSync(server.socket_path)) {
+          fs.unlinkSync(server.socket_path);
+          cleaned++;
+          console.log("   🧹 Socket cleaned");
+        }
+      } catch (error) {
+        console.log("   ⚠️  Could not clean socket");
       }
     }
     
-    // Report results
-    if (stopped > 0 || killed > 0 || cleaned > 0 || dbEntriesRemoved > 0) {
-      console.log(`Stopped ${stopped} servers gracefully, force-killed ${killed}`);
-      console.log(`Cleaned ${cleaned} sockets, removed ${dbEntriesRemoved} database entries`);
-    } else {
-      console.log("No LSP servers were running");
+    // Final cleanup of any remaining dead servers
+    const deadCount = await registry.cleanupDeadServers();
+    
+    // Report summary
+    console.log(`\n📊 Summary:`);
+    console.log(`   Gracefully stopped: ${gracefullyStopped}`);
+    console.log(`   Force killed: ${forceKilled}`);
+    console.log(`   Already dead: ${alreadyDead}`);
+    console.log(`   Sockets cleaned: ${cleaned}`);
+    if (deadCount > 0) {
+      console.log(`   Registry cleaned: ${deadCount}`);
     }
     
-    // Exit cleanly
-    process.exit(0);
+    console.log("✅ All servers stopped");
+    
   } catch (error) {
-    console.error("Failed to stop servers:", error);
-    process.exit(1);
+    console.error("❌ Failed to stop servers:", error);
+    throw error;
   }
 }
 
@@ -554,7 +594,7 @@ async function resetServer(projectRoot: string) {
       console.error("❌ Reset timed out - server may be unresponsive");
     } else {
       console.error("❌ Reset failed:", error instanceof Error ? error.message : String(error));
-      console.log("💡 Try 'claude-lsp-cli kill-all' if the server is stuck");
+      console.log("💡 Try 'claude-lsp-cli stop-all' if the server is stuck");
     }
   }
 }
@@ -741,8 +781,8 @@ if (command === "hook" && eventType) {
   await startServer(args[1]);
 } else if (command === "stop" && args[1]) {
   await stopServer(args[1]);
-} else if (command === "kill-all") {
-  await killAllServers();
+} else if (command === "stop-all" || command === "kill-all") {
+  await stopAllServers();
 } else if (command === "reset" && args[1]) {
   await resetServer(args[1]);
 } else if (command === "reset-dedup" && args[1]) {

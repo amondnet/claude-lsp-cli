@@ -14,6 +14,7 @@ import { logger } from "./utils/logger";
 import { ProjectConfigDetector } from "./project-config-detector";
 import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
 import { TIMEOUTS } from "./constants";
+import { ServerRegistry } from "./utils/server-registry";
 
 interface DiagnosticResponse {
   file: string;
@@ -54,6 +55,8 @@ class LSPHttpServer {
     const detector = new ProjectConfigDetector(this.projectRoot);
     const projectConfig = await detector.detect();
     
+    const detectedLanguages: string[] = [];
+    
     if (projectConfig) {
       await logger.info(`✅ Detected ${projectConfig.language} project`);
       
@@ -80,6 +83,7 @@ class LSPHttpServer {
       const lspLanguage = languageMap[projectConfig.language];
       if (lspLanguage) {
         await this.client.startLanguageServer(lspLanguage, this.projectRoot);
+        detectedLanguages.push(lspLanguage);
       }
     } else {
       await logger.warn("⚠️  No supported project type detected");
@@ -109,6 +113,20 @@ class LSPHttpServer {
     
     const socketPath = `${socketDir}/claude-lsp-${this.projectHash}.sock`;
     
+    // Register server with the registry
+    const registry = ServerRegistry.getInstance();
+    registry.registerServer(
+      this.projectRoot,
+      detectedLanguages,
+      process.pid,
+      socketPath
+    );
+    
+    // Setup heartbeat to keep registry updated
+    setInterval(() => {
+      registry.updateHeartbeat(this.projectHash);
+    }, 30000); // Update every 30 seconds
+    
     // Clean up any existing socket file
     try {
       if (fs.existsSync(socketPath)) {
@@ -121,6 +139,9 @@ class LSPHttpServer {
     // Register cleanup handler
     cleanupManager.addCleanupHandler(async () => {
       await this.client.stopAllServers();
+      
+      // Mark server as stopped in registry
+      registry.markServerStopped(this.projectHash);
       
       // Clean up socket and related files
       const filesToClean = [
