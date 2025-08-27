@@ -500,16 +500,12 @@ export async function handleHookEvent(eventType: string): Promise<boolean> {
           } else {
             await logger.info("No diagnostic issues found");
             
-            // Only send message if server response has a summary
-            if (serverResponse && serverResponse.summary) {
-              // For "no warnings or errors", just send the summary
-              const cleanResponse = { summary: serverResponse.summary };
-              console.error(`[[system-message]]: ${JSON.stringify(cleanResponse)}`)
-              await logger.debug('RETURNING TRUE - Sent "no warnings or errors" message, exit with code 2');
-              return true; // Summary was output - exit with code 2 for feedback
-            }
+            // Check if errors were cleared (went from errors to no errors)
+            // Only show "no warnings or errors" when transitioning from errors to clean state
+            // TODO: Need to track previous state to know if errors were cleared
+            // For now, stay silent when there are no errors
             
-            return false; // No summary to report - exit code 0
+            return false; // No errors - stay silent
           }
         }
         return false; // No project root found
