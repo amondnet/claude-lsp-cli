@@ -729,16 +729,54 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
         return; // No pending checks
       }
       
-      // Get ALL pending checks, prioritizing current project
-      let pendingChecks = dedup.db.prepare(`
-        SELECT file_path, project_root 
+      // Get ALL pending checks, but ensure we process old ones too
+      // Strategy: Take 1 oldest overall + up to 4 from current project
+      const oldestOverall = dedup.db.prepare(`
+        SELECT file_path, project_root, created_at
         FROM pending_file_checks 
         WHERE checked = 0 
-        ORDER BY 
-          CASE WHEN project_root = ? THEN 0 ELSE 1 END,
-          created_at ASC
-        LIMIT 5
-      `).all(currentProjectRoot || '') as Array<{ file_path: string; project_root: string }>;
+        ORDER BY created_at ASC
+        LIMIT 1
+      `).get() as { file_path: string; project_root: string; created_at: string } | undefined;
+      
+      let pendingChecks: Array<{ file_path: string; project_root: string }> = [];
+      
+      if (oldestOverall) {
+        // Always include the oldest pending check to prevent starvation
+        pendingChecks.push(oldestOverall);
+        
+        // Then add current project checks if we have room
+        if (currentProjectRoot) {
+          const currentProjectChecks = dedup.db.prepare(`
+            SELECT file_path, project_root 
+            FROM pending_file_checks 
+            WHERE checked = 0 
+            AND project_root = ?
+            AND file_path != ?
+            ORDER BY created_at ASC
+            LIMIT 4
+          `).all(currentProjectRoot, oldestOverall.file_path) as Array<{ file_path: string; project_root: string }>;
+          
+          pendingChecks.push(...currentProjectChecks);
+        }
+        
+        // Check if oldest is too old (> 5 minutes) - if so, just mark it as checked to avoid infinite retries
+        const createdAt = new Date(oldestOverall.created_at).getTime();
+        const now = Date.now();
+        if (now - createdAt > 5 * 60 * 1000) {
+          await logger.warn('Pending check too old, marking as expired', { 
+            file: oldestOverall.file_path, 
+            age: Math.floor((now - createdAt) / 1000) + 's' 
+          });
+          dedup.db.prepare(`
+            UPDATE pending_file_checks 
+            SET checked = 1 
+            WHERE file_path = ?
+          `).run(oldestOverall.file_path);
+          // Remove from our processing list
+          pendingChecks = pendingChecks.filter(p => p.file_path !== oldestOverall.file_path);
+        }
+      }
       
       if (pendingChecks.length === 0) {
         return; // No pending checks
