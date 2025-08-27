@@ -678,55 +678,49 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
         return; // No pending checks
       }
       
-      // Get pending checks - but only process 1-2 to stay fast
-      // Strategy: Take 1 oldest overall, or 1 from current project
-      let pendingChecks: Array<{ file_path: string; project_root: string }> = [];
+      // Get ALL pending checks for efficiency - we'll process them by project
+      let pendingChecks: Array<{ file_path: string; project_root: string; created_at?: string }> = [];
       
       if (currentProjectRoot) {
-        // Prefer current project's pending check
-        const currentProjectCheck = dedup.db.prepare(`
+        // Get ALL pending checks for current project
+        const currentProjectChecks = dedup.db.prepare(`
           SELECT file_path, project_root 
           FROM pending_file_checks 
           WHERE checked = 0 
           AND project_root = ?
           ORDER BY created_at DESC
-          LIMIT 1
-        `).get(currentProjectRoot) as { file_path: string; project_root: string } | undefined;
+        `).all(currentProjectRoot) as Array<{ file_path: string; project_root: string }>;
         
-        if (currentProjectCheck) {
-          pendingChecks.push(currentProjectCheck);
-        }
+        pendingChecks.push(...currentProjectChecks);
       }
       
-      // If no current project check, get oldest overall
-      if (pendingChecks.length === 0) {
-        const oldestOverall = dedup.db.prepare(`
-          SELECT file_path, project_root, created_at
-          FROM pending_file_checks 
-          WHERE checked = 0 
-          ORDER BY created_at ASC
-          LIMIT 1
-        `).get() as { file_path: string; project_root: string; created_at: string } | undefined;
-        
-        if (oldestOverall) {
-          pendingChecks.push(oldestOverall);
-          
-          // Check if oldest is too old (> 5 minutes) - if so, just mark it as checked to avoid infinite retries
-          const createdAt = new Date(oldestOverall.created_at).getTime();
-          const now = Date.now();
-          if (now - createdAt > 5 * 60 * 1000) {
-            await logger.warn('Pending check too old, marking as expired', { 
-              file: oldestOverall.file_path, 
-              age: Math.floor((now - createdAt) / 1000) + 's' 
-            });
-            dedup.db.prepare(`
-              UPDATE pending_file_checks 
-              SET checked = 1 
-              WHERE file_path = ?
-            `).run(oldestOverall.file_path);
-            // Remove from our processing list
-            pendingChecks = pendingChecks.filter(p => p.file_path !== oldestOverall.file_path);
-          }
+      // Also get some from other projects to prevent starvation
+      const otherProjectChecks = dedup.db.prepare(`
+        SELECT file_path, project_root, created_at
+        FROM pending_file_checks 
+        WHERE checked = 0 
+        ${currentProjectRoot ? 'AND project_root != ?' : ''}
+        ORDER BY created_at ASC
+        LIMIT 10
+      `).all(...(currentProjectRoot ? [currentProjectRoot] : [])) as Array<{ file_path: string; project_root: string; created_at: string }>;
+      
+      // Add other project checks and mark expired ones
+      for (const check of otherProjectChecks) {
+        const createdAt = new Date(check.created_at).getTime();
+        const now = Date.now();
+        if (now - createdAt > 5 * 60 * 1000) {
+          // Too old, mark as expired
+          await logger.warn('Pending check too old, marking as expired', { 
+            file: check.file_path, 
+            age: Math.floor((now - createdAt) / 1000) + 's' 
+          });
+          dedup.db.prepare(`
+            UPDATE pending_file_checks 
+            SET checked = 1 
+            WHERE file_path = ?
+          `).run(check.file_path);
+        } else {
+          pendingChecks.push(check);
         }
       }
       
@@ -736,15 +730,24 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
       
       await logger.debug('Found pending file checks', { count: pendingChecks.length });
       
-      // Process each pending check quickly
+      // Group pending checks by project
+      const pendingByProject = new Map<string, Array<{ file_path: string; project_root: string }>>();
       for (const pending of pendingChecks) {
+        if (!pendingByProject.has(pending.project_root)) {
+          pendingByProject.set(pending.project_root, []);
+        }
+        pendingByProject.get(pending.project_root)!.push(pending);
+      }
+      
+      // Process each project's pending files
+      for (const [projectRoot, projectPendings] of pendingByProject) {
         const elapsed = Date.now() - startTime;
         if (elapsed > timeout) {
           break; // Out of time
         }
         
         // Check if LSP server is now running for this project
-        const projectHash = secureHash(pending.project_root).substring(0, 16);
+        const projectHash = secureHash(projectRoot).substring(0, 16);
         const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
         
         let serverReady = false;
@@ -762,18 +765,16 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
         }
         
         if (!serverReady) {
-          // Server not ready, try to start it in background if it's for current project
-          if (pending.project_root === currentProjectRoot) {
-            import("./manager").then(({ startLspServer }) => {
-              startLspServer(pending.project_root).catch(err => 
-                logger.error('Background LSP server start failed', { error: err })
-              );
-            });
-          }
-          continue; // Skip this file for now
+          // Server not ready, try to start it in background
+          import("./manager").then(({ startLspServer }) => {
+            startLspServer(projectRoot).catch(err => 
+              logger.error('Background LSP server start failed', { error: err })
+            );
+          });
+          continue; // Skip this project for now
         }
         
-        // Server is running, get diagnostics quickly
+        // Server is running, get diagnostics for the whole project once
         const remainingTime = timeout - (Date.now() - startTime);
         if (remainingTime < 100) {
           break; // Not enough time left
@@ -781,46 +782,85 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
         
         try {
           const diagnostics = await Promise.race([
-            runDiagnostics(pending.project_root),
+            runDiagnostics(projectRoot),
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), Math.min(remainingTime, 400)))
           ]) as any;
           
           if (diagnostics && diagnostics.diagnostics) {
-            // Filter to only the pending file
-            const fileDiagnostics = diagnostics.diagnostics.filter((d: any) => 
-              d.file === pending.file_path || d.file === resolve(pending.file_path)
+            // Get all pending file paths for this project
+            const pendingFilePaths = new Set(projectPendings.map(p => p.file_path));
+            const pendingFilePathsResolved = new Set(projectPendings.map(p => resolve(p.file_path)));
+            
+            // Filter to only pending files from this project
+            const pendingFileDiagnostics = diagnostics.diagnostics.filter((d: any) => 
+              pendingFilePaths.has(d.file) || pendingFilePathsResolved.has(d.file)
             );
             
-            if (fileDiagnostics.length > 0) {
-              // Display diagnostics for the pending file
-              const displayDiags = fileDiagnostics.slice(0, 5);
+            if (pendingFileDiagnostics.length > 0) {
+              // Group diagnostics by file for summary
+              const diagsByFile = new Map<string, any[]>();
+              for (const diag of pendingFileDiagnostics) {
+                const file = diag.file;
+                if (!diagsByFile.has(file)) {
+                  diagsByFile.set(file, []);
+                }
+                diagsByFile.get(file)!.push(diag);
+              }
+              
+              // Display up to 5 diagnostics total, prioritizing different files
+              const displayDiags: any[] = [];
+              for (const [file, fileDiags] of diagsByFile) {
+                if (displayDiags.length >= 5) break;
+                // Add at least one diagnostic from each file
+                displayDiags.push(...fileDiags.slice(0, Math.max(1, 5 - displayDiags.length)));
+              }
+              
+              // Build summary
               const bySource: Record<string, number> = {};
-              for (const diag of fileDiagnostics) {
+              for (const diag of pendingFileDiagnostics) {
                 const source = diag.source || 'unknown';
                 bySource[source] = (bySource[source] || 0) + 1;
               }
               
+              const fileCount = diagsByFile.size;
+              const fileList = fileCount <= 3 
+                ? Array.from(diagsByFile.keys()).map(f => f.split('/').pop()).join(', ')
+                : `${fileCount} files`;
+              
               const response = {
-                diagnostics: displayDiags,
-                summary: `total: ${fileDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')}) [from previous edit: ${pending.file_path}]`
+                diagnostics: displayDiags.slice(0, 5),
+                summary: `total: ${pendingFileDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')}) [${fileList}]`
               };
               
               console.error(`[[system-message]]: ${JSON.stringify(response)}`);
               
-              // Mark as checked since we successfully reported it
-              dedup.db.prepare(`
-                UPDATE pending_file_checks 
-                SET checked = 1 
-                WHERE file_path = ?
-              `).run(pending.file_path);
+              // Mark all files we found diagnostics for as checked
+              for (const pending of projectPendings) {
+                if (pendingFilePaths.has(pending.file_path) || pendingFilePathsResolved.has(resolve(pending.file_path))) {
+                  dedup.db.prepare(`
+                    UPDATE pending_file_checks 
+                    SET checked = 1 
+                    WHERE file_path = ?
+                  `).run(pending.file_path);
+                }
+              }
               
-              // We reported one file's diagnostics, that's enough for this hook
+              // We reported diagnostics for this project, that's enough for this hook
               break;
+            } else {
+              // No diagnostics for these files, mark them as checked
+              for (const pending of projectPendings) {
+                dedup.db.prepare(`
+                  UPDATE pending_file_checks 
+                  SET checked = 1 
+                  WHERE file_path = ?
+                `).run(pending.file_path);
+              }
             }
           }
         } catch (error) {
-          // Timeout or error, move on to next file
-          await logger.debug('Failed to get diagnostics for pending file', { file: pending.file_path, error });
+          // Timeout or error, move on to next project
+          await logger.debug('Failed to get diagnostics for project', { project: projectRoot, error });
         }
       }
       
