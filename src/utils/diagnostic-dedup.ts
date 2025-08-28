@@ -89,39 +89,26 @@ export class DiagnosticDeduplicator {
       ON diagnostic_history (project_hash, last_seen)
     `);
 
-    // Table for tracking last report time
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS diagnostic_reports (
-        project_hash TEXT PRIMARY KEY,
-        last_report_time INTEGER NOT NULL,
-        last_report_hash TEXT,
-        diagnostics_count INTEGER DEFAULT 0,
-        project_path TEXT
-      )
-    `);
+    // Note: diagnostic_reports table removed - was only used for first run check
     
-    // Update existing rows to include project path if missing
-    this.db.run(`
-      UPDATE diagnostic_reports 
-      SET project_path = ? 
-      WHERE project_hash = ? AND (project_path IS NULL OR project_path = '')
-    `, [this.projectPath, this.projectHash]);
+    // Note: diagnostic_reports update removed
 
-    // Table for tracking language server processes
+    // Table for tracking individual language server processes (typescript, python, etc.)
     this.db.run(`
-      CREATE TABLE IF NOT EXISTS language_servers (
+      CREATE TABLE IF NOT EXISTS individual_language_servers (
         project_hash TEXT NOT NULL,
         language TEXT NOT NULL,
         pid INTEGER NOT NULL,
         started_at INTEGER NOT NULL,
         last_checked INTEGER NOT NULL,
         socket_path TEXT,
+        status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'healthy', 'unhealthy', 'stopped')),
         PRIMARY KEY (project_hash, language)
       )
     `);
 
-    // Clean up stale language server entries on startup
-    this.cleanupStaleLanguageServers().catch(() => {});
+    // Clean up stale individual language server entries on startup
+    this.cleanupStaleIndividualLanguageServers().catch(() => {});
   }
 
   private normalizePath(filePath: string): string {
@@ -233,10 +220,11 @@ export class DiagnosticDeduplicator {
 
   /**
    * Check if this is the first run for a project
+   * Simplified: check if any diagnostics exist in history
    */
   isFirstRun(): boolean {
     const result = this.db.prepare(`
-      SELECT COUNT(*) as count FROM diagnostic_reports WHERE project_hash = ?
+      SELECT COUNT(*) as count FROM diagnostic_history WHERE project_hash = ?
     `).get(this.projectHash) as any;
     
     return result.count === 0;
@@ -292,35 +280,39 @@ export class DiagnosticDeduplicator {
     this.db.close();
   }
 
-  // Language Server Management Methods
+  // Individual Language Server Management Methods
   registerLanguageServer(projectHash: string, language: string, pid: number, socketPath?: string): void {
     const now = Date.now();
     this.db.run(`
-      INSERT OR REPLACE INTO language_servers 
-      (project_hash, language, pid, started_at, last_checked, socket_path)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [projectHash, language, pid, now, now, socketPath || null]);
+      INSERT OR REPLACE INTO individual_language_servers 
+      (project_hash, language, pid, started_at, last_checked, socket_path, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [projectHash, language, pid, now, now, socketPath || null, 'starting']);
   }
 
-  getLanguageServer(projectHash: string, language: string): { pid: number; socket_path: string | null } | null {
+  getLanguageServer(projectHash: string, language: string): { pid: number; socket_path: string | null; status: string } | null {
     const result = this.db.prepare(`
-      SELECT pid, socket_path FROM language_servers
+      SELECT pid, socket_path, status FROM individual_language_servers
       WHERE project_hash = ? AND language = ?
-    `).get(projectHash, language) as { pid: number; socket_path: string | null } | undefined;
+    `).get(projectHash, language) as { pid: number; socket_path: string | null; status: string } | undefined;
 
     if (result) {
       // Check if the process is still alive
       if (this.isPidAlive(result.pid)) {
-        // Update last_checked timestamp
+        // Update last_checked timestamp and status
         this.db.run(`
-          UPDATE language_servers 
-          SET last_checked = ?
+          UPDATE individual_language_servers 
+          SET last_checked = ?, status = ?
           WHERE project_hash = ? AND language = ?
-        `, [Date.now(), projectHash, language]);
-        return result;
+        `, [Date.now(), 'healthy', projectHash, language]);
+        return { ...result, status: 'healthy' };
       } else {
-        // Process is dead, clean up the entry
-        this.removeLanguageServer(projectHash, language);
+        // Process is dead, mark as stopped
+        this.db.run(`
+          UPDATE individual_language_servers 
+          SET status = ?
+          WHERE project_hash = ? AND language = ?
+        `, ['stopped', projectHash, language]);
         return null;
       }
     }
@@ -329,15 +321,15 @@ export class DiagnosticDeduplicator {
 
   removeLanguageServer(projectHash: string, language: string): void {
     this.db.run(`
-      DELETE FROM language_servers
+      DELETE FROM individual_language_servers
       WHERE project_hash = ? AND language = ?
     `, [projectHash, language]);
   }
 
-  getAllLanguageServers(): Array<{ project_hash: string; language: string; pid: number }> {
+  getAllLanguageServers(): Array<{ project_hash: string; language: string; pid: number; status: string }> {
     return this.db.prepare(`
-      SELECT project_hash, language, pid FROM language_servers
-    `).all() as Array<{ project_hash: string; language: string; pid: number }>;
+      SELECT project_hash, language, pid, status FROM individual_language_servers
+    `).all() as Array<{ project_hash: string; language: string; pid: number; status: string }>;
   }
 
   private isPidAlive(pid: number): boolean {
@@ -350,17 +342,22 @@ export class DiagnosticDeduplicator {
     }
   }
 
-  private async cleanupStaleLanguageServers(): Promise<void> {
+  private async cleanupStaleIndividualLanguageServers(): Promise<void> {
     const servers = this.getAllLanguageServers();
     let cleaned = 0;
     for (const server of servers) {
       if (!this.isPidAlive(server.pid)) {
-        this.removeLanguageServer(server.project_hash, server.language);
+        // Mark as stopped instead of removing
+        this.db.run(`
+          UPDATE individual_language_servers 
+          SET status = ?
+          WHERE project_hash = ? AND language = ?
+        `, ['stopped', server.project_hash, server.language]);
         cleaned++;
       }
     }
     if (cleaned > 0) {
-      await logger.info(`Cleaned up ${cleaned} stale language server entries`);
+      await logger.info(`Cleaned up ${cleaned} stale individual language server entries`);
     }
   }
 

@@ -171,22 +171,36 @@ async function handleHookEvent(eventType: string) {
   }
 }
 
-async function queryDiagnostics(projectRoot: string) {
+async function queryDiagnostics(pathArg: string) {
   try {
-    // Use runDiagnostics from diagnostics.ts which has auto-start logic
-    const { runDiagnostics } = await import("./diagnostics");
+    const { stat } = await import('fs/promises');
+    const { runDiagnostics, runFileSpecificDiagnostics } = await import("./diagnostics");
     
-    // Run diagnostics for entire project (no file-specific diagnostics)
-    const result = await runDiagnostics(projectRoot);
+    // Check if path is a file or directory
+    const stats = await stat(pathArg);
+    const isFile = stats.isFile();
     
-    // Only output if there's a meaningful summary to report
-    if (result && result.summary) {
-      console.log(JSON.stringify(result));
+    if (isFile) {
+      // File-specific diagnostics - bypass deduplication
+      await logger.debug('Running file-specific diagnostics', { file: pathArg });
+      const result = await runFileSpecificDiagnostics(pathArg);
+      
+      if (result) {
+        console.log(JSON.stringify(result));
+      }
+    } else {
+      // Project-wide diagnostics - use deduplication
+      await logger.debug('Running project-wide diagnostics', { project: pathArg });
+      const result = await runDiagnostics(pathArg);
+      
+      // Only output if there's a meaningful summary to report
+      if (result && result.summary) {
+        console.log(JSON.stringify(result));
+      }
     }
-    // If no summary, exit silently (code 0)
     
   } catch (error) {
-    await logger.error('Failed to query diagnostics', error, { projectRoot });
+    await logger.error('Failed to query diagnostics', error, { path: pathArg });
     console.error(JSON.stringify({
       error: "DIAGNOSTICS_QUERY_ERROR",
       message: error instanceof Error ? error.message : "Unknown error",
@@ -202,11 +216,12 @@ Claude LSP CLI - Language Server Protocol client for Claude Code
 
 Usage:
   claude-lsp-cli hook <event-type>           Handle Claude Code hook events
-  claude-lsp-cli diagnostics <project>       Query project-level diagnostics
+  claude-lsp-cli diagnostics <path>          Query diagnostics (file or project)
   claude-lsp-cli status [project]            Show running LSP servers
   claude-lsp-cli start <project>             Start LSP server for project
   claude-lsp-cli stop <project>              Stop LSP server for project
   claude-lsp-cli stop-all                    Stop all running LSP servers
+  claude-lsp-cli stop-idle [minutes]         Stop servers idle > N minutes (default: 30)
   claude-lsp-cli reset <project>             Reset LSP server cache (fast)
   claude-lsp-cli reset-dedup <project>       Reset deduplication only (faster)
   claude-lsp-cli install <language>          Install language server
@@ -224,8 +239,11 @@ Examples:
   # Handle PostToolUse hook (called by Claude Code)
   claude-lsp-cli hook PostToolUse
   
-  # Query all diagnostics for a project
+  # Query project-wide diagnostics (with deduplication)
   claude-lsp-cli diagnostics /path/to/project
+  
+  # Query file-specific diagnostics (no deduplication)
+  claude-lsp-cli diagnostics /path/to/file.ts
   
   # Show running servers
   claude-lsp-cli status
@@ -444,6 +462,94 @@ async function stopServer(projectRoot: string) {
     
   } catch (error) {
     console.error("Failed to stop server:", error);
+  }
+}
+
+async function stopIdleServers(idleMinutes: number = 30) {
+  const registry = ServerRegistry.getInstance();
+  
+  try {
+    // First clean up any dead servers
+    await registry.cleanupDeadServers();
+    
+    // Get all servers
+    const servers = registry.getAllActiveServers();
+    
+    if (servers.length === 0) {
+      console.log("No running LSP servers found");
+      return;
+    }
+    
+    let stoppedCount = 0;
+    const now = Date.now();
+    const idleThreshold = idleMinutes * 60 * 1000; // Convert to milliseconds
+    
+    console.log(`🔍 Checking for servers idle for > ${idleMinutes} minutes...`);
+    
+    for (const server of servers) {
+      const lastResponse = new Date(server.last_response).getTime();
+      const idleTime = now - lastResponse;
+      const idleMinutesActual = Math.floor(idleTime / 60000);
+      
+      if (idleTime > idleThreshold) {
+        console.log(`\n🎯 Stopping idle server: ${server.project_root}`);
+        console.log(`   Idle for: ${idleMinutesActual} minutes`);
+        console.log(`   PID: ${server.pid}`);
+        
+        try {
+          // Try graceful shutdown first
+          try {
+            const response = await fetch('http://localhost/shutdown', { 
+              method: 'POST',
+              unix: server.socket_path,
+              signal: AbortSignal.timeout(2000)
+            });
+            
+            if (response.ok) {
+              console.log("   ✅ Shutdown gracefully");
+            }
+          } catch {
+            // Force kill if graceful shutdown failed
+            try {
+              process.kill(server.pid, 'SIGKILL');
+              console.log("   💥 Force killed");
+            } catch {
+              console.log("   👻 Process already dead");
+            }
+          }
+          
+          // Mark as stopped in registry
+          registry.markServerStopped(server.project_hash);
+          
+          // Clean up socket file
+          try {
+            const fs = await import("fs");
+            if (fs.existsSync(server.socket_path)) {
+              fs.unlinkSync(server.socket_path);
+              console.log("   🧹 Socket cleaned");
+            }
+          } catch {
+            console.log("   ⚠️  Could not clean socket");
+          }
+          
+          stoppedCount++;
+        } catch (error) {
+          console.error(`   ❌ Failed to stop: ${error}`);
+        }
+      } else {
+        console.log(`✅ Active: ${server.project_root} (idle ${idleMinutesActual} min)`);
+      }
+    }
+    
+    if (stoppedCount > 0) {
+      console.log(`\n📊 Stopped ${stoppedCount} idle server(s)`);
+    } else {
+      console.log(`\n✅ No servers exceeded idle threshold of ${idleMinutes} minutes`);
+    }
+    
+  } catch (error) {
+    console.error("❌ Failed to stop idle servers:", error);
+    throw error;
   }
 }
 
@@ -772,8 +878,8 @@ async function getLspScope(projectPath: string) {
 if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
 } else if (command === "diagnostics" && args[1]) {
-  const projectRoot = resolve(args[1]);
-  await queryDiagnostics(projectRoot);
+  const pathArg = resolve(args[1]);
+  await queryDiagnostics(pathArg);
 } else if (command === "status") {
   const projectRoot = args[1] ? resolve(args[1]) : undefined;
   await showStatus(projectRoot);
@@ -783,6 +889,13 @@ if (command === "hook" && eventType) {
   await stopServer(args[1]);
 } else if (command === "stop-all" || command === "kill-all") {
   await stopAllServers();
+} else if (command === "stop-idle") {
+  const minutes = args[1] ? parseInt(args[1]) : 30;
+  if (isNaN(minutes) || minutes <= 0) {
+    console.error("Invalid idle time. Please specify a positive number of minutes.");
+    process.exit(1);
+  }
+  await stopIdleServers(minutes);
 } else if (command === "reset" && args[1]) {
   await resetServer(args[1]);
 } else if (command === "reset-dedup" && args[1]) {

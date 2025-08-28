@@ -124,6 +124,54 @@ export async function runDiagnostics(
   logger.setProject(projectHash);
   
   try {
+    // Import server monitor for health checking
+    const { ServerMonitor } = await import('./utils/server-monitor');
+    const monitor = ServerMonitor.getInstance();
+    
+    // Auto-stop very idle servers (> 2 hours), but NOT the one we need
+    const autoStopRegistry = await import('./utils/server-registry').then(m => m.ServerRegistry.getInstance());
+    const allServers = autoStopRegistry.getAllActiveServers();
+    const TWO_HOURS = 120 * 60 * 1000; // 2 hours in milliseconds
+    const now = Date.now();
+    
+    for (const server of allServers) {
+      // Skip the server we're about to use
+      if (server.project_hash === projectHash) {
+        continue;
+      }
+      
+      const lastResponse = new Date(server.last_response).getTime();
+      const idleTime = now - lastResponse;
+      
+      if (idleTime > TWO_HOURS) {
+        await logger.debug('Auto-stopping very idle server', {
+          project: server.project_root,
+          idleHours: Math.floor(idleTime / 3600000),
+          pid: server.pid
+        });
+        
+        try {
+          // Try to kill the process
+          process.kill(server.pid, 'SIGKILL');
+        } catch {
+          // Process might already be dead
+        }
+        
+        // Mark as stopped
+        autoStopRegistry.markServerStopped(server.project_hash);
+        
+        // Clean up socket
+        try {
+          const fs = await import('fs');
+          if (fs.existsSync(server.socket_path)) {
+            fs.unlinkSync(server.socket_path);
+          }
+        } catch {
+          // Ignore socket cleanup errors
+        }
+      }
+    }
+    
     // First, try to query the existing server
     const socketDir = process.env.XDG_RUNTIME_DIR || 
                      (process.platform === 'darwin' 
@@ -132,17 +180,136 @@ export async function runDiagnostics(
     
     const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
     
-    // Check if server is running by attempting to query it
+    // Step 1: Check log to see if we started a server
+    const registry = await import('./utils/server-registry').then(m => m.ServerRegistry.getInstance());
+    const existingServer = registry.getServerByPath(projectRoot);
+    
     let serverRunning = false;
-    try {
-      const testResponse = await fetch('http://localhost/health', {
-        // @ts-ignore - Bun supports unix option
-        unix: socketPath,
-        signal: AbortSignal.timeout(1000)
-      });
-      serverRunning = testResponse.ok;
-    } catch {
-      // Server not running
+    
+    if (existingServer) {
+      // Step 2: Ping to decide next action
+      try {
+        const pingResponse = await fetch('http://localhost/health', {
+          // @ts-ignore - Bun supports unix option
+          unix: socketPath,
+          signal: AbortSignal.timeout(2000)
+        });
+        serverRunning = pingResponse.ok;
+        
+        if (!serverRunning) {
+          // Mark server as unhealthy since it didn't respond
+          registry.updateStatus(existingServer.project_hash, 'unhealthy');
+          
+          // Check how long since server was started
+          const serverStartTime = new Date(existingServer.start_time).getTime();
+          const timeSinceStart = Date.now() - serverStartTime;
+          const TWO_MINUTES = 120000;
+          
+          if (timeSinceStart > TWO_MINUTES) {
+            // Server unresponsive for > 2 minutes - kill and clear log
+            await logger.debug('Server unresponsive for > 2 minutes, killing', { 
+              pid: existingServer.pid,
+              unresponsiveMs: timeSinceStart 
+            });
+            try {
+              process.kill(existingServer.pid, 'SIGKILL');
+            } catch {}
+            registry.markServerStopped(existingServer.project_hash);
+          } else {
+            // Server not responding but < 2 minutes, wait for it
+            await logger.debug('Server not responding but within 2 min timeout, waiting for it', { 
+              pid: existingServer.pid,
+              timeSinceStartMs: timeSinceStart 
+            });
+            
+            // Wait for server to be ready (with timeout)
+            const maxWaitTime = Math.min(30000, 120000 - timeSinceStart); // Wait up to 30s or until 2 min mark
+            const waitStart = Date.now();
+            
+            while (Date.now() - waitStart < maxWaitTime) {
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+              
+              try {
+                const retryPing = await fetch('http://localhost/health', {
+                  // @ts-ignore - Bun supports unix option
+                  unix: socketPath,
+                  signal: AbortSignal.timeout(500)
+                });
+                
+                if (retryPing.ok) {
+                  serverRunning = true;
+                  await logger.debug('Server became ready after waiting', { 
+                    pid: existingServer.pid,
+                    waitTime: Date.now() - waitStart
+                  });
+                  break;
+                }
+              } catch {
+                // Still not ready, continue waiting
+              }
+            }
+            
+            if (!serverRunning) {
+              // Still not ready after waiting - this server is broken
+              await logger.warn('Server not ready after waiting, killing it', { 
+                pid: existingServer.pid,
+                waitTime: Date.now() - waitStart,
+                totalTimeSinceStart: Date.now() - serverStartTime
+              });
+              
+              // Kill the broken server
+              try {
+                process.kill(existingServer.pid, 'SIGKILL');
+              } catch {}
+              registry.markServerStopped(existingServer.project_hash);
+              
+              // serverRunning stays false so we start a new one below
+            }
+          }
+        }
+      } catch {
+        // Ping failed - check if we should kill based on time
+        const serverStartTime = new Date(existingServer.start_time).getTime();
+        const timeSinceStart = Date.now() - serverStartTime;
+        const TWO_MINUTES = 120000;
+        
+        if (timeSinceStart > TWO_MINUTES) {
+          await logger.debug('Server dead after 2 minutes, removing from log', { 
+            pid: existingServer.pid 
+          });
+          registry.markServerStopped(existingServer.project_hash);
+        } else {
+          // Server not responding but < 2 minutes, wait for it
+          await logger.debug('Server ping failed but within 2 min, waiting', { 
+            timeSinceStart 
+          });
+          
+          // Wait for server to be ready
+          const maxWaitTime = Math.min(30000, 120000 - timeSinceStart);
+          const waitStart = Date.now();
+          
+          while (Date.now() - waitStart < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            try {
+              const retryPing = await fetch('http://localhost/health', {
+                // @ts-ignore - Bun supports unix option
+                unix: socketPath,
+                signal: AbortSignal.timeout(500)
+              });
+              
+              if (retryPing.ok) {
+                serverRunning = true;
+                await logger.debug('Server became ready after waiting');
+                break;
+              }
+            } catch {
+              // Still not ready
+            }
+          }
+        }
+        serverRunning = false;
+      }
     }
     
     // If server not running, start it
@@ -199,10 +366,27 @@ export async function runDiagnostics(
       }
       serverProcess.unref();
       
-      // Wait for server to start (longer in CI environments)
-      // Note: Server needs time to initialize language servers
-      const waitTime = process.env.CI ? 8000 : 5000;
-      await new Promise(resolve => setTimeout(resolve, waitTime));
+      // Log that we're starting a server
+      await logger.debug('Starting new LSP server', { 
+        pid: serverProcess.pid, 
+        projectRoot 
+      });
+      
+      // Register in the log (registry)
+      const detectedLanguages = ['typescript']; // Will be detected by server
+      registry.registerServer(
+        projectRoot,
+        detectedLanguages,
+        serverProcess.pid!,
+        socketPath
+      );
+      
+      // Give server time to start but don't wait too long
+      // The server will continue initializing in background
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await logger.debug('Gave server 2s head start, continuing', { 
+        pid: serverProcess.pid 
+      });
     }
     
     // Now query the server for diagnostics
@@ -225,6 +409,9 @@ export async function runDiagnostics(
         const data = await response.json();
         // Pass server response directly - no need to reconstruct
         serverResponse = data;
+        
+        // Update registry to show server is healthy and responding
+        registry.updateHeartbeat(projectHash);
       } else {
         await logger.error(`Server returned error: ${response.status}`, { url });
       }
@@ -257,6 +444,380 @@ export async function runDiagnostics(
       };
     }
     
+    throw error;
+  }
+}
+
+// Helper to find the nearest project root for a file
+async function findNearestProjectRoot(filePath: string): Promise<string> {
+  const { dirname } = await import('path');
+  const { existsSync } = await import('fs');
+  const { join } = await import('path');
+  
+  // Start from the file's directory and walk up
+  let dir = dirname(filePath);
+  
+  while (dir !== '/' && dir !== '.') {
+    // Check for project markers
+    if (existsSync(join(dir, 'package.json')) || 
+        existsSync(join(dir, 'tsconfig.json')) ||
+        existsSync(join(dir, 'pyproject.toml')) ||
+        existsSync(join(dir, 'requirements.txt')) ||
+        existsSync(join(dir, 'Cargo.toml')) ||
+        existsSync(join(dir, 'go.mod'))) {
+      return dir;
+    }
+    
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached root
+    dir = parent;
+  }
+  
+  // Fallback to file's directory
+  return dirname(filePath);
+}
+
+// File-specific diagnostic function (bypasses deduplication)
+export async function runFileSpecificDiagnostics(
+  filePath: string,
+): Promise<any> {
+  const { stat } = await import('fs/promises');
+  const { basename } = await import('path');
+  
+  // Find the nearest project root for the file (not the parent project)
+  const projectRoot = await findNearestProjectRoot(filePath);
+  const projectHash = secureHash(projectRoot).substring(0, 16);
+  
+  logger.setProject(projectHash);
+  
+  try {
+    // Auto-stop very idle servers (> 2 hours), but NOT the one we need
+    const autoStopRegistry2 = await import('./utils/server-registry').then(m => m.ServerRegistry.getInstance());
+    const allServers = autoStopRegistry2.getAllActiveServers();
+    const TWO_HOURS = 120 * 60 * 1000; // 2 hours in milliseconds
+    const now = Date.now();
+    
+    for (const server of allServers) {
+      // Skip the server we're about to use
+      if (server.project_hash === projectHash) {
+        continue;
+      }
+      
+      const lastResponse = new Date(server.last_response).getTime();
+      const idleTime = now - lastResponse;
+      
+      if (idleTime > TWO_HOURS) {
+        await logger.debug('Auto-stopping very idle server', {
+          project: server.project_root,
+          idleHours: Math.floor(idleTime / 3600000),
+          pid: server.pid
+        });
+        
+        try {
+          process.kill(server.pid, 'SIGKILL');
+        } catch {}
+        
+        autoStopRegistry2.markServerStopped(server.project_hash);
+        
+        try {
+          const fs = await import('fs');
+          if (fs.existsSync(server.socket_path)) {
+            fs.unlinkSync(server.socket_path);
+          }
+        } catch {}
+      }
+    }
+    
+    // Get file metadata
+    const fileStats = await stat(filePath);
+    const fileName = basename(filePath);
+    
+    // Start server if not running (same as runDiagnostics)
+    const socketDir = process.env.XDG_RUNTIME_DIR || 
+                     (process.platform === 'darwin' 
+                       ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
+                       : `${process.env.HOME}/.claude-lsp/run`);
+    
+    const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
+    
+    // Step 1: Check log to see if we started a server
+    const registry = autoStopRegistry2;
+    const existingServer = registry.getServerByPath(projectRoot);
+    
+    let serverRunning = false;
+    
+    if (existingServer) {
+      // Step 2: Ping to decide next action
+      try {
+        const pingResponse = await fetch('http://localhost/health', {
+          // @ts-ignore - Bun supports unix option
+          unix: socketPath,
+          signal: AbortSignal.timeout(2000)
+        });
+        serverRunning = pingResponse.ok;
+        
+        if (!serverRunning) {
+          // Mark server as unhealthy since it didn't respond
+          registry.updateStatus(existingServer.project_hash, 'unhealthy');
+          
+          // Check how long since server was started
+          const serverStartTime = new Date(existingServer.start_time).getTime();
+          const timeSinceStart = Date.now() - serverStartTime;
+          const TWO_MINUTES = 120000;
+          
+          if (timeSinceStart > TWO_MINUTES) {
+            // Server unresponsive for > 2 minutes - kill and clear log
+            await logger.debug('Server unresponsive for > 2 minutes, killing', { 
+              pid: existingServer.pid,
+              unresponsiveMs: timeSinceStart 
+            });
+            try {
+              process.kill(existingServer.pid, 'SIGKILL');
+            } catch {}
+            registry.markServerStopped(existingServer.project_hash);
+          } else {
+            // Server not responding but < 2 minutes, wait for it
+            await logger.debug('Server not responding but within 2 min timeout, waiting for it', { 
+              pid: existingServer.pid,
+              timeSinceStartMs: timeSinceStart 
+            });
+            
+            // Wait for server to be ready (with timeout)
+            const maxWaitTime = Math.min(30000, 120000 - timeSinceStart); // Wait up to 30s or until 2 min mark
+            const waitStart = Date.now();
+            
+            while (Date.now() - waitStart < maxWaitTime) {
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+              
+              try {
+                const retryPing = await fetch('http://localhost/health', {
+                  // @ts-ignore - Bun supports unix option
+                  unix: socketPath,
+                  signal: AbortSignal.timeout(500)
+                });
+                
+                if (retryPing.ok) {
+                  serverRunning = true;
+                  await logger.debug('Server became ready after waiting', { 
+                    pid: existingServer.pid,
+                    waitTime: Date.now() - waitStart
+                  });
+                  break;
+                }
+              } catch {
+                // Still not ready, continue waiting
+              }
+            }
+            
+            if (!serverRunning) {
+              // Still not ready after waiting - this server is broken
+              await logger.warn('Server not ready after waiting, killing it', { 
+                pid: existingServer.pid,
+                waitTime: Date.now() - waitStart,
+                totalTimeSinceStart: Date.now() - serverStartTime
+              });
+              
+              // Kill the broken server
+              try {
+                process.kill(existingServer.pid, 'SIGKILL');
+              } catch {}
+              registry.markServerStopped(existingServer.project_hash);
+              
+              // serverRunning stays false so we start a new one below
+            }
+          }
+        }
+      } catch {
+        // Ping failed - check if we should kill based on time
+        const serverStartTime = new Date(existingServer.start_time).getTime();
+        const timeSinceStart = Date.now() - serverStartTime;
+        const TWO_MINUTES = 120000;
+        
+        if (timeSinceStart > TWO_MINUTES) {
+          await logger.debug('Server dead after 2 minutes, removing from log', { 
+            pid: existingServer.pid 
+          });
+          registry.markServerStopped(existingServer.project_hash);
+        } else {
+          // Server not responding but < 2 minutes, wait for it
+          await logger.debug('Server ping failed but within 2 min, waiting', { 
+            timeSinceStart 
+          });
+          
+          // Wait for server to be ready
+          const maxWaitTime = Math.min(30000, 120000 - timeSinceStart);
+          const waitStart = Date.now();
+          
+          while (Date.now() - waitStart < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            try {
+              const retryPing = await fetch('http://localhost/health', {
+                // @ts-ignore - Bun supports unix option
+                unix: socketPath,
+                signal: AbortSignal.timeout(500)
+              });
+              
+              if (retryPing.ok) {
+                serverRunning = true;
+                await logger.debug('Server became ready after waiting');
+                break;
+              }
+            } catch {
+              // Still not ready
+            }
+          }
+        }
+        serverRunning = false;
+      }
+    }
+    
+    // If server not running, start it (reuse the same logic from runDiagnostics)
+    if (!serverRunning) {
+      const { spawn } = await import('child_process');
+      const { existsSync } = await import('fs');
+      
+      // Try multiple paths to find the server
+      const possiblePaths = [
+        join(process.argv[0].replace(/\/[^\/]+$/, ''), 'claude-lsp-server'),
+        join(process.cwd(), 'bin', 'claude-lsp-server'),
+        join(import.meta.dir, '..', 'bin', 'claude-lsp-server'),
+        '/usr/local/bin/claude-lsp-server',
+        join(process.env.HOME || '', '.claude', 'claude-code-lsp', 'bin', 'claude-lsp-server'),
+      ];
+      
+      let serverBinaryPath: string | null = null;
+      for (const path of possiblePaths) {
+        if (existsSync(path)) {
+          serverBinaryPath = path;
+          break;
+        }
+      }
+      
+      if (!serverBinaryPath) {
+        await logger.error('Could not find claude-lsp-server binary', { possiblePaths });
+        throw new Error('claude-lsp-server binary not found. Please ensure it is built and in your PATH.');
+      }
+      
+      await logger.debug('Starting LSP server', { projectRoot, serverPath: serverBinaryPath });
+      
+      const child = spawn(serverBinaryPath, [projectRoot], {
+        stdio: 'ignore',
+        detached: true
+      });
+      
+      child.unref();
+      
+      // Log that we're starting a server
+      await logger.debug('Starting new LSP server for file diagnostics', { 
+        pid: child.pid, 
+        projectRoot 
+      });
+      
+      // Register in the log (registry)
+      const detectedLanguages = ['typescript']; // Will be detected by server
+      registry.registerServer(
+        projectRoot,
+        detectedLanguages,
+        child.pid!,
+        socketPath
+      );
+      
+      // Give server time to start but don't wait too long
+      // The server will continue initializing in background
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await logger.debug('Gave server 2s head start, continuing', { 
+        pid: child.pid 
+      });
+    }
+    
+    // Query diagnostics from server
+    let serverResponse = null;
+    try {
+      // For file-specific diagnostics, use /all endpoint to bypass deduplication
+      const response = await fetch('http://localhost/diagnostics/all', {
+        // @ts-ignore - Bun supports unix option
+        unix: socketPath,
+        signal: AbortSignal.timeout(TIMEOUTS.DIAGNOSTIC_TIMEOUT_MS)
+      });
+      
+      if (response.ok) {
+        serverResponse = await response.json() as any;
+        
+        // Update registry to show server is healthy and responding
+        registry.updateHeartbeat(projectHash);
+        
+        // Filter diagnostics to only the requested file
+        if (serverResponse && serverResponse.diagnostics) {
+          // Server returns relative paths, so we need to match by comparing ends
+          const relativePath = filePath.replace(projectRoot + '/', '');
+          
+          await logger.debug('Filtering diagnostics', {
+            filePath,
+            projectRoot,
+            relativePath,
+            totalDiagnostics: serverResponse.diagnostics.length,
+            firstDiagFile: serverResponse.diagnostics[0]?.file
+          });
+          
+          const filteredDiagnostics = serverResponse.diagnostics.filter(
+            (d: any) => d.file === relativePath || d.file === filePath || d.file.endsWith(fileName)
+          );
+          
+          // Track file metadata
+          const fileMetadata = {
+            file_name: fileName,
+            file_path: filePath,
+            project_root: projectRoot,
+            last_modified: fileStats.mtime.toISOString(),
+            checked_at: new Date().toISOString(),
+            error_count: filteredDiagnostics.filter((d: any) => d.severity === 'error').length,
+            warning_count: filteredDiagnostics.filter((d: any) => d.severity === 'warning').length,
+          };
+          
+          // Note: File metadata stored in variables only - no temp database table needed
+          await logger.debug('File diagnostics processed', {
+            filePath,
+            errorCount: fileMetadata.error_count,
+            warningCount: fileMetadata.warning_count,
+            lastModified: fileMetadata.last_modified
+          });
+          
+          // Return file-specific response format (no per-language breakdown)
+          return {
+            diagnostics: filteredDiagnostics,
+            file_metadata: fileMetadata,
+            total_count: filteredDiagnostics.length,
+            summary: filteredDiagnostics.length === 0 
+              ? "no warnings or errors" 
+              : `${fileMetadata.error_count} error(s), ${fileMetadata.warning_count} warning(s)`,
+            timestamp: new Date().toISOString()
+          };
+        }
+      }
+    } catch (error) {
+      await logger.error('Failed to query diagnostics from server', error);
+    }
+    
+    // Return empty result if no diagnostics found
+    return {
+      diagnostics: [],
+      file_metadata: {
+        file_name: fileName,
+        file_path: filePath,
+        project_root: projectRoot,
+        last_modified: fileStats.mtime.toISOString(),
+        checked_at: new Date().toISOString(),
+        error_count: 0,
+        warning_count: 0,
+      },
+      total_count: 0,
+      summary: "no warnings or errors",
+      timestamp: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    await logger.error('File-specific diagnostics run failed', error);
     throw error;
   }
 }
@@ -696,13 +1257,13 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
       
       // Also get some from other projects to prevent starvation
       const otherProjectChecks = dedup.db.prepare(`
-        SELECT file_path, project_root, created_at
+        SELECT file_full_path, file_path, project_root, created_at
         FROM pending_file_checks 
         WHERE checked = 0 
         ${currentProjectRoot ? 'AND project_root != ?' : ''}
         ORDER BY created_at ASC
         LIMIT 10
-      `).all(...(currentProjectRoot ? [currentProjectRoot] : [])) as Array<{ file_path: string; project_root: string; created_at: string }>;
+      `).all(...(currentProjectRoot ? [currentProjectRoot] : [])) as Array<{ file_full_path: string; file_path: string; project_root: string; created_at: string }>;
       
       // Add other project checks and mark expired ones
       for (const check of otherProjectChecks) {
@@ -717,8 +1278,8 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
           dedup.db.prepare(`
             UPDATE pending_file_checks 
             SET checked = 1 
-            WHERE file_path = ?
-          `).run(check.file_path);
+            WHERE file_full_path = ?
+          `).run(check.file_full_path);
         } else {
           pendingChecks.push(check);
         }
@@ -836,12 +1397,12 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
               
               // Mark all files we found diagnostics for as checked
               for (const pending of projectPendings) {
-                if (pendingFilePaths.has(pending.file_path) || pendingFilePathsResolved.has(resolve(pending.file_path))) {
+                if (pendingFilePaths.has(pending.file_path) || pendingFilePathsResolved.has(resolve(pending.file_full_path))) {
                   dedup.db.prepare(`
                     UPDATE pending_file_checks 
                     SET checked = 1 
-                    WHERE file_path = ?
-                  `).run(pending.file_path);
+                    WHERE file_full_path = ?
+                  `).run(pending.file_full_path);
                 }
               }
               
@@ -853,8 +1414,8 @@ async function processPendingFileChecks(currentProjectRoot?: string): Promise<vo
                 dedup.db.prepare(`
                   UPDATE pending_file_checks 
                   SET checked = 1 
-                  WHERE file_path = ?
-                `).run(pending.file_path);
+                  WHERE file_full_path = ?
+                `).run(pending.file_full_path);
               }
             }
           }
@@ -889,25 +1450,29 @@ async function storePendingFileCheck(filePath: string, projectRoot: string): Pro
       // Create table if it doesn't exist
       dedup.db.exec(`
         CREATE TABLE IF NOT EXISTS pending_file_checks (
-          file_path TEXT PRIMARY KEY,
-          project_root TEXT NOT NULL,
+          file_full_path TEXT PRIMARY KEY,  -- Unique absolute path
+          file_path TEXT NOT NULL,          -- Relative path for display  
+          project_root TEXT NOT NULL,       -- Project context
           created_at TEXT NOT NULL,
           checked BOOLEAN DEFAULT 0
         )
       `);
       
-      // Store pending check
+      // Store pending check  
+      const relativePath = filePath.replace(projectRoot + '/', '');
       const query = dedup.db.prepare(`
         INSERT OR REPLACE INTO pending_file_checks (
+          file_full_path,
           file_path, 
           project_root,
           created_at,
           checked
-        ) VALUES (?, ?, ?, 0)
+        ) VALUES (?, ?, ?, ?, 0)
       `);
       
       query.run(
-        filePath,
+        filePath,          // full path as primary key
+        relativePath,      // relative path for display
         projectRoot,
         new Date().toISOString()
       );

@@ -73,17 +73,7 @@ export class ServerRegistry {
       CREATE INDEX IF NOT EXISTS idx_servers_pid ON servers(pid);
     `);
     
-    // Create server events table for history tracking
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS server_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_hash TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        event_time TEXT NOT NULL,
-        details TEXT,
-        FOREIGN KEY (project_hash) REFERENCES servers(project_hash)
-      )
-    `);
+    // Note: server_events table removed - was unused logging
   }
   
   /**
@@ -114,7 +104,7 @@ export class ServerRegistry {
       );
       
       // Log event
-      this.logEvent(projectHash, 'server_started', { languages, pid });
+      // Note: Event logging removed
       
       logger.info(`Registered server for ${projectRoot} (${projectHash})`);
       return projectHash;
@@ -136,7 +126,7 @@ export class ServerRegistry {
     `);
     
     stmt.run(status, new Date().toISOString(), projectHash);
-    this.logEvent(projectHash, 'status_changed', { status });
+    // Note: Event logging removed
   }
   
   /**
@@ -229,7 +219,7 @@ export class ServerRegistry {
    */
   markServerStopped(projectHash: string) {
     this.updateServerStatus(projectHash, 'stopped');
-    this.logEvent(projectHash, 'server_stopped', {});
+    // Note: Event logging removed
   }
   
   /**
@@ -248,19 +238,7 @@ export class ServerRegistry {
   /**
    * Log server event
    */
-  private logEvent(projectHash: string, eventType: string, details: any) {
-    const stmt = this.db.prepare(`
-      INSERT INTO server_events (project_hash, event_type, event_time, details)
-      VALUES (?, ?, ?, ?)
-    `);
-    
-    stmt.run(
-      projectHash,
-      eventType,
-      new Date().toISOString(),
-      JSON.stringify(details)
-    );
-  }
+  // Note: logEvent method removed - was unused
   
   /**
    * Get server statistics

@@ -51,11 +51,24 @@ echo ""
 echo "🔨 Building binaries..."
 if command -v bun &> /dev/null; then
     cd "$SCRIPT_DIR"
+    
+    # Check if dependencies are installed
+    if [ ! -d "node_modules" ]; then
+        echo "📦 Installing dependencies..."
+        bun install
+        echo "✅ Dependencies installed"
+    fi
+    
+    # Build the binaries
     bun run build
     echo "✅ Binaries built successfully"
 else
     echo "❌ Error: Bun is not installed"
-    echo "   Please install Bun first: curl -fsSL https://bun.sh/install | bash"
+    echo ""
+    echo "Please install Bun first:"
+    echo "  curl -fsSL https://bun.sh/install | bash"
+    echo ""
+    echo "After installation, restart your terminal and run this script again."
     exit 1
 fi
 
@@ -72,10 +85,28 @@ mkdir -p "$DATA_DIR"
 
 # Install the locally built binaries
 echo "📋 Installing local binaries..."
-cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/bin/claude-lsp-server" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/claude-lsp-cli"
-chmod +x "$INSTALL_DIR/claude-lsp-server"
+
+# Kill any running instances of the binaries before copying
+if pgrep -f "claude-lsp-cli" > /dev/null 2>&1; then
+    echo "  Stopping running claude-lsp-cli instances..."
+    pkill -f "claude-lsp-cli" 2>/dev/null || true
+    sleep 0.5  # Give it time to terminate
+fi
+
+# Use install command which handles busy files better, or force copy
+if command -v install &> /dev/null; then
+    install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    install -m 755 "$SCRIPT_DIR/bin/claude-lsp-server" "$INSTALL_DIR/"
+else
+    # Fallback: remove existing files first if they exist
+    [ -f "$INSTALL_DIR/claude-lsp-cli" ] && rm -f "$INSTALL_DIR/claude-lsp-cli"
+    [ -f "$INSTALL_DIR/claude-lsp-server" ] && rm -f "$INSTALL_DIR/claude-lsp-server"
+    
+    cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    cp "$SCRIPT_DIR/bin/claude-lsp-server" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/claude-lsp-cli"
+    chmod +x "$INSTALL_DIR/claude-lsp-server"
+fi
 
 echo "✅ Installed binaries from $SCRIPT_DIR/bin/ to $INSTALL_DIR/"
 echo "   CLI: $INSTALL_DIR/claude-lsp-cli"
