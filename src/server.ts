@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 
 import { LSPClient } from "./server-lsp-client";
-import { existsSync, watch } from "fs";
+import { existsSync, watch, readFileSync } from "fs";
+import { readFile } from "node:fs/promises";
 import * as fs from "fs";
 import { join, relative, resolve } from "path";
+import ignore from "ignore";
 import { 
   secureHash,
   cleanupManager,
@@ -249,6 +251,62 @@ class LSPHttpServer {
     return extensions.some(ext => filename.endsWith(ext));
   }
 
+  private async loadGitignorePatterns(projectRoot: string): Promise<string[]> {
+    try {
+      const gitignorePath = join(projectRoot, '.gitignore');
+      let patterns = [
+        // Default ignore patterns
+        'node_modules/**',
+        'dist/**',
+        'build/**',
+        'coverage/**',
+        '.git/**',
+        '**/*.min.js',
+        '**/*.d.ts',
+        'vendor/**',
+        '.bundle/**',
+        // Common build/cache directories
+        'target/**',      // Rust, Scala, Java
+        '.metals/**',     // Scala Metals
+        '.bloop/**',      // Scala Bloop  
+        'project/target/**', // Scala sbt
+        '.idea/**',       // IntelliJ
+        '.vscode/**',     // VS Code
+        '**/*.log',       // Log files
+        'tmp/**',         // Temporary files
+        'temp/**'         // Temporary files
+      ];
+
+      if (existsSync(gitignorePath)) {
+        try {
+          const content = await readFile(gitignorePath, 'utf-8');
+          const gitignorePatterns = content
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line && !line.startsWith('#'))
+            .map(line => line.endsWith('/') ? `${line}**` : line);
+          
+          patterns = patterns.concat(gitignorePatterns);
+        } catch (error) {
+          await logger.warn('Failed to read .gitignore', { error });
+        }
+      }
+
+      return patterns;
+    } catch (error) {
+      await logger.warn('Failed to load gitignore patterns', { error });
+      return [
+        'node_modules/**',
+        'dist/**', 
+        'build/**',
+        'coverage/**',
+        '.git/**',
+        'target/**',
+        '.metals/**'
+      ];
+    }
+  }
+
   private async openDocument(filePath: string, waitForDiagnostics: boolean = false) {
     if (!this.openDocuments.has(filePath)) {
       await this.client.openDocument(filePath, waitForDiagnostics);
@@ -443,9 +501,18 @@ class LSPHttpServer {
       }
       
       // Filter to only errors and warnings
-      const relevantDiagnostics = rawDiagnostics.filter(d => 
+      let relevantDiagnostics = rawDiagnostics.filter(d => 
         d.severity === 'error' || d.severity === 'warning'
       );
+      
+      // Filter out diagnostics from ignored files
+      const gitignorePatterns = await this.loadGitignorePatterns(this.projectRoot);
+      const ig = ignore().add(gitignorePatterns);
+      
+      relevantDiagnostics = relevantDiagnostics.filter(d => {
+        const relativePath = relative(this.projectRoot, d.file);
+        return !ig.ignores(relativePath);
+      });
       
       // Run server-side deduplication for project-wide, skip for file-specific
       const newItemsToDisplay = filterFile 
@@ -664,20 +731,13 @@ class LSPHttpServer {
         ? `**/*.{${extensionArray.join(',')}}` 
         : `**/*.${extensionArray[0]}`;
       
+      // Load gitignore patterns
+      const gitignorePatterns = await this.loadGitignorePatterns(this.projectRoot);
+      
       const { glob } = await import('glob');
       const files = await glob(globPattern, {
         cwd: this.projectRoot,
-        ignore: [
-          'node_modules/**',
-          'dist/**',
-          'build/**',
-          'coverage/**',
-          '.git/**',
-          '**/*.min.js',
-          '**/*.d.ts',
-          'vendor/**',
-          '.bundle/**'
-        ]
+        ignore: gitignorePatterns
       });
       
       // Open files in batches to avoid overwhelming the language server
