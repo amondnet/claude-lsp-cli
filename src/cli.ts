@@ -258,6 +258,7 @@ async function queryMultiProjectDiagnostics(projects: string[]) {
   const allDiagnostics: any[] = [];
   let totalErrors = 0;
   let totalWarnings = 0;
+  const languageStats: Record<string, { errors: number; warnings: number }> = {};
   
   // Query diagnostics from each project
   for (const project of projects) {
@@ -284,8 +285,19 @@ async function queryMultiProjectDiagnostics(projects: string[]) {
                   project: projectName
                 });
                 
-                if (diag.severity === 'error') totalErrors++;
-                else if (diag.severity === 'warning') totalWarnings++;
+                // Track language-specific stats
+                const language = diag.source || 'unknown';
+                if (!languageStats[language]) {
+                  languageStats[language] = { errors: 0, warnings: 0 };
+                }
+                
+                if (diag.severity === 'error') {
+                  totalErrors++;
+                  languageStats[language].errors++;
+                } else if (diag.severity === 'warning') {
+                  totalWarnings++;
+                  languageStats[language].warnings++;
+                }
               }
             }
           } catch (e) {
@@ -310,16 +322,31 @@ async function queryMultiProjectDiagnostics(projects: string[]) {
   // Limit to 5 total items
   const displayDiagnostics = allDiagnostics.slice(0, 5);
   
-  // Generate summary
+  // Generate summary with per-language breakdown
   let summary: string;
   if (totalErrors === 0 && totalWarnings === 0) {
     summary = "no warnings or errors";
-  } else if (totalErrors > 0 && totalWarnings > 0) {
-    summary = `${totalErrors} error(s), ${totalWarnings} warning(s)`;
-  } else if (totalErrors > 0) {
-    summary = `${totalErrors} error(s)`;
   } else {
-    summary = `${totalWarnings} warning(s)`;
+    // Build total summary
+    const totalParts: string[] = [];
+    if (totalErrors > 0) totalParts.push(`${totalErrors} error(s)`);
+    if (totalWarnings > 0) totalParts.push(`${totalWarnings} warning(s)`);
+    
+    // Build per-language breakdown if more than one language
+    const languages = Object.keys(languageStats);
+    if (languages.length > 1) {
+      const languageBreakdown = languages.map(lang => {
+        const stats = languageStats[lang];
+        const parts: string[] = [];
+        if (stats.errors > 0) parts.push(`${stats.errors} error(s)`);
+        if (stats.warnings > 0) parts.push(`${stats.warnings} warning(s)`);
+        return `${lang}: ${parts.join(', ')}`;
+      }).join(', ');
+      
+      summary = `${totalParts.join(', ')} (${languageBreakdown})`;
+    } else {
+      summary = totalParts.join(', ');
+    }
   }
   
   const result: any = { summary };
