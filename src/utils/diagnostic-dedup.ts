@@ -265,6 +265,30 @@ export class DiagnosticDeduplicator {
     }
   }
 
+  shouldShowNoErrorsState(): boolean {
+    const NO_ERRORS_KEY = 'no-errors-state';
+    
+    // Check if we already showed "no errors" state recently (within 5 minutes)
+    const existing = this.db.prepare(`
+      SELECT last_seen FROM diagnostic_history 
+      WHERE diagnostic_key = ? AND project_hash = ?
+      AND last_seen > ?
+    `).get(NO_ERRORS_KEY, this.projectHash, Date.now() - 5 * 60 * 1000);
+    
+    if (existing) {
+      return false; // Already showed recently
+    }
+    
+    // Mark that we're showing "no errors" state now
+    this.db.prepare(`
+      INSERT OR REPLACE INTO diagnostic_history 
+      (project_hash, diagnostic_key, file_path, line, column, severity, message, source, rule_id, first_seen, last_seen, session_id)
+      VALUES (?, ?, '', 0, 0, 'info', 'no-errors-state', null, null, ?, ?, null)
+    `).run(NO_ERRORS_KEY, this.projectHash, Date.now(), Date.now());
+    
+    return true; // Show it
+  }
+
   /**
    * Clean up old diagnostics (older than retention window)
    */

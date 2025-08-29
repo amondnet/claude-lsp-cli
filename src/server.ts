@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { LSPClient } from "./lsp-client";
+import { LSPClient } from "./server-lsp-client";
 import { existsSync, watch } from "fs";
 import * as fs from "fs";
 import { join, relative, resolve } from "path";
@@ -301,8 +301,7 @@ class LSPHttpServer {
     try {
       switch (path) {
         case "/diagnostics":
-        case "/diagnostics/all":
-          return this.handleAllDiagnostics(headers);
+          return this.handleDiagnostics(req, headers);
         
         case "/health":
           return new Response(JSON.stringify({ 
@@ -369,18 +368,79 @@ class LSPHttpServer {
   }
 
 
-  private async handleAllDiagnostics(headers: any): Promise<Response> {
+  private async handleDiagnostics(req: Request, headers: any): Promise<Response> {
     try {
+      const url = new URL(req.url);
+      const filePath = url.searchParams.get('file');
+      
+      // DEBUG: Add file parameter to response #removeLater
+      const debugInfo = filePath ? `DEBUG: file-specific=${filePath}` : "DEBUG: project-wide";
+      
+      // Always use project-wide logic, just filter if file specified
+      const response = await this.handleProjectDiagnostics(headers, filePath || undefined, debugInfo);
+      return response;
+    } catch (error) {
+      await logger.error('Failed to handle diagnostics', error);
+      throw error;
+    }
+  }
+
+  private async handleProjectDiagnostics(headers: any, filterFile?: string, debugInfo?: string): Promise<Response> {
+    try {
+      // Skip detailed logging to avoid serialization issues
+      
       // First, discover and open all relevant files in the project
       await this.discoverAndOpenProjectFiles();
       
-      // Wait a bit for diagnostics to be collected
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait longer for diagnostics to be collected (some LSPs are slow)
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 4000ms
       
       // Get raw diagnostics from LSP
       const rawDiagnostics: DiagnosticResponse[] = [];
+      const allDiagnosticsMap = this.client.getAllDiagnostics();
       
-      for (const [filePath, diagnostics] of this.client.getAllDiagnostics()) {
+      // DEBUG: Track what files have diagnostics #removeLater
+      const diagnosticFiles = Array.from(allDiagnosticsMap.keys());
+      let debugStats = `files with diagnostics: ${diagnosticFiles.length}`;
+      
+      for (const [filePath, diagnostics] of allDiagnosticsMap) {
+        // If filtering by file, check if this is the file we want
+        let shouldInclude = true;
+        if (filterFile) {
+          // Handle both absolute and relative paths from CLI
+          const relativePath = relative(this.projectRoot, filePath);
+          let filterRelativePath: string;
+          
+          try {
+            if (filterFile.startsWith('/')) {
+              // Absolute path from CLI - convert to relative
+              filterRelativePath = relative(this.projectRoot, filterFile);
+              // Check if file is outside project
+              if (filterRelativePath.startsWith('..')) {
+                // Skip logger to avoid serialization issues
+                shouldInclude = false;
+                continue;
+              }
+            } else {
+              // Already relative path from CLI
+              filterRelativePath = filterFile;
+            }
+          } catch (error) {
+            // Skip logger to avoid serialization issues
+            shouldInclude = false;
+            continue;
+          }
+          
+          shouldInclude = (relativePath === filterRelativePath);
+          
+          // DEBUG: Track file matching logic #removeLater
+          if (filterFile) {
+            debugStats += ` | checking file: ${relativePath} vs filter: ${filterRelativePath} = ${shouldInclude}`;
+          }
+        }
+        
+        if (!shouldInclude) continue;
+        
         for (const d of diagnostics) {
           rawDiagnostics.push({
             file: filePath,  // Return absolute path for consistency
@@ -394,13 +454,18 @@ class LSPHttpServer {
         }
       }
       
+      // DEBUG: Add statistics to understand what's happening #removeLater  
+      debugStats += ` | raw diagnostics found: ${rawDiagnostics.length}`;
+      
       // Filter to only errors and warnings
       const relevantDiagnostics = rawDiagnostics.filter(d => 
         d.severity === 'error' || d.severity === 'warning'
       );
       
-      // Run server-side deduplication - returns only NEW items not seen before
-      const newItemsToDisplay = await this.deduplicator.processDiagnostics(relevantDiagnostics);
+      // Run server-side deduplication for project-wide, skip for file-specific
+      const newItemsToDisplay = filterFile 
+        ? relevantDiagnostics  // File-specific: no deduplication
+        : await this.deduplicator.processDiagnostics(relevantDiagnostics); // Project-wide: deduplication
       
       // Sort by priority: errors before warnings
       const sortedItems = newItemsToDisplay.sort((a, b) => {
@@ -409,15 +474,16 @@ class LSPHttpServer {
         return 0;
       });
       
-      // Take first 5 new items for display and convert to relative paths for AI
-      const displayDiagnostics = sortedItems.slice(0, 5).map(diag => ({
+      // Limit to 5 items for project-wide, no limit for file-specific
+      const itemsToDisplay = filterFile ? sortedItems : sortedItems.slice(0, 5);
+      const displayDiagnostics = itemsToDisplay.map(diag => ({
         ...diag,
         file: relative(this.projectRoot, diag.file)
       }));
       
-      // Mark only the displayed items as shown (add to dedup database)
+      // Mark only the displayed items as shown (add to dedup database) - only for project-wide
       // Non-displayed items remain "new" for next time
-      if (displayDiagnostics.length > 0) {
+      if (displayDiagnostics.length > 0 && !filterFile) {
         await this.deduplicator.markAsDisplayed(displayDiagnostics);
       }
       
@@ -428,23 +494,54 @@ class LSPHttpServer {
         bySource[source] = (bySource[source] || 0) + 1;
       }
       
-      // Generate descriptive summary
+      // Generate descriptive summary  
       let summary: string;
       if (relevantDiagnostics.length === 0) {
         summary = "no warnings or errors";
       } else {
-        summary = `total: ${relevantDiagnostics.length} diagnostics (${Object.entries(bySource).map(([src, count]) => `${count} for ${src}`).join(', ')})`;
+        const errorCount = relevantDiagnostics.filter(d => d.severity === 'error').length;
+        const warningCount = relevantDiagnostics.filter(d => d.severity === 'warning').length;
+        
+        if (errorCount > 0 && warningCount > 0) {
+          summary = `${errorCount} error(s), ${warningCount} warning(s)`;
+        } else if (errorCount > 0) {
+          summary = `${errorCount} error(s)`;
+        } else {
+          summary = `${warningCount} warning(s)`;
+        }
       }
 
-      return new Response(JSON.stringify({
-        diagnostics: displayDiagnostics,
-        summary,
-        total_count: relevantDiagnostics.length,
-        by_source: bySource,
-        timestamp: new Date().toISOString()
-      }), { headers });
+      // Check if we should display "no errors" state (only for project-wide)
+      if (relevantDiagnostics.length === 0 && !filterFile) {
+        // Check if we already showed "no errors" state via deduplicator
+        const shouldShow = await this.deduplicator.shouldShowNoErrorsState();
+        if (!shouldShow) {
+          // Don't show "no errors" again - return empty response
+          return new Response("", { headers });
+        }
+      }
+
+      const result: any = { summary };
+      
+      // Only include diagnostics array if there are actual diagnostics
+      if (displayDiagnostics.length > 0) {
+        result.diagnostics = displayDiagnostics;
+      }
+      
+      // DEBUG: Add debug info to response #removeLater
+      if (debugInfo) {
+        result.debug = debugInfo + " | " + debugStats;
+      }
+      
+      try {
+        const responseText = `[[system-message]]: ${JSON.stringify(result)}`;
+        return new Response(responseText, { headers });
+      } catch (jsonError) {
+        // Skip logger to avoid nested serialization issues
+        return new Response(`[[system-message]]: {"diagnostics":[],"summary":"json error"}`, { headers });
+      }
     } catch (error) {
-      await logger.error('Failed to get all diagnostics', error);
+      // Skip logger to avoid serialization issues, just throw
       throw error;
     }
   }

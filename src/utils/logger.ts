@@ -58,8 +58,22 @@ export class Logger {
     
     // File output
     try {
-      await appendFile(this.logFile, JSON.stringify(logEntry) + '\n');
+      let logString: string;
+      try {
+        logString = JSON.stringify(logEntry);
+      } catch (jsonError) {
+        // Fallback for objects that can't be serialized
+        logString = JSON.stringify({
+          timestamp,
+          level,
+          project: this.projectName,
+          message,
+          context: 'serialization_failed'
+        });
+      }
+      await appendFile(this.logFile, logString + '\n');
     } catch {
+      // Ignore file write errors
     }
   }
   

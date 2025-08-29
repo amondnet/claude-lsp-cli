@@ -82,6 +82,36 @@ function findExecutable(name: string): string | null {
   return null;
 }
 
+// Diagnostic capability types
+export type DiagnosticScope = 'project-wide' | 'file' | 'both' | 'module-aware';
+export type DiagnosticTiming = 'real-time' | 'on-save' | 'on-open' | 'on-save-open';
+
+export interface DiagnosticCapabilities {
+  scope: DiagnosticScope;
+  timing: DiagnosticTiming;
+  features: {
+    typeChecking?: boolean;
+    compilationErrors?: boolean;
+    syntaxErrors?: boolean;
+    unusedCode?: boolean;
+    linterIntegration?: string[]; // e.g., ['ESLint', 'Pylint']
+    nullSafety?: boolean;
+    memorySafety?: boolean;
+    styleViolations?: boolean;
+    importValidation?: boolean;
+    documentationChecks?: boolean;
+  };
+  performance?: {
+    speed: 'fast' | 'moderate' | 'slow';
+    memoryUsage: 'low' | 'moderate' | 'high';
+    startupTime?: 'instant' | 'fast' | 'slow';
+  };
+  requirements?: {
+    projectConfig?: string[]; // e.g., ['tsconfig.json', 'compile_commands.json']
+    initialization?: string; // e.g., 'terraform init', 'npm install'
+  };
+}
+
 export interface LanguageServerConfig {
   name: string;
   command: string;
@@ -92,6 +122,8 @@ export interface LanguageServerConfig {
   extensions: string[];
   requiresGlobal?: boolean;
   manualInstallUrl?: string;
+  // NEW: Diagnostic capabilities
+  diagnostics?: DiagnosticCapabilities;
 }
 
 export const languageServers: Record<string, LanguageServerConfig> = {
@@ -102,7 +134,27 @@ export const languageServers: Record<string, LanguageServerConfig> = {
     installCommand: "Already bundled - no installation needed",
     installCheck: "SKIP",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
-    extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+    diagnostics: {
+      scope: 'both',
+      timing: 'real-time',
+      features: {
+        typeChecking: true,
+        syntaxErrors: true,
+        unusedCode: true,
+        linterIntegration: ['ESLint', 'TSLint'],
+        importValidation: true,
+        documentationChecks: true
+      },
+      performance: {
+        speed: 'fast',
+        memoryUsage: 'moderate',
+        startupTime: 'fast'
+      },
+      requirements: {
+        projectConfig: ['tsconfig.json', 'jsconfig.json']
+      }
+    }
   },
   
   python: {

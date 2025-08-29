@@ -5,7 +5,7 @@
  * 
  * Usage:
  *   claude-lsp-cli hook <event-type>  - Handle Claude Code hook events
- *   claude-lsp-cli diagnostics <project> - Query project-level diagnostics
+ *   claude-lsp-cli diagnostics <project> [file] - Query diagnostics
  * 
  * This CLI acts as the entry point for Claude Code hooks and manages
  * the LSP server lifecycle and diagnostics.
@@ -13,9 +13,33 @@
 
 import { secureHash } from "./utils/security";
 import { logger } from "./utils/logger";
-import { resolve, join } from "path";
+import { resolve, join, dirname } from "path";
 import { TIMEOUTS } from "./constants";
 import { ServerRegistry } from "./utils/server-registry";
+import * as serverManager from "./cli-server-manager";
+import * as diagnosticsClient from "./cli-diagnostics";
+import * as lspInstaller from "./cli-lsp-installer";
+
+// Helper function to find the nearest project root for a file (delegates to diagnostics client)
+async function findNearestProjectRoot(filePath: string): Promise<string> {
+  return await diagnosticsClient.findProjectRoot(filePath);
+}
+
+// Helper function to ensure server is running and return socket path (delegates to server manager)
+async function ensureServerRunning(projectRoot: string): Promise<string> {
+  return await serverManager.ensureServerRunning(projectRoot);
+}
+
+// Hook handler for Claude Code integration (delegates to cli-hooks.ts)
+async function handleHookEventDirect(eventType: string): Promise<boolean> {
+  const { handleHookEvent } = await import('./cli-hooks');
+  return await handleHookEvent(eventType);
+}
+
+// Project discovery function (delegates to diagnostics client)
+async function findAllProjects(baseDir: string): Promise<string[]> {
+  return await diagnosticsClient.findAllProjects(baseDir);
+}
 
 
 async function runAsLanguageServer(language: string) {
@@ -115,23 +139,13 @@ async function handleHookEvent(eventType: string) {
   
   // Add timeout protection (30 seconds max)
   const timeoutId = setTimeout(() => {
-    console.error(`[[system-message]]: ${JSON.stringify({
-      status: "diagnostics_report",
-      result: "timeout_error", 
-      error: `Hook timed out after 30 seconds for event: ${eventType}`,
-      reference: { type: "hook_timeout", event: eventType }
-    })}`);
+    console.error(`Hook timed out after 30 seconds for event: ${eventType}`);
     process.exit(errorExitCode);
   }, TIMEOUTS.DIAGNOSTIC_TIMEOUT_MS);
   
   try {
-    // Import and run diagnostics logic directly
-    const { handleHookEvent: handleDiagnostics } = await import("./diagnostics");
-    
-    // Run diagnostics with the event type
-    // Note: handleDiagnostics will read stdin itself
-    // Returns true if any summary was output (including "no warnings or errors")
-    const hasSummary = await handleDiagnostics(eventType);
+    // Handle hook event directly
+    const hasSummary = await handleHookEventDirect(eventType);
     
     // Clear timeout on success
     clearTimeout(timeoutId);
@@ -157,13 +171,7 @@ async function handleHookEvent(eventType: string) {
     await logger.error('Hook handler error', { eventType, error });
     
     // Format error as system message for Claude
-    console.error(`[[system-message]]: ${JSON.stringify({
-      status: "diagnostics_report",
-      result: "hook_error",
-      error: error instanceof Error ? error.message : "Unknown error",
-      eventType,
-      reference: { type: "hook_error", event: eventType }
-    })}`);
+    console.error(`Hook error: ${error instanceof Error ? error.message : "Unknown error"}`);
     
     const errorContent3 = await Bun.file(debugLog).text().catch(() => '');
     await Bun.write(debugLog, errorContent3 + `[${timestamp}] Exiting with error code (1)\n`);
@@ -171,41 +179,50 @@ async function handleHookEvent(eventType: string) {
   }
 }
 
-async function queryDiagnostics(pathArg: string) {
+async function queryDiagnostics(projectRoot: string, filePath?: string) {
   try {
-    const { stat } = await import('fs/promises');
-    const { runDiagnostics, runFileSpecificDiagnostics } = await import("./diagnostics");
-    
-    // Check if path is a file or directory
-    const stats = await stat(pathArg);
-    const isFile = stats.isFile();
-    
-    if (isFile) {
-      // File-specific diagnostics - bypass deduplication
-      await logger.debug('Running file-specific diagnostics', { file: pathArg });
-      const result = await runFileSpecificDiagnostics(pathArg);
+    // Convert absolute file paths to relative paths for the server
+    let fileParam = '';
+    if (filePath) {
+      const { relative, resolve } = await import('path');
+      const absoluteProjectRoot = resolve(projectRoot);
+      const absoluteFilePath = resolve(filePath);
       
-      if (result) {
-        console.log(JSON.stringify(result));
+      // Convert to relative path if the file is within the project
+      let relativeFilePath: string;
+      if (absoluteFilePath.startsWith(absoluteProjectRoot)) {
+        relativeFilePath = relative(absoluteProjectRoot, absoluteFilePath);
+      } else {
+        // File is outside project - use as-is (server will handle the error)
+        relativeFilePath = filePath;
       }
-    } else {
-      // Project-wide diagnostics - use deduplication
-      await logger.debug('Running project-wide diagnostics', { project: pathArg });
-      const result = await runDiagnostics(pathArg);
       
-      // Only output if there's a meaningful summary to report
-      if (result && result.summary) {
-        console.log(JSON.stringify(result));
-      }
+      fileParam = `?file=${encodeURIComponent(relativeFilePath)}`;
     }
     
+    // Ensure server is running and query diagnostics
+    const socketPath = await ensureServerRunning(projectRoot);
+    const response = await fetch(`http://localhost/diagnostics${fileParam}`, {
+      // @ts-ignore - Bun supports unix option
+      unix: socketPath,
+      signal: AbortSignal.timeout(30000)
+    });
+    
+    if (response.ok) {
+      const result = await response.text();
+      if (result) {
+        console.log(result); // Display server response as-is
+      }
+    } else {
+      console.log('[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}');
+    }
+    
+    process.exit(0); // Diagnostics command always exits 0
+    
   } catch (error) {
-    await logger.error('Failed to query diagnostics', error, { path: pathArg });
-    console.error(JSON.stringify({
-      error: "DIAGNOSTICS_QUERY_ERROR",
-      message: error instanceof Error ? error.message : "Unknown error",
-      hint: "Is the LSP server running? Try starting it first."
-    }));
+    // Skip logger to avoid potential serialization issues
+    console.error(`DIAGNOSTICS_QUERY_ERROR: ${error instanceof Error ? error.message : "Unknown error"}`);
+    console.error("Hint: Is the LSP server running? Try starting it first.");
     process.exit(1);
   }
 }
@@ -216,7 +233,7 @@ Claude LSP CLI - Language Server Protocol client for Claude Code
 
 Usage:
   claude-lsp-cli hook <event-type>           Handle Claude Code hook events
-  claude-lsp-cli diagnostics <path>          Query diagnostics (file or project)
+  claude-lsp-cli diagnostics <project> [file] Query diagnostics
   claude-lsp-cli status [project]            Show running LSP servers
   claude-lsp-cli start <project>             Start LSP server for project
   claude-lsp-cli stop <project>              Stop LSP server for project
@@ -373,8 +390,27 @@ async function startServer(projectRoot: string) {
     // Server not running, start it
   }
   
-  // Start the server
-  const serverPath = process.env.CLAUDE_LSP_SERVER_PATH || './bin/claude-lsp-server';
+  // Find server binary using same logic as ensureServerRunning
+  const { existsSync } = await import('fs');
+  const possiblePaths = [
+    join(process.env.HOME || '', '.local', 'bin', 'claude-lsp-server'), // Installed location
+    join(import.meta.dir, '..', 'bin', 'claude-lsp-server'),
+    join(process.env.HOME || '', '.claude', 'claude-code-lsp', 'bin', 'claude-lsp-server'),
+    '/Users/steven_chong/Downloads/repos/claude-code-lsp/bin/claude-lsp-server',
+  ];
+  
+  let serverPath: string | null = null;
+  for (const path of possiblePaths) {
+    if (existsSync(path)) {
+      serverPath = path;
+      break;
+    }
+  }
+  
+  if (!serverPath) {
+    throw new Error('claude-lsp-server binary not found');
+  }
+  
   console.log(`Starting LSP server for project: ${absolutePath}`);
   
   const proc = Bun.spawn([serverPath, absolutePath], {
@@ -837,8 +873,7 @@ async function listLanguageServers() {
 }
 
 async function listProjects(baseDir: string) {
-  // Import findAllProjects from diagnostics
-  const { findAllProjects } = await import("./diagnostics");
+  // Use local findAllProjects function
   
   const absolutePath = resolve(baseDir);
   const projects = await findAllProjects(absolutePath);
@@ -858,7 +893,6 @@ async function getLspScope(projectPath: string) {
   };
   
   // Find nested projects within this project to exclude them
-  const { findAllProjects } = await import("./diagnostics");
   const nestedProjects = await findAllProjects(absolutePath);
   
   // Exclude any nested projects found (they should have their own LSP scope)
@@ -878,8 +912,9 @@ async function getLspScope(projectPath: string) {
 if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
 } else if (command === "diagnostics" && args[1]) {
-  const pathArg = resolve(args[1]);
-  await queryDiagnostics(pathArg);
+  const projectRoot = resolve(args[1]);
+  const filePath = args[2] ? resolve(args[2]) : undefined;
+  await queryDiagnostics(projectRoot, filePath);
 } else if (command === "status") {
   const projectRoot = args[1] ? resolve(args[1]) : undefined;
   await showStatus(projectRoot);
