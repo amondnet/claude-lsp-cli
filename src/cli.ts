@@ -181,40 +181,59 @@ async function handleHookEvent(eventType: string) {
 
 async function queryDiagnostics(projectRoot: string, filePath?: string) {
   try {
-    // Convert absolute file paths to relative paths for the server
-    let fileParam = '';
+    // If file is specified, check if it belongs to a different project
     if (filePath) {
       const { relative, resolve } = await import('path');
-      const absoluteProjectRoot = resolve(projectRoot);
       const absoluteFilePath = resolve(filePath);
       
-      // Convert to relative path if the file is within the project
-      let relativeFilePath: string;
-      if (absoluteFilePath.startsWith(absoluteProjectRoot)) {
-        relativeFilePath = relative(absoluteProjectRoot, absoluteFilePath);
-      } else {
-        // File is outside project - use as-is (server will handle the error)
-        relativeFilePath = filePath;
+      // Find the actual project root for this file
+      const fileProjectRoot = await findNearestProjectRoot(absoluteFilePath);
+      
+      // If file's project is different from specified project, use file's project
+      const absoluteProjectRoot = resolve(projectRoot);
+      if (fileProjectRoot !== absoluteProjectRoot) {
+        console.error(`Note: Using file's project: ${fileProjectRoot}`);
+        console.error(`      (not specified: ${absoluteProjectRoot})`);
+        projectRoot = fileProjectRoot;
       }
       
-      fileParam = `?file=${encodeURIComponent(relativeFilePath)}`;
-    }
-    
-    // Ensure server is running and query diagnostics
-    const socketPath = await ensureServerRunning(projectRoot);
-    const response = await fetch(`http://localhost/diagnostics${fileParam}`, {
-      // @ts-ignore - Bun supports unix option
-      unix: socketPath,
-      signal: AbortSignal.timeout(30000)
-    });
-    
-    if (response.ok) {
-      const result = await response.text();
-      if (result) {
-        console.log(result); // Display server response as-is
+      // Convert to relative path for the server
+      const relativeFilePath = relative(projectRoot, absoluteFilePath);
+      const fileParam = `?file=${encodeURIComponent(relativeFilePath)}`;
+      
+      // Query with the correct project and file
+      const socketPath = await ensureServerRunning(projectRoot);
+      const response = await fetch(`http://localhost/diagnostics${fileParam}`, {
+        // @ts-ignore - Bun supports unix option
+        unix: socketPath,
+        signal: AbortSignal.timeout(30000)
+      });
+      
+      if (response.ok) {
+        const result = await response.text();
+        if (result) {
+          console.log(result);
+        }
+      } else {
+        console.log('[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}');
       }
     } else {
-      console.log('[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}');
+      // No file specified - query project-wide diagnostics
+      const socketPath = await ensureServerRunning(projectRoot);
+      const response = await fetch(`http://localhost/diagnostics`, {
+        // @ts-ignore - Bun supports unix option
+        unix: socketPath,
+        signal: AbortSignal.timeout(30000)
+      });
+      
+      if (response.ok) {
+        const result = await response.text();
+        if (result) {
+          console.log(result);
+        }
+      } else {
+        console.log('[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}');
+      }
     }
     
     process.exit(0); // Diagnostics command always exits 0
