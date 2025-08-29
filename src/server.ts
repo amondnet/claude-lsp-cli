@@ -406,35 +406,28 @@ class LSPHttpServer {
         // If filtering by file, check if this is the file we want
         let shouldInclude = true;
         if (filterFile) {
-          // Handle both absolute and relative paths from CLI
-          const relativePath = relative(this.projectRoot, filePath);
-          let filterRelativePath: string;
+          // Convert both paths to absolute for consistent comparison
+          const absoluteFilePath = resolve(filePath); // Already absolute from LSP
+          let absoluteFilterPath: string;
           
           try {
             if (filterFile.startsWith('/')) {
-              // Absolute path from CLI - convert to relative
-              filterRelativePath = relative(this.projectRoot, filterFile);
-              // Check if file is outside project
-              if (filterRelativePath.startsWith('..')) {
-                // Skip logger to avoid serialization issues
-                shouldInclude = false;
-                continue;
-              }
+              // Already absolute path
+              absoluteFilterPath = resolve(filterFile);
             } else {
-              // Already relative path from CLI
-              filterRelativePath = filterFile;
+              // Relative path - resolve relative to project root
+              absoluteFilterPath = resolve(this.projectRoot, filterFile);
             }
+            
+            // Compare absolute paths
+            shouldInclude = (absoluteFilePath === absoluteFilterPath);
+            
+            // DEBUG: Track file matching logic #removeLater
+            debugStats += ` | checking: ${absoluteFilePath} vs ${absoluteFilterPath} = ${shouldInclude}`;
           } catch (error) {
             // Skip logger to avoid serialization issues
             shouldInclude = false;
             continue;
-          }
-          
-          shouldInclude = (relativePath === filterRelativePath);
-          
-          // DEBUG: Track file matching logic #removeLater
-          if (filterFile) {
-            debugStats += ` | checking file: ${relativePath} vs filter: ${filterRelativePath} = ${shouldInclude}`;
           }
         }
         

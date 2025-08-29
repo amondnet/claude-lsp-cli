@@ -912,8 +912,23 @@ async function getLspScope(projectPath: string) {
 if (command === "hook" && eventType) {
   await handleHookEvent(eventType);
 } else if (command === "diagnostics" && args[1]) {
-  const projectRoot = resolve(args[1]);
-  const filePath = args[2] ? resolve(args[2]) : undefined;
+  const { existsSync, statSync } = await import('fs');
+  const arg1 = resolve(args[1]);
+  
+  let projectRoot: string;
+  let filePath: string | undefined;
+  
+  // Simple check: is it a directory or file?
+  if (existsSync(arg1) && statSync(arg1).isDirectory()) {
+    // It's a directory - use as project root
+    projectRoot = arg1;
+    filePath = args[2] ? resolve(args[2]) : undefined;
+  } else {
+    // It's a file (or doesn't exist) - find project root and use as file
+    projectRoot = await findNearestProjectRoot(arg1);
+    filePath = arg1;
+  }
+  
   await queryDiagnostics(projectRoot, filePath);
 } else if (command === "status") {
   const projectRoot = args[1] ? resolve(args[1]) : undefined;
