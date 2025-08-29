@@ -372,8 +372,8 @@ class LSPHttpServer {
       const url = new URL(req.url);
       const filePath = url.searchParams.get('file');
       
-      // DEBUG: Add file parameter to response #removeLater
-      const debugInfo = filePath ? `DEBUG: file-specific=${filePath}` : "DEBUG: project-wide";
+      // Determine if this is file-specific or project-wide
+      const debugInfo = undefined; // Remove debug output
       
       // Always use project-wide logic, just filter if file specified
       const response = await this.handleProjectDiagnostics(headers, filePath || undefined, debugInfo);
@@ -398,9 +398,8 @@ class LSPHttpServer {
       const rawDiagnostics: DiagnosticResponse[] = [];
       const allDiagnosticsMap = this.client.getAllDiagnostics();
       
-      // DEBUG: Track what files have diagnostics #removeLater
+      // Track diagnostics for internal use
       const diagnosticFiles = Array.from(allDiagnosticsMap.keys());
-      let debugStats = `files with diagnostics: ${diagnosticFiles.length}`;
       
       for (const [filePath, diagnostics] of allDiagnosticsMap) {
         // If filtering by file, check if this is the file we want
@@ -421,9 +420,6 @@ class LSPHttpServer {
             
             // Compare absolute paths
             shouldInclude = (absoluteFilePath === absoluteFilterPath);
-            
-            // DEBUG: Track file matching logic #removeLater
-            debugStats += ` | checking: ${absoluteFilePath} vs ${absoluteFilterPath} = ${shouldInclude}`;
           } catch (error) {
             // Skip logger to avoid serialization issues
             shouldInclude = false;
@@ -445,9 +441,6 @@ class LSPHttpServer {
           });
         }
       }
-      
-      // DEBUG: Add statistics to understand what's happening #removeLater  
-      debugStats += ` | raw diagnostics found: ${rawDiagnostics.length}`;
       
       // Filter to only errors and warnings
       const relevantDiagnostics = rawDiagnostics.filter(d => 
@@ -518,11 +511,6 @@ class LSPHttpServer {
       // Only include diagnostics array if there are actual diagnostics
       if (displayDiagnostics.length > 0) {
         result.diagnostics = displayDiagnostics;
-      }
-      
-      // DEBUG: Add debug info to response #removeLater
-      if (debugInfo) {
-        result.debug = debugInfo + " | " + debugStats;
       }
       
       try {

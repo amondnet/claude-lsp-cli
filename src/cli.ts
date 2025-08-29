@@ -192,8 +192,6 @@ async function queryDiagnostics(projectRoot: string, filePath?: string) {
       // If file's project is different from specified project, use file's project
       const absoluteProjectRoot = resolve(projectRoot);
       if (fileProjectRoot !== absoluteProjectRoot) {
-        console.error(`Note: Using file's project: ${fileProjectRoot}`);
-        console.error(`      (not specified: ${absoluteProjectRoot})`);
         projectRoot = fileProjectRoot;
       }
       
