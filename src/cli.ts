@@ -181,6 +181,16 @@ async function handleHookEvent(eventType: string) {
 
 async function queryDiagnostics(projectRoot: string, filePath?: string) {
   try {
+    // If no file specified, check if this directory contains multiple projects
+    if (!filePath) {
+      const allProjects = await findAllProjects(projectRoot);
+      
+      // If multiple projects found, aggregate diagnostics from all
+      if (allProjects.length > 1) {
+        return await queryMultiProjectDiagnostics(allProjects);
+      }
+    }
+    
     // If file is specified, check if it belongs to a different project
     if (filePath) {
       const { relative, resolve } = await import('path');
@@ -242,6 +252,83 @@ async function queryDiagnostics(projectRoot: string, filePath?: string) {
     console.error("Hint: Is the LSP server running? Try starting it first.");
     process.exit(1);
   }
+}
+
+async function queryMultiProjectDiagnostics(projects: string[]) {
+  const allDiagnostics: any[] = [];
+  let totalErrors = 0;
+  let totalWarnings = 0;
+  
+  // Query diagnostics from each project
+  for (const project of projects) {
+    try {
+      const socketPath = await ensureServerRunning(project);
+      const response = await fetch(`http://localhost/diagnostics`, {
+        // @ts-ignore - Bun supports unix option
+        unix: socketPath,
+        signal: AbortSignal.timeout(10000) // Shorter timeout per project
+      });
+      
+      if (response.ok) {
+        const result = await response.text();
+        if (result && result.includes('[[system-message]]:')) {
+          const jsonPart = result.replace('[[system-message]]:', '');
+          try {
+            const data = JSON.parse(jsonPart);
+            if (data.diagnostics && data.diagnostics.length > 0) {
+              // Add project context to each diagnostic
+              const projectName = project.split('/').pop() || project;
+              for (const diag of data.diagnostics) {
+                allDiagnostics.push({
+                  ...diag,
+                  project: projectName
+                });
+                
+                if (diag.severity === 'error') totalErrors++;
+                else if (diag.severity === 'warning') totalWarnings++;
+              }
+            }
+          } catch (e) {
+            // Skip malformed responses
+          }
+        }
+      }
+    } catch (error) {
+      // Skip projects that fail to query
+      continue;
+    }
+  }
+  
+  // Sort all diagnostics by severity, then by project, then by line
+  allDiagnostics.sort((a, b) => {
+    if (a.severity === 'error' && b.severity === 'warning') return -1;
+    if (a.severity === 'warning' && b.severity === 'error') return 1;
+    if (a.project !== b.project) return a.project.localeCompare(b.project);
+    return a.line - b.line;
+  });
+  
+  // Limit to 5 total items
+  const displayDiagnostics = allDiagnostics.slice(0, 5);
+  
+  // Generate summary
+  let summary: string;
+  if (totalErrors === 0 && totalWarnings === 0) {
+    summary = "no warnings or errors";
+  } else if (totalErrors > 0 && totalWarnings > 0) {
+    summary = `${totalErrors} error(s), ${totalWarnings} warning(s)`;
+  } else if (totalErrors > 0) {
+    summary = `${totalErrors} error(s)`;
+  } else {
+    summary = `${totalWarnings} warning(s)`;
+  }
+  
+  const result: any = { summary };
+  if (displayDiagnostics.length > 0) {
+    result.diagnostics = displayDiagnostics;
+  }
+  
+  console.log(`[[system-message]]:${JSON.stringify(result)}`);
+  process.exit(0);
 }
 
 function showHelp() {

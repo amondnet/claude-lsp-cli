@@ -1,0 +1,4 @@
+[debug] [scala-project-build] Classpath dependencies List()
+[debug] [scala-project-build] Dependencies from configurations List()
+[debug] Bloop wrote the configuration of project 'scala-project-build' to '/Users/steven_chong/Downloads/repos/claude-code-lsp/examples/scala-project/project/.bloop/scala-project-build.json'
+[success] Generated .bloop/scala-project-build.json
