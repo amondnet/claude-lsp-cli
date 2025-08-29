@@ -240,10 +240,10 @@ export async function runFileSpecificDiagnostics(filePath: string): Promise<stri
       return await response.text();
     }
     
-    return '[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}';
+    return '[[system-message]]:{"diagnostics":[],"summary":"no warnings or errors"}';
   } catch (error) {
     await logger.error('File-specific diagnostics failed', error);
-    return '[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}';
+    return '[[system-message]]:{"diagnostics":[],"summary":"no warnings or errors"}';
   }
 }
 

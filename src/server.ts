@@ -452,15 +452,25 @@ class LSPHttpServer {
         ? relevantDiagnostics  // File-specific: no deduplication
         : await this.deduplicator.processDiagnostics(relevantDiagnostics); // Project-wide: deduplication
       
-      // Sort by priority: errors before warnings
+      // Sort by priority: errors before warnings, then by line and column
       const sortedItems = newItemsToDisplay.sort((a, b) => {
+        // First sort by severity (errors before warnings) 
         if (a.severity === 'error' && b.severity === 'warning') return -1;
         if (a.severity === 'warning' && b.severity === 'error') return 1;
-        return 0;
+        
+        // Then sort by line number (ensure both are numbers)
+        const lineA = typeof a.line === 'number' ? a.line : parseInt(a.line) || 0;
+        const lineB = typeof b.line === 'number' ? b.line : parseInt(b.line) || 0;
+        if (lineA !== lineB) return lineA - lineB;
+        
+        // Finally sort by column (ensure both are numbers) 
+        const colA = typeof a.column === 'number' ? a.column : parseInt(a.column) || 0;
+        const colB = typeof b.column === 'number' ? b.column : parseInt(b.column) || 0;
+        return colA - colB;
       });
       
-      // Limit to 5 items for project-wide, no limit for file-specific
-      const itemsToDisplay = filterFile ? sortedItems : sortedItems.slice(0, 5);
+      // Always limit to 5 items (both project-wide and file-specific)
+      const itemsToDisplay = sortedItems.slice(0, 5);
       const displayDiagnostics = itemsToDisplay.map(diag => ({
         ...diag,
         file: relative(this.projectRoot, diag.file)
@@ -514,11 +524,11 @@ class LSPHttpServer {
       }
       
       try {
-        const responseText = `[[system-message]]: ${JSON.stringify(result)}`;
+        const responseText = `[[system-message]]:${JSON.stringify(result)}`;
         return new Response(responseText, { headers });
       } catch (jsonError) {
         // Skip logger to avoid nested serialization issues
-        return new Response(`[[system-message]]: {"diagnostics":[],"summary":"json error"}`, { headers });
+        return new Response(`[[system-message]]:{"diagnostics":[],"summary":"json error"}`, { headers });
       }
     } catch (error) {
       // Skip logger to avoid serialization issues, just throw

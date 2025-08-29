@@ -213,7 +213,7 @@ async function queryDiagnostics(projectRoot: string, filePath?: string) {
           console.log(result);
         }
       } else {
-        console.log('[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}');
+        console.log('[[system-message]]:{"diagnostics":[],"summary":"no warnings or errors"}');
       }
     } else {
       // No file specified - query project-wide diagnostics
@@ -230,7 +230,7 @@ async function queryDiagnostics(projectRoot: string, filePath?: string) {
           console.log(result);
         }
       } else {
-        console.log('[[system-message]]: {"diagnostics":[],"summary":"no warnings or errors"}');
+        console.log('[[system-message]]:{"diagnostics":[],"summary":"no warnings or errors"}');
       }
     }
     
