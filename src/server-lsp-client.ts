@@ -41,10 +41,52 @@ export class LSPClient {
   private receivedDiagnostics: Set<string> = new Set(); // Track files that have received diagnostics
   private projectHash: string;
   private deduplicator: DiagnosticDeduplicator | null;
+  private failedServers: Map<string, { count: number; lastAttempt: number }> = new Map();
 
   constructor(projectHash?: string, deduplicator?: DiagnosticDeduplicator) {
     this.projectHash = projectHash || 'default';
     this.deduplicator = deduplicator || null;
+  }
+
+  /**
+   * Check if a language server process is already running
+   */
+  private async checkExistingProcess(config: LanguageServerConfig): Promise<number | null> {
+    try {
+      // Use pgrep to check for running process by command name
+      const { spawn } = await import('child_process');
+      
+      return new Promise((resolve) => {
+        // For pylsp, we need to check for both pylsp and python.*pylsp patterns
+        const processName = config.command === 'pylsp' ? 'pylsp' : config.command;
+        const child = spawn('pgrep', ['-f', processName], {
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        
+        let output = '';
+        child.stdout?.on('data', (data) => {
+          output += data.toString();
+        });
+        
+        child.on('exit', (code) => {
+          if (code === 0 && output.trim()) {
+            // Process found, return first PID
+            const pids = output.trim().split('\n').map(p => parseInt(p)).filter(p => !isNaN(p));
+            if (pids.length > 0) {
+              resolve(pids[0]);
+              return;
+            }
+          }
+          resolve(null);
+        });
+        
+        // Timeout after 1 second
+        setTimeout(() => resolve(null), 1000);
+      });
+    } catch (error) {
+      // If pgrep fails, assume no process is running
+      return null;
+    }
   }
 
   /**
@@ -105,6 +147,30 @@ export class LSPClient {
       return;
     }
 
+    // Check if this server has failed recently (prevent infinite respawn loop)
+    const failedInfo = this.failedServers.get(language);
+    if (failedInfo) {
+      const timeSinceLastAttempt = Date.now() - failedInfo.lastAttempt;
+      const backoffTime = Math.min(60000, 5000 * Math.pow(2, failedInfo.count - 1)); // Exponential backoff up to 60s
+      
+      if (timeSinceLastAttempt < backoffTime) {
+        await logger.warn(`⚠️ ${config.name} server failed ${failedInfo.count} times. Waiting ${Math.round((backoffTime - timeSinceLastAttempt) / 1000)}s before retry...`);
+        return;
+      }
+    }
+
+    // Check if a process is already running for this language server
+    const existingProcess = await this.checkExistingProcess(config);
+    if (existingProcess) {
+      await logger.warn(`⚠️ ${config.name} process already running (PID: ${existingProcess}). Not spawning another.`);
+      // Mark as failed to prevent continuous spawn attempts
+      this.failedServers.set(language, {
+        count: (failedInfo?.count || 0) + 1,
+        lastAttempt: Date.now()
+      });
+      return;
+    }
+
     // Clean up any stale servers before starting a new one
     await this.checkProcessAlive();
 
@@ -153,6 +219,12 @@ export class LSPClient {
 
       serverProcess.on('error', async (err) => {
         await logger.error(`Failed to start ${config.name} server:`, err);
+        // Track failed server to prevent infinite respawn
+        const failedInfo = this.failedServers.get(language) || { count: 0, lastAttempt: 0 };
+        this.failedServers.set(language, {
+          count: failedInfo.count + 1,
+          lastAttempt: Date.now()
+        });
         // Clean up database entry on error
         if (this.deduplicator) {
           this.deduplicator.removeLanguageServer(this.projectHash, language);
@@ -292,6 +364,12 @@ export class LSPClient {
       // Mark server as initialized
       server.initialized = true;
       
+      // Clear failed server tracking on successful initialization
+      if (this.failedServers.has(language)) {
+        this.failedServers.delete(language);
+        await logger.info(`✅ ${config.name} server initialized successfully - cleared failure tracking`);
+      }
+      
       // Store the server
       this.servers.set(language, server);
 
@@ -302,6 +380,16 @@ export class LSPClient {
           logger.info(`🗑️  Cleaned up ${config.name} server entry (exit code: ${code})`);
         }
         this.servers.delete(language);
+        
+        // Track failed server if it exited unexpectedly (non-zero exit code)
+        if (code !== 0) {
+          const failedInfo = this.failedServers.get(language) || { count: 0, lastAttempt: 0 };
+          this.failedServers.set(language, {
+            count: failedInfo.count + 1,
+            lastAttempt: Date.now()
+          });
+          logger.error(`❌ ${config.name} server exited unexpectedly (code: ${code}). Failed ${failedInfo.count + 1} times.`);
+        }
       });
       
       // For Scala, wait for Metals to be ready
