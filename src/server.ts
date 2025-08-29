@@ -7,7 +7,6 @@ import { join, relative, resolve } from "path";
 import { 
   secureHash,
   cleanupManager,
-  safeDeleteFile
 } from "./utils/security";
 import { RateLimiter } from "./utils/rate-limiter";
 import { logger } from "./utils/logger";
@@ -61,24 +60,25 @@ class LSPHttpServer {
       await logger.info(`✅ Detected ${projectConfig.language} project`);
       
       // Map project language to LSP language identifier
-      const languageMap: Record<string, string> = {
-        'typescript': 'typescript',
-        'javascript': 'typescript',
-        'react': 'typescript',
-        'next': 'typescript',
-        'vue': 'typescript',
-        'python': 'python',
-        'rust': 'rust',
-        'go': 'go',
-        'scala': 'scala',
-        'java': 'java',
-        'cpp': 'cpp',
-        'ruby': 'ruby',
-        'php': 'php',
-        'lua': 'lua',
-        'elixir': 'elixir',
-        'terraform': 'terraform'
-      };
+      const languageMap: Record<string, string> = {};
+      // const languageMap: Record<string, string> = {
+      //   'typescript': 'typescript',
+      //   'javascript': 'typescript',
+      //   'react': 'typescript',
+      //   'next': 'typescript',
+      //   'vue': 'typescript',
+      //   'python': 'python',
+      //   'rust': 'rust',
+      //   'go': 'go',
+      //   'scala': 'scala',
+      //   'java': 'java',
+      //   'cpp': 'cpp',
+      //   'ruby': 'ruby',
+      //   'php': 'php',
+      //   'lua': 'lua',
+      //   'elixir': 'elixir',
+      //   'terraform': 'terraform'
+      // };
       
       const lspLanguage = languageMap[projectConfig.language];
       if (lspLanguage) {
