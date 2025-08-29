@@ -208,7 +208,8 @@ export class LSPClient {
     try {
       const serverProcess = spawn(config.command, config.args || [], {
         cwd: rootPath,
-        env: { ...process.env, CLAUDE_LSP_PROJECT_ROOT: rootPath }
+        env: { ...process.env, CLAUDE_LSP_PROJECT_ROOT: rootPath },
+        stdio: ['pipe', 'pipe', 'pipe']  // Explicit stdio for npx compatibility
       });
 
       // Register the server in the database
@@ -588,7 +589,7 @@ export class LSPClient {
   private getLanguageId(language: string): string {
     const languageIdMap: Record<string, string> = {
       typescript: "typescript",
-      python: "python",
+      // python: "python",
       rust: "rust",
       go: "go",
       java: "java",

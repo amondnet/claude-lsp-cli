@@ -24,6 +24,8 @@ function findExecutable(name: string): string | null {
   const possiblePaths = [
     // Standard PATH
     name,
+    // Bun global bin path
+    join(process.env.HOME || "", ".bun", "bin", name),
     // Go paths
     join(process.env.HOME || "", "go", "bin", name),
     join(process.env.GOPATH || "", "bin", name),
@@ -126,12 +128,24 @@ export interface LanguageServerConfig {
   diagnostics?: DiagnosticCapabilities;
 }
 
+// Dynamic command resolution for TypeScript
+function getTypeScriptCommand(): { command: string; args: string[] } {
+  // Check if typescript-language-server is available directly
+  const tsServerPath = findExecutable("typescript-language-server");
+  if (tsServerPath) {
+    return { command: tsServerPath, args: ["--stdio"] };
+  }
+  
+  // Fallback to npx
+  return { command: "npx", args: ["-y", "typescript-language-server", "--stdio"] };
+}
+
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: "npx",
-    args: ["-y", "typescript-language-server", "--stdio"],
-    installCommand: "Already bundled - no installation needed",
+    command: getTypeScriptCommand().command,
+    args: getTypeScriptCommand().args,
+    installCommand: null,
     installCheck: "SKIP",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],

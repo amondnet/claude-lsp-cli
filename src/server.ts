@@ -66,7 +66,7 @@ class LSPHttpServer {
         'react': 'typescript',
         'next': 'typescript',
         'vue': 'typescript',
-        'python': 'python',
+        // 'python': 'python',  // Disabled - spamming issues
         'rust': 'rust',
         'go': 'go',
         'scala': 'scala',
