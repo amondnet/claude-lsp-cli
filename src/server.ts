@@ -35,6 +35,7 @@ class LSPHttpServer {
   private openDocuments: Set<string> = new Set();
   private rateLimiter: RateLimiter;
   private deduplicator: DiagnosticDeduplicator;
+  private fileEventDebounce: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(projectRoot: string) {
     // Normalize to absolute path for consistent hashing
@@ -211,19 +212,40 @@ class LSPHttpServer {
           // Skip non-code files
           if (!this.isCodeFile(filename)) return;
           
-          await logger.debug(`File ${event}: ${filename}`);
+          // Debounce file events to prevent rapid-fire updates
+          const debounceKey = `${fullPath}:${event}`;
           
-          if (event === 'rename') {
-            // File created or deleted
-            if (existsSync(fullPath)) {
-              await this.openDocument(fullPath);
-            } else {
-              this.closeDocument(fullPath);
-            }
-          } else if (event === 'change') {
-            // File modified
-            await this.updateDocument(fullPath);
+          // Clear existing timeout for this file+event combination
+          const existingTimeout = this.fileEventDebounce.get(debounceKey);
+          if (existingTimeout) {
+            clearTimeout(existingTimeout);
           }
+          
+          // Set new debounced handler
+          const timeout = setTimeout(async () => {
+            try {
+              await logger.debug(`File ${event}: ${filename}`);
+              
+              if (event === 'rename') {
+                // File created or deleted
+                if (existsSync(fullPath)) {
+                  await this.openDocument(fullPath);
+                } else {
+                  this.closeDocument(fullPath);
+                }
+              } else if (event === 'change') {
+                // File modified
+                await this.updateDocument(fullPath);
+              }
+              
+              // Clean up the debounce entry
+              this.fileEventDebounce.delete(debounceKey);
+            } catch (error) {
+              await logger.error('File watching error', error, { filename, event });
+            }
+          }, 300); // 300ms debounce delay
+          
+          this.fileEventDebounce.set(debounceKey, timeout);
         } catch (error) {
           await logger.error('File watching error', error, { filename, event });
         }
