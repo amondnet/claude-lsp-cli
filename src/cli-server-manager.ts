@@ -12,6 +12,9 @@ import { secureHash } from "./utils/security";
 import { ServerRegistry } from "./utils/server-registry";
 import { logger } from "./utils/logger";
 
+// Track servers being started to prevent race conditions
+const startingServers = new Map<string, Promise<string>>();
+
 /**
  * Check if a server is running for a project
  */
@@ -44,6 +47,12 @@ export async function isServerRunning(projectRoot: string): Promise<boolean> {
 export async function ensureServerRunning(projectRoot: string): Promise<string> {
   const projectHash = secureHash(projectRoot).substring(0, 16);
   
+  // Check if server is already being started
+  const existingStart = startingServers.get(projectHash);
+  if (existingStart) {
+    return await existingStart;
+  }
+  
   // Use same socket directory as server
   const socketDir = process.env.XDG_RUNTIME_DIR || 
                    (process.platform === 'darwin' 
@@ -68,6 +77,25 @@ export async function ensureServerRunning(projectRoot: string): Promise<string> 
     // Server in registry but not responding - clean up
     registry.markServerStopped(projectHash);
   }
+  
+  // Create the startup promise to prevent race conditions
+  const startupPromise = startNewServer(projectRoot, projectHash, socketPath);
+  startingServers.set(projectHash, startupPromise);
+  
+  try {
+    const result = await startupPromise;
+    return result;
+  } finally {
+    // Clean up the promise from tracking
+    startingServers.delete(projectHash);
+  }
+}
+
+/**
+ * Start a new server process
+ */
+async function startNewServer(projectRoot: string, projectHash: string, socketPath: string): Promise<string> {
+  const registry = ServerRegistry.getInstance();
   
   // Start new server
   const serverPath = findServerBinary();
