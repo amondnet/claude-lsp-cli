@@ -42,6 +42,7 @@ export class LSPClient {
   private projectHash: string;
   private deduplicator: DiagnosticDeduplicator | null;
   private failedServers: Map<string, { count: number; lastAttempt: number }> = new Map();
+  private readonly MAX_RESTART_ATTEMPTS = 5; // Maximum number of restart attempts before giving up
 
   constructor(projectHash?: string, deduplicator?: DiagnosticDeduplicator) {
     this.projectHash = projectHash || 'default';
@@ -58,8 +59,16 @@ export class LSPClient {
       
       return new Promise((resolve) => {
         // For pylsp, we need to check for both pylsp and python.*pylsp patterns
-        const processName = config.command === 'pylsp' ? 'pylsp' : config.command;
-        const child = spawn('pgrep', ['-f', processName], {
+        // Use more specific pattern to avoid false positives and catch all Python LSP processes
+        let processPattern: string;
+        if (config.command === 'pylsp') {
+          // Match both direct pylsp and python*pylsp patterns with better regex
+          processPattern = '(pylsp|python.*pylsp)';
+        } else {
+          processPattern = config.command;
+        }
+        
+        const child = spawn('pgrep', ['-f', processPattern], {
           stdio: ['ignore', 'pipe', 'ignore']
         });
         
@@ -68,11 +77,16 @@ export class LSPClient {
           output += data.toString();
         });
         
-        child.on('exit', (code) => {
+        child.on('exit', async (code) => {
           if (code === 0 && output.trim()) {
             // Process found, return first PID
             const pids = output.trim().split('\n').map(p => parseInt(p)).filter(p => !isNaN(p));
             if (pids.length > 0) {
+              // Log warning if multiple processes detected
+              if (pids.length > 1) {
+                await logger.warn(`⚠️ Found ${pids.length} ${config.name} processes running: ${pids.join(', ')}`);
+                await logger.warn(`This may cause OOM issues. Consider killing extra processes.`);
+              }
               resolve(pids[0]);
               return;
             }
@@ -86,6 +100,53 @@ export class LSPClient {
     } catch (error) {
       // If pgrep fails, assume no process is running
       return null;
+    }
+  }
+
+  /**
+   * Clean up zombie Python LSP processes
+   */
+  private async cleanupZombiePythonProcesses(): Promise<void> {
+    try {
+      const { spawn } = await import('child_process');
+      
+      // Find all Python LSP processes
+      const findProc = spawn('pgrep', ['-f', '(pylsp|python.*pylsp)'], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      
+      let output = '';
+      findProc.stdout?.on('data', (data) => {
+        output += data.toString();
+      });
+      
+      await new Promise<void>((resolve) => {
+        findProc.on('exit', async (code) => {
+          if (code === 0 && output.trim()) {
+            const pids = output.trim().split('\n').map(p => parseInt(p)).filter(p => !isNaN(p));
+            
+            // Keep only the first process, kill the rest
+            if (pids.length > 1) {
+              await logger.warn(`🧹 Found ${pids.length} Python LSP processes. Cleaning up extras...`);
+              
+              for (let i = 1; i < pids.length; i++) {
+                try {
+                  process.kill(pids[i], 'SIGTERM');
+                  await logger.info(`✅ Killed zombie Python LSP process: ${pids[i]}`);
+                } catch (err) {
+                  await logger.debug(`Failed to kill process ${pids[i]}:`, err);
+                }
+              }
+            }
+          }
+          resolve();
+        });
+        
+        // Timeout after 2 seconds
+        setTimeout(() => resolve(), 2000);
+      });
+    } catch (error) {
+      await logger.debug(`Failed to cleanup zombie processes:`, error);
     }
   }
 
@@ -150,6 +211,12 @@ export class LSPClient {
     // Check if this server has failed recently (prevent infinite respawn loop)
     const failedInfo = this.failedServers.get(language);
     if (failedInfo) {
+      // If we've exceeded max attempts, don't try again
+      if (failedInfo.count >= this.MAX_RESTART_ATTEMPTS) {
+        await logger.error(`❌ ${config.name} server has failed ${failedInfo.count} times. Maximum restart attempts (${this.MAX_RESTART_ATTEMPTS}) exceeded. Giving up.`);
+        return;
+      }
+      
       const timeSinceLastAttempt = Date.now() - failedInfo.lastAttempt;
       const backoffTime = Math.min(60000, 5000 * Math.pow(2, failedInfo.count - 1)); // Exponential backoff up to 60s
       
@@ -173,6 +240,11 @@ export class LSPClient {
 
     // Clean up any stale servers before starting a new one
     await this.checkProcessAlive();
+    
+    // For Python, also clean up any zombie processes
+    if (language === 'python') {
+      await this.cleanupZombiePythonProcesses();
+    }
 
     await logger.info(`Starting ${config.name} Language Server...`);
     
