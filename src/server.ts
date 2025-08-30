@@ -17,6 +17,7 @@ import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
 import { DiagnosticRequestManager } from "./diagnostic-request-manager";
 import { TIMEOUTS } from "./constants";
 import { ServerRegistry } from "./utils/server-registry";
+import { cpuMonitor } from "./utils/cpu-monitor";
 
 interface DiagnosticResponse {
   file: string;
@@ -52,6 +53,16 @@ class LSPHttpServer {
     await logger.info(`🚀 Claude Code LSP Server`);
     await logger.info(`📁 Project root: ${this.projectRoot}`);
     await logger.info(`🔑 Project hash: ${this.projectHash}`);
+    
+    // Prevent infinite loops in temp/test directories
+    if (this.projectRoot.includes('/tmp/') || this.projectRoot.includes('/var/folders/')) {
+      await logger.warn('⚠️  Skipping temp/test directory to prevent CPU issues');
+      // Start minimal server without language servers
+      this.startHttpServer();
+      cpuMonitor.start(); // Monitor CPU even for temp dirs
+      return;
+    }
+    
     await logger.info(`🔍 Detecting project type...`);
     
     // Use ProjectConfigDetector to detect all supported languages

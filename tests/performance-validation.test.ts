@@ -22,6 +22,9 @@ describe("Performance Validation - CPU and Memory", () => {
   });
 
   afterAll(async () => {
+    // Kill any servers for test directories specifically
+    await exec(`pkill -9 -f "claude-lsp-server.*perf-test"`).catch(() => {});
+    
     await exec(`${CLI_PATH} stop-all`).catch(() => {});
     rmSync(testDir, { recursive: true, force: true });
   });

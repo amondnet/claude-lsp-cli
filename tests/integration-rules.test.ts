@@ -24,6 +24,9 @@ describe("Integration Tests - Core Rules", () => {
   });
 
   afterAll(async () => {
+    // Kill any servers for test directories specifically
+    await exec(`pkill -9 -f "claude-lsp-server.*integration-test"`).catch(() => {});
+    
     // Clean up all test servers
     await exec(`${CLI_PATH} stop-all`).catch(() => {});
     
