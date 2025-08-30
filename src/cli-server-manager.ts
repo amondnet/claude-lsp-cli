@@ -84,16 +84,7 @@ export async function ensureServerRunning(projectRoot: string): Promise<string> 
   
   // Register in SQLite
   const startTime = new Date().toISOString();
-  registry.registerServer({
-    project_hash: projectHash,
-    project_root: projectRoot,
-    pid: child.pid!,
-    socket_path: socketPath,
-    start_time: startTime,
-    last_heartbeat: startTime,
-    last_response: startTime,
-    status: 'starting'
-  });
+  registry.registerServer(projectRoot, [], child.pid!, socketPath);
   
   // Wait for server to be ready
   const maxWait = 30000; // 30 seconds
@@ -101,7 +92,6 @@ export async function ensureServerRunning(projectRoot: string): Promise<string> 
   
   while (Date.now() - startWait < maxWait) {
     if (await isServerRunning(projectRoot)) {
-      registry.updateStatus(projectHash, 'running');
       return socketPath;
     }
     await new Promise(resolve => setTimeout(resolve, 500));

@@ -24,7 +24,9 @@ describe("File-specific vs Project-wide Diagnostics", () => {
   test("file-specific diagnostics bypass deduplication", async () => {
     // Run file-specific diagnostics
     const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_FILE}`);
-    const result = JSON.parse(stdout);
+    // Parse the new format: [[system-message]]:JSON
+    const jsonStr = stdout.replace('[[system-message]]:', '').trim();
+    const result = JSON.parse(jsonStr);
     
     // Check structure specific to file diagnostics
     expect(result).toHaveProperty("file_metadata");
@@ -46,7 +48,9 @@ describe("File-specific vs Project-wide Diagnostics", () => {
   test("project-wide diagnostics use deduplication", async () => {
     // Run project-wide diagnostics
     const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-    const result = JSON.parse(stdout);
+    // Parse the new format: [[system-message]]:JSON
+    const jsonStr = stdout.replace('[[system-message]]:', '').trim();
+    const result = JSON.parse(jsonStr);
     
     // Check structure specific to project diagnostics
     expect(result).toHaveProperty("by_source");
@@ -66,13 +70,15 @@ describe("File-specific vs Project-wide Diagnostics", () => {
   test("file diagnostics return all errors for that file", async () => {
     // Run twice to ensure no deduplication
     const { stdout: first } = await exec(`${CLI_PATH} diagnostics ${TEST_FILE}`);
-    const firstResult = JSON.parse(first);
+    const firstJsonStr = first.replace('[[system-message]]:', '').trim();
+    const firstResult = JSON.parse(firstJsonStr);
     
     // Wait a moment
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     const { stdout: second } = await exec(`${CLI_PATH} diagnostics ${TEST_FILE}`);
-    const secondResult = JSON.parse(second);
+    const secondJsonStr = second.replace('[[system-message]]:', '').trim();
+    const secondResult = JSON.parse(secondJsonStr);
     
     // Both should return the same diagnostics (no deduplication)
     expect(firstResult.diagnostics.length).toBe(secondResult.diagnostics.length);
@@ -81,7 +87,8 @@ describe("File-specific vs Project-wide Diagnostics", () => {
   
   test("file diagnostics find correct project root", async () => {
     const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_FILE}`);
-    const result = JSON.parse(stdout);
+    const jsonStr = stdout.replace('[[system-message]]:', '').trim();
+    const result = JSON.parse(jsonStr);
     
     // Should find examples/typescript-project as root, not the parent
     expect(result.file_metadata.project_root).toBe(TEST_PROJECT);

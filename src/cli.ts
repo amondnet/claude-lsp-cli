@@ -249,6 +249,9 @@ async function queryDiagnostics(projectRoot: string, filePath?: string) {
   } catch (error) {
     // Skip logger to avoid potential serialization issues
     console.error(`DIAGNOSTICS_QUERY_ERROR: ${error instanceof Error ? error.message : "Unknown error"}`);
+    if (error instanceof Error && error.stack) {
+      console.error("Stack trace:", error.stack);
+    }
     console.error("Hint: Is the LSP server running? Try starting it first.");
     process.exit(1);
   }
