@@ -202,6 +202,12 @@ class LSPHttpServer {
 
 
   private async setupFileWatching() {
+    // Disable file watching for example projects to prevent CPU issues
+    if (this.projectRoot.includes('/examples/')) {
+      await logger.info('Skipping file watching for example project');
+      return;
+    }
+    
     try {
       watch(this.projectRoot, { recursive: true }, async (event, filename) => {
         if (!filename) return;
@@ -211,6 +217,9 @@ class LSPHttpServer {
           
           // Skip non-code files
           if (!this.isCodeFile(filename)) return;
+          
+          // Skip files that are ignored (e.g., node_modules, .git, etc.)
+          if (this.shouldIgnoreFile(fullPath)) return;
           
           // Debounce file events to prevent rapid-fire updates
           const debounceKey = `${fullPath}:${event}`;
@@ -274,6 +283,28 @@ class LSPHttpServer {
     return extensions.some(ext => filename.endsWith(ext));
   }
 
+  private shouldIgnoreFile(fullPath: string): boolean {
+    const relativePath = relative(this.projectRoot, fullPath);
+    
+    // Simple ignore patterns to prevent recursion
+    const ignorePatterns = [
+      /node_modules/,
+      /\.git/,
+      /dist/,
+      /build/,
+      /coverage/,
+      /\.DS_Store$/,
+      /\.swp$/,
+      /\.tmp$/,
+      /bin/,
+      /\.sock$/,
+      /\.pid$/,
+      /\.log$/
+    ];
+    
+    return ignorePatterns.some(pattern => pattern.test(relativePath));
+  }
+
   private async loadGitignorePatterns(projectRoot: string): Promise<string[]> {
     try {
       const gitignorePath = join(projectRoot, '.gitignore');
@@ -297,7 +328,16 @@ class LSPHttpServer {
         '.vscode/**',     // VS Code
         '**/*.log',       // Log files
         'tmp/**',         // Temporary files
-        'temp/**'         // Temporary files
+        'temp/**',        // Temporary files
+        // Additional patterns to prevent infinite loops
+        '**/.DS_Store',   // macOS files
+        '**/*.swp',       // Vim swap files
+        '**/*.tmp',       // Temporary files
+        '**/.*/**',       // Hidden directories
+        '.claude-lsp/**', // Our own cache
+        'bin/**',         // Binary files
+        '**/*.sock',      // Socket files
+        '**/*.pid'        // PID files
       ];
 
       if (existsSync(gitignorePath)) {
@@ -765,69 +805,86 @@ class LSPHttpServer {
 
   private async discoverAndOpenProjectFiles(): Promise<void> {
     try {
-      // Import language detection utilities
-      const { detectProjectLanguages, languageServers } = await import('./language-servers');
+      // Add safety timeout to prevent infinite execution
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('File discovery timeout')), 10000)
+      );
       
-      // Detect project languages based on project files
-      const detectedLanguages = detectProjectLanguages(this.projectRoot);
-      
-      // Collect all extensions for detected languages
-      const extensions = new Set<string>();
-      for (const lang of detectedLanguages) {
-        const config = languageServers[lang];
-        if (config?.extensions) {
-          config.extensions.forEach(ext => extensions.add(ext.substring(1))); // Remove leading dot
-        }
-      }
-      
-      // If no languages detected via project files, try to get from active servers
-      if (extensions.size === 0) {
-        const activeExtensions = this.client.getActiveFileExtensions();
-        activeExtensions.forEach(ext => extensions.add(ext.substring(1)));
-      }
-      
-      if (extensions.size === 0) {
-        // No languages detected, skip file discovery
-        await logger.debug("No languages detected for file discovery");
-        return;
-      }
-      
-      // Build glob pattern from extensions
-      const extensionArray = Array.from(extensions);
-      const globPattern = extensionArray.length > 1
-        ? `**/*.{${extensionArray.join(',')}}` 
-        : `**/*.${extensionArray[0]}`;
-      
-      // Load gitignore patterns
-      const gitignorePatterns = await this.loadGitignorePatterns(this.projectRoot);
-      
-      const { glob } = await import('glob');
-      const files = await glob(globPattern, {
-        cwd: this.projectRoot,
-        ignore: gitignorePatterns
-      });
-      
-      // Open files in batches to avoid overwhelming the language server
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < files.length; i += BATCH_SIZE) {
-        const batch = files.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (file) => {
-          const fullPath = join(this.projectRoot, file);
-          try {
-            await this.openDocument(fullPath);
-          } catch (error) {
-            // Skip files that can't be opened
-            await logger.debug(`Could not open file: ${file}`, { error });
-          }
-        }));
-        // Small delay between batches
-        if (i + BATCH_SIZE < files.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      }
+      const discoveryPromise = this.doFileDiscovery();
+      await Promise.race([discoveryPromise, timeoutPromise]);
     } catch (error) {
-      await logger.error('Failed to discover project files', error);
-      // Don't throw, just continue with whatever diagnostics we have
+      await logger.error('File discovery failed or timed out', error);
+      // Don't throw, just continue
+    }
+  }
+
+  private async doFileDiscovery(): Promise<void> {
+    // Import language detection utilities
+    const { detectProjectLanguages, languageServers } = await import('./language-servers');
+    
+    // Detect project languages based on project files
+    const detectedLanguages = detectProjectLanguages(this.projectRoot);
+    
+    // Collect all extensions for detected languages
+    const extensions = new Set<string>();
+    for (const lang of detectedLanguages) {
+      const config = languageServers[lang];
+      if (config?.extensions) {
+        config.extensions.forEach(ext => extensions.add(ext.substring(1))); // Remove leading dot
+      }
+    }
+    
+    // If no languages detected via project files, try to get from active servers
+    if (extensions.size === 0) {
+      const activeExtensions = this.client.getActiveFileExtensions();
+      activeExtensions.forEach(ext => extensions.add(ext.substring(1)));
+    }
+    
+    if (extensions.size === 0) {
+      // No languages detected, skip file discovery
+      await logger.debug("No languages detected for file discovery");
+      return;
+    }
+    
+    // Build glob pattern from extensions
+    const extensionArray = Array.from(extensions);
+    const globPattern = extensionArray.length > 1
+      ? `**/*.{${extensionArray.join(',')}}` 
+      : `**/*.${extensionArray[0]}`;
+    
+    // Load gitignore patterns
+    const gitignorePatterns = await this.loadGitignorePatterns(this.projectRoot);
+    
+    const { glob } = await import('glob');
+    const files = await glob(globPattern, {
+      cwd: this.projectRoot,
+      ignore: gitignorePatterns
+    });
+    
+    // Limit total files to prevent overload
+    const MAX_FILES = 50;
+    const limitedFiles = files.slice(0, MAX_FILES);
+    if (files.length > MAX_FILES) {
+      await logger.info(`Limited file discovery to ${MAX_FILES} files (found ${files.length})`);
+    }
+    
+    // Open files in batches to avoid overwhelming the language server
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < limitedFiles.length; i += BATCH_SIZE) {
+      const batch = limitedFiles.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (file) => {
+        const fullPath = join(this.projectRoot, file);
+        try {
+          await this.openDocument(fullPath);
+        } catch (error) {
+          // Skip files that can't be opened
+          await logger.debug(`Could not open file: ${file}`, { error });
+        }
+      }));
+      // Small delay between batches
+      if (i + BATCH_SIZE < limitedFiles.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
   }
 

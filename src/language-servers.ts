@@ -206,16 +206,16 @@ export const languageServers: Record<string, LanguageServerConfig> = {
     requiresGlobal: true
   },
   
-  java: {
-    name: "Java",
-    command: "jdtls",
-    args: [],
-    installCommand: "brew install jdtls",  // macOS, different for other OS
-    installCheck: "jdtls",
-    projectFiles: ["pom.xml", "build.gradle", "build.gradle.kts", ".classpath"],
-    extensions: [".java"],
-    requiresGlobal: true
-  },
+  // java: {
+  //   name: "Java",
+  //   command: "jdtls",
+  //   args: [],
+  //   installCommand: "brew install jdtls",  // macOS, different for other OS
+  //   installCheck: "jdtls",
+  //   projectFiles: ["pom.xml", "build.gradle", "build.gradle.kts", ".classpath"],
+  //   extensions: [".java"],
+  //   requiresGlobal: true
+  // }, // DISABLED: Java LSP causes infinite CPU loops
   
   cpp: {
     name: "C/C++",
