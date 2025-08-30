@@ -240,11 +240,11 @@ export async function stopIdleServers(idleMinutes: number): Promise<void> {
     }
   }
   
-  if (stoppedCount === 0) {
-    console.log(`No servers idle for more than ${idleMinutes} minutes`);
-  } else {
+  // Only log if we actually stopped something
+  if (stoppedCount > 0) {
     console.log(`✅ Stopped ${stoppedCount} idle server(s)`);
   }
+  // Don't log when nothing was stopped to avoid noise in hook output
 }
 
 /**
