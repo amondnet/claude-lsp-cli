@@ -278,11 +278,36 @@ export class LSPClient {
 
     // Start the server
     try {
-      const serverProcess = spawn(config.command, config.args || [], {
+      // Add resource limits to prevent CPU spam
+      const spawnOptions: any = {
         cwd: rootPath,
-        env: { ...process.env, CLAUDE_LSP_PROJECT_ROOT: rootPath },
+        env: { 
+          ...process.env, 
+          CLAUDE_LSP_PROJECT_ROOT: rootPath,
+          // Limit memory usage for all servers
+          NODE_OPTIONS: '--max-old-space-size=512'
+        },
         stdio: ['pipe', 'pipe', 'pipe']  // Explicit stdio for npx compatibility
-      });
+      };
+      
+      // Add stricter limits for TypeScript servers
+      if (language === 'typescript') {
+        // Check if this is a large project (like ui/ directories)
+        const isLargeProject = rootPath.includes('/ui') || rootPath.includes('kepler_app');
+        
+        if (isLargeProject) {
+          spawnOptions.env.NODE_OPTIONS = '--max-old-space-size=128'; // Very restrictive for large projects
+          await logger.warn(`⚠️  Large TypeScript project detected - using aggressive resource limits`);
+        } else {
+          spawnOptions.env.NODE_OPTIONS = '--max-old-space-size=256'; // Normal limit
+        }
+        
+        spawnOptions.env.TSS_LOG = '-level normal'; // Reduce logging
+        spawnOptions.env.TSS_DEBUG = '0';
+        spawnOptions.env.TSSERVER_LOG_VERBOSITY = 'compact';
+      }
+      
+      const serverProcess = spawn(config.command, config.args || [], spawnOptions);
 
       // Register the server in the database
       if (this.deduplicator && serverProcess.pid) {

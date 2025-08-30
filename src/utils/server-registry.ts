@@ -241,6 +241,55 @@ export class ServerRegistry {
   // Note: logEvent method removed - was unused
   
   /**
+   * Enforce server limit by killing oldest servers
+   */
+  async enforceServerLimit(maxServers: number = 10): Promise<number> {
+    const activeServers = this.getAllActiveServers();
+    
+    if (activeServers.length <= maxServers) {
+      return 0; // No cleanup needed
+    }
+    
+    // Sort by start time (oldest first) 
+    const sortedServers = activeServers.sort((a, b) => 
+      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    );
+    
+    // Kill servers that exceed the limit
+    const serversToKill = sortedServers.slice(0, activeServers.length - maxServers);
+    let killedCount = 0;
+    
+    for (const server of serversToKill) {
+      try {
+        // Try to kill the process
+        process.kill(server.pid, 'SIGTERM');
+        
+        // Wait a bit then force kill if still alive
+        setTimeout(async () => {
+          if (await this.isProcessAlive(server.pid)) {
+            try {
+              process.kill(server.pid, 'SIGKILL');
+            } catch {
+              // Already dead
+            }
+          }
+        }, 2000);
+        
+        // Mark as stopped in registry
+        this.markServerStopped(server.project_hash);
+        killedCount++;
+        
+        await logger.info(`Killed old server ${server.project_hash} (PID ${server.pid}) to enforce limit`);
+        
+      } catch (error) {
+        await logger.warn(`Failed to kill server ${server.project_hash}: ${error}`);
+      }
+    }
+    
+    return killedCount;
+  }
+
+  /**
    * Get server statistics
    */
   getStatistics() {

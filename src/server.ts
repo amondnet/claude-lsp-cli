@@ -202,11 +202,9 @@ class LSPHttpServer {
 
 
   private async setupFileWatching() {
-    // Disable file watching for example projects to prevent CPU issues
-    if (this.projectRoot.includes('/examples/')) {
-      await logger.info('Skipping file watching for example project');
-      return;
-    }
+    // Disable file watching entirely to prevent CPU issues
+    await logger.info('File watching disabled to prevent high CPU usage');
+    return;
     
     try {
       watch(this.projectRoot, { recursive: true }, async (event, filename) => {

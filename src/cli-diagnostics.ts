@@ -150,6 +150,11 @@ export async function runDiagnostics(projectRoot: string): Promise<any> {
     const { stopIdleServers } = await import('./cli-server-manager');
     await stopIdleServers(120); // 2 hours
     
+    // Enforce server limit to prevent resource exhaustion
+    const { ServerRegistry } = await import('./utils/server-registry');
+    const registry = ServerRegistry.getInstance();
+    await registry.enforceServerLimit(8); // Max 8 concurrent servers
+    
     // Ensure server is running using server manager
     const socketPath = await ensureServerRunning(projectRoot);
     

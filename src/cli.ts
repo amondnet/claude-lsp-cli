@@ -1092,6 +1092,15 @@ if (command === "hook" && eventType) {
   await listLanguageServers();
 } else if (command === "list-projects" && args[1]) {
   await listProjects(args[1]);
+} else if (command === "limit-servers") {
+  // Enforce server limit
+  const { ServerRegistry } = await import('./utils/server-registry');
+  const registry = ServerRegistry.getInstance();
+  const killed = await registry.enforceServerLimit(8);
+  console.log(`Server limit enforcement: killed ${killed} servers`);
+  
+  const stats = registry.getStatistics();
+  console.log(`Active servers: ${stats.activeServers}`);
 } else if (command === "get-lsp-scope" && args[1]) {
   await getLspScope(args[1]);
 } else if (command === "help" || command === "--help" || command === "-h") {
