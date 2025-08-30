@@ -78,6 +78,7 @@ export class DiagnosticDeduplicator {
         rule_id TEXT,
         first_seen INTEGER NOT NULL,
         last_seen INTEGER NOT NULL,
+        request_time INTEGER,  -- Which request collected this diagnostic
         session_id TEXT,
         PRIMARY KEY (project_hash, diagnostic_key)
       )
@@ -87,6 +88,13 @@ export class DiagnosticDeduplicator {
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_diagnostic_project 
       ON diagnostic_history (project_hash, last_seen)
+    `);
+    
+    // Create index for request_time queries
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_diagnostic_request
+      ON diagnostic_history (project_hash, request_time)
+      WHERE request_time IS NOT NULL
     `);
 
     // Note: diagnostic_reports table removed - was only used for first run check
@@ -219,6 +227,23 @@ export class DiagnosticDeduplicator {
   }
 
   /**
+   * Process file-specific diagnostics - always show all, then track
+   * Single file queries always display current state for immediate feedback
+   */
+  async processFileSpecificDiagnostics(diagnostics: Diagnostic[], filePath: string): Promise<Diagnostic[]> {
+    if (diagnostics.length === 0) return [];
+
+    await logger.debug('Single file query: showing all current diagnostics', {
+      filePath,
+      diagnosticCount: diagnostics.length
+    });
+    
+    // Always return all diagnostics for single file queries
+    // Tracking happens later via markAsDisplayed()
+    return diagnostics;
+  }
+
+  /**
    * Check if this is the first run for a project
    * Simplified: check if any diagnostics exist in history
    */
@@ -239,10 +264,11 @@ export class DiagnosticDeduplicator {
     const stmt = this.db.prepare(`
       INSERT INTO diagnostic_history (
         project_hash, diagnostic_key, file_path, line, column, 
-        severity, message, source, rule_id, first_seen, last_seen, session_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        severity, message, source, rule_id, first_seen, last_seen, request_time, session_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_hash, diagnostic_key) DO UPDATE SET
         last_seen = excluded.last_seen,
+        request_time = excluded.request_time,
         session_id = excluded.session_id
     `);
 
@@ -260,9 +286,77 @@ export class DiagnosticDeduplicator {
         diag.ruleId || null,
         now,
         now,
+        null, // request_time will be set by worker
         sessionId || null
       );
     }
+  }
+
+  /**
+   * Store diagnostics with a specific request_time (called by worker thread)
+   */
+  storeDiagnosticsForRequest(diagnostics: Diagnostic[], requestTime: number): void {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      INSERT INTO diagnostic_history (
+        project_hash, diagnostic_key, file_path, line, column,
+        severity, message, source, rule_id, first_seen, last_seen, request_time
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_hash, diagnostic_key) DO UPDATE SET
+        last_seen = ?,
+        request_time = ?
+    `);
+
+    for (const diag of diagnostics) {
+      const key = this.createDiagnosticKey(diag);
+      stmt.run(
+        this.projectHash,
+        key,
+        this.normalizePath(diag.file),
+        diag.line,
+        diag.column,
+        diag.severity,
+        diag.message,
+        diag.source || null,
+        diag.ruleId || null,
+        now,
+        now,
+        requestTime,
+        // For UPDATE clause
+        now,
+        requestTime
+      );
+    }
+  }
+
+  /**
+   * Retrieve diagnostics for a specific request and clear request_time
+   */
+  getAndClearRequestDiagnostics(requestTime: number): Diagnostic[] {
+    // Get diagnostics for this request
+    const results = this.db.prepare(`
+      SELECT file_path, line, column, severity, message, source, rule_id
+      FROM diagnostic_history
+      WHERE project_hash = ? AND request_time = ?
+    `).all(this.projectHash, requestTime) as any[];
+
+    // Clear request_time (set to NULL) after retrieving
+    this.db.prepare(`
+      UPDATE diagnostic_history
+      SET request_time = NULL
+      WHERE project_hash = ? AND request_time = ?
+    `).run(this.projectHash, requestTime);
+
+    // Convert to Diagnostic format
+    return results.map(row => ({
+      file: row.file_path,
+      line: row.line,
+      column: row.column,
+      severity: row.severity,
+      message: row.message,
+      source: row.source,
+      ruleId: row.rule_id
+    }));
   }
 
   shouldShowNoErrorsState(): boolean {

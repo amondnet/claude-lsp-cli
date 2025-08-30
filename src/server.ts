@@ -14,6 +14,7 @@ import { RateLimiter } from "./utils/rate-limiter";
 import { logger } from "./utils/logger";
 import { ProjectConfigDetector } from "./project-config-detector";
 import { DiagnosticDeduplicator } from "./utils/diagnostic-dedup";
+import { DiagnosticRequestManager } from "./diagnostic-request-manager";
 import { TIMEOUTS } from "./constants";
 import { ServerRegistry } from "./utils/server-registry";
 
@@ -430,12 +431,11 @@ class LSPHttpServer {
       const url = new URL(req.url);
       const filePath = url.searchParams.get('file');
       
-      // Determine if this is file-specific or project-wide
-      const debugInfo = undefined; // Remove debug output
-      
-      // Always use project-wide logic, just filter if file specified
-      const response = await this.handleProjectDiagnostics(headers, filePath || undefined, debugInfo);
+      // For now, revert to the original approach until worker threads are properly set up
+      // This ensures diagnostics work correctly
+      const response = await this.handleProjectDiagnostics(headers, filePath || undefined);
       return response;
+      
     } catch (error) {
       await logger.error('Failed to handle diagnostics', error);
       throw error;
@@ -446,11 +446,21 @@ class LSPHttpServer {
     try {
       // Skip detailed logging to avoid serialization issues
       
-      // First, discover and open all relevant files in the project
-      await this.discoverAndOpenProjectFiles();
+      // Check if server is already warmed up (files already opened)
+      const alreadyHasFiles = this.openDocuments.size > 0;
       
-      // Wait longer for diagnostics to be collected (some LSPs are slow)
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 4000ms
+      if (!alreadyHasFiles) {
+        // First time - need to discover and open files
+        const discoverPromise = this.discoverAndOpenProjectFiles();
+        const discoverTimeout = new Promise(resolve => setTimeout(resolve, 500)); // 0.5 seconds max
+        await Promise.race([discoverPromise, discoverTimeout]);
+        
+        // Wait for diagnostics to be collected (first time startup)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } else {
+        // Server is warmed up - minimal wait for fresh diagnostics
+        await new Promise(resolve => setTimeout(resolve, 200)); // Just 200ms
+      }
       
       // Get raw diagnostics from LSP
       const rawDiagnostics: DiagnosticResponse[] = [];
@@ -514,10 +524,19 @@ class LSPHttpServer {
         return !ig.ignores(relativePath);
       });
       
-      // Run server-side deduplication for project-wide, skip for file-specific
-      const newItemsToDisplay = filterFile 
-        ? relevantDiagnostics  // File-specific: no deduplication
-        : await this.deduplicator.processDiagnostics(relevantDiagnostics); // Project-wide: deduplication
+      // Run server-side deduplication 
+      let newItemsToDisplay: any[];
+      if (filterFile) {
+        // File-specific: check if file was modified since last display
+        const absoluteFilterPath = resolve(this.projectRoot, filterFile);
+        newItemsToDisplay = await this.deduplicator.processFileSpecificDiagnostics(
+          relevantDiagnostics, 
+          absoluteFilterPath
+        );
+      } else {
+        // Project-wide: full deduplication
+        newItemsToDisplay = await this.deduplicator.processDiagnostics(relevantDiagnostics);
+      }
       
       // Sort by priority: errors before warnings, then by line and column
       const sortedItems = newItemsToDisplay.sort((a, b) => {
@@ -543,9 +562,10 @@ class LSPHttpServer {
         file: relative(this.projectRoot, diag.file)
       }));
       
-      // Mark only the displayed items as shown (add to dedup database) - only for project-wide
-      // Non-displayed items remain "new" for next time
-      if (displayDiagnostics.length > 0 && !filterFile) {
+      // Mark only the displayed items as shown (add to dedup database)
+      // For single file: always mark if showing diagnostics (to track last display time)
+      // For project-wide: only mark if there are diagnostics to maintain "new" status
+      if (displayDiagnostics.length > 0) {
         await this.deduplicator.markAsDisplayed(displayDiagnostics);
       }
       
@@ -556,31 +576,56 @@ class LSPHttpServer {
         bySource[source] = (bySource[source] || 0) + 1;
       }
       
-      // Generate descriptive summary  
+      // Generate descriptive summary
       let summary: string;
-      if (relevantDiagnostics.length === 0) {
+      
+      // Check if there are ACTUAL diagnostics (before dedup)
+      const actualErrorCount = relevantDiagnostics.filter(d => d.severity === 'error').length;
+      const actualWarningCount = relevantDiagnostics.filter(d => d.severity === 'warning').length;
+      const hasActualDiagnostics = actualErrorCount > 0 || actualWarningCount > 0;
+      
+      // Check if there are NEW diagnostics to display (after dedup)
+      const newErrorCount = newItemsToDisplay.filter(d => d.severity === 'error').length;
+      const newWarningCount = newItemsToDisplay.filter(d => d.severity === 'warning').length;
+      const hasNewDiagnostics = newErrorCount > 0 || newWarningCount > 0;
+      
+      if (!hasActualDiagnostics) {
+        // No actual errors in the project - truly clean
         summary = "no warnings or errors";
-      } else {
-        const errorCount = relevantDiagnostics.filter(d => d.severity === 'error').length;
-        const warningCount = relevantDiagnostics.filter(d => d.severity === 'warning').length;
-        
-        if (errorCount > 0 && warningCount > 0) {
-          summary = `${errorCount} error(s), ${warningCount} warning(s)`;
-        } else if (errorCount > 0) {
-          summary = `${errorCount} error(s)`;
+      } else if (!hasNewDiagnostics) {
+        // There are errors but none are new (all filtered by dedup)
+        // Don't say "no warnings or errors" - that's misleading
+        // Instead, indicate the actual state
+        if (actualErrorCount > 0 && actualWarningCount > 0) {
+          summary = `${actualErrorCount} error(s), ${actualWarningCount} warning(s) (already reported)`;
+        } else if (actualErrorCount > 0) {
+          summary = `${actualErrorCount} error(s) (already reported)`;
         } else {
-          summary = `${warningCount} warning(s)`;
+          summary = `${actualWarningCount} warning(s) (already reported)`;
+        }
+      } else {
+        // Show count of NEW items being displayed
+        if (newErrorCount > 0 && newWarningCount > 0) {
+          summary = `${newErrorCount} error(s), ${newWarningCount} warning(s)`;
+        } else if (newErrorCount > 0) {
+          summary = `${newErrorCount} error(s)`;
+        } else {
+          summary = `${newWarningCount} warning(s)`;
         }
       }
 
       // Check if we should display "no errors" state (only for project-wide)
-      if (relevantDiagnostics.length === 0 && !filterFile) {
-        // Check if we already showed "no errors" state via deduplicator
+      if (!hasActualDiagnostics && !filterFile) {
+        // Only show "no errors" once when project is truly clean
         const shouldShow = await this.deduplicator.shouldShowNoErrorsState();
         if (!shouldShow) {
           // Don't show "no errors" again - return empty response
           return new Response("", { headers });
         }
+      } else if (!hasNewDiagnostics && !filterFile) {
+        // There are errors but all are already reported - don't spam
+        // Return empty response to avoid noise
+        return new Response("", { headers });
       }
 
       const result: any = { summary };
