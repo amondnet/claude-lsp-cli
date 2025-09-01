@@ -371,6 +371,8 @@ export class LSPClient {
       // Add Java memory limits to reduce risk of runaway heap usage
       if (language === 'java') {
         spawnOptions.env.JAVA_TOOL_OPTIONS = (spawnOptions.env.JAVA_TOOL_OPTIONS ? `${spawnOptions.env.JAVA_TOOL_OPTIONS} ` : '') + '-Xmx512m -Xms128m';
+        // Set JAVA_HOME to Java 21 which is required for jdtls
+        spawnOptions.env.JAVA_HOME = '/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home';
       }
       
       // Build args per language (avoid mutating shared config)

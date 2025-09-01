@@ -84,6 +84,18 @@ const getExampleProjects = () => {
 
 // Run diagnostic check for a project
 async function runDiagnostics(projectPath: string): Promise<{ summary: string; diagnostics: any[] }> {
+  // First call - warm up the server
+  await runDiagnosticsOnce(projectPath);
+  
+  // Wait for server to initialize and analyze files
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // Second call - get actual diagnostics
+  return runDiagnosticsOnce(projectPath);
+}
+
+// Single diagnostic run
+async function runDiagnosticsOnce(projectPath: string): Promise<{ summary: string; diagnostics: any[] }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(CLI_PATH, ["diagnostics", projectPath], {
       cwd: projectPath,
@@ -129,6 +141,18 @@ async function runDiagnostics(projectPath: string): Promise<{ summary: string; d
 
 // Run file-specific diagnostic check
 async function runFileDiagnostics(projectPath: string, filePath: string): Promise<{ summary: string; diagnostics: any[] }> {
+  // First call - warm up the server (project-level call)
+  await runDiagnosticsOnce(projectPath);
+  
+  // Wait for server to initialize
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // Second call - get file-specific diagnostics
+  return runFileSpecificDiagnostics(projectPath, filePath);
+}
+
+// Single file-specific diagnostic run
+async function runFileSpecificDiagnostics(projectPath: string, filePath: string): Promise<{ summary: string; diagnostics: any[] }> {
   return new Promise((resolve, reject) => {
     const fullFilePath = join(projectPath, filePath);
     const proc = spawn(CLI_PATH, ["diagnostics", projectPath, fullFilePath], {
