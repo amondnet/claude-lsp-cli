@@ -22,6 +22,8 @@ import {
   LanguageServerConfig 
 } from "./language-servers";
 
+type ServerState = 'starting' | 'initializing' | 'ready' | 'failed' | 'stopped';
+
 interface LSPServer {
   process: ChildProcess;
   connection: rpc.MessageConnection;
@@ -29,12 +31,16 @@ interface LSPServer {
   rootUri: string;
   language: string;
   metalsReady?: boolean;
+  state: ServerState;
+  startTime: number;
+  readyTime?: number;
 }
 
 import { DiagnosticDeduplicator } from './utils/diagnostic-dedup.js';
 
 export class LSPClient {
   private servers: Map<string, LSPServer> = new Map();
+  private startingServers: Map<string, Promise<void>> = new Map(); // Track servers being started
   private diagnostics: Map<string, Diagnostic[]> = new Map();
   private documentVersions: Map<string, number> = new Map();
   private fileLanguageMap: Map<string, string> = new Map();
@@ -61,8 +67,11 @@ export class LSPClient {
         // For pylsp, we need to check for both pylsp and python.*pylsp patterns
         // Use more specific pattern to avoid false positives and catch all Python LSP processes
         let processPattern: string;
-        if (config.command === 'pylsp') {
-          // Match both direct pylsp and python*pylsp patterns with better regex
+        // Special handling when using npx to launch pyright-langserver
+        if (config.command === 'npx' && (config.args || []).includes('pyright-langserver')) {
+          processPattern = 'pyright-langserver';
+        } else if (config.command === 'pylsp') {
+          // Legacy handling (no longer used): pylsp and python*pylsp
           processPattern = '(pylsp|python.*pylsp)';
         } else {
           processPattern = config.command;
@@ -110,8 +119,8 @@ export class LSPClient {
     try {
       const { spawn } = await import('child_process');
       
-      // Find all Python LSP processes
-      const findProc = spawn('pgrep', ['-f', '(pylsp|python.*pylsp)'], {
+      // Find all Python LSP processes (pyright)
+      const findProc = spawn('pgrep', ['-f', 'pyright-langserver'], {
         stdio: ['ignore', 'pipe', 'pipe']
       });
       
@@ -127,7 +136,7 @@ export class LSPClient {
             
             // Keep only the first process, kill the rest
             if (pids.length > 1) {
-              await logger.warn(`🧹 Found ${pids.length} Python LSP processes. Cleaning up extras...`);
+              await logger.warn(`🧹 Found ${pids.length} Python LSP (pyright) processes. Cleaning up extras...`);
               
               for (let i = 1; i < pids.length; i++) {
                 try {
@@ -196,15 +205,36 @@ export class LSPClient {
   }
 
   async startLanguageServer(language: string, rootPath: string): Promise<void> {
+    // Global per-language opt-out via environment variable
+    const disableVar = `CLAUDE_LSP_DISABLE_${language.toUpperCase()}`;
+    const disableVal = process.env[disableVar];
+    if (disableVal && (disableVal === '1' || disableVal.toLowerCase() === 'true')) {
+      await logger.warn(`${languageServers[language]?.name || language} LSP disabled via ${disableVar}`);
+      return;
+    }
+
+    console.log(`[DEBUG] startLanguageServer called for ${language} at ${rootPath}`);
     const config = languageServers[language];
     if (!config) {
+      console.log(`[DEBUG] Unknown language: ${language}`);
       await logger.error(`Unknown language: ${language}`);
       return;
     }
 
     // Check if we already have a server in our local cache (same LSPClient instance)
     if (this.servers.has(language)) {
-      await logger.info(`✅  Reusing local ${config.name} server connection`);
+      const server = this.servers.get(language)!;
+      if (server.state === 'ready') {
+        console.log(`[DEBUG] Reusing existing ready server for ${language}`);
+        await logger.info(`✅  Reusing local ${config.name} server connection`);
+        return;
+      }
+    }
+    
+    // Check if this server is already being started
+    if (this.startingServers.has(language)) {
+      console.log(`[DEBUG] Server already being started for ${language}, waiting...`);
+      await this.startingServers.get(language);
       return;
     }
 
@@ -213,6 +243,7 @@ export class LSPClient {
     if (failedInfo) {
       // If we've exceeded max attempts, don't try again
       if (failedInfo.count >= this.MAX_RESTART_ATTEMPTS) {
+        console.log(`[DEBUG] Server exceeded max restart attempts: ${failedInfo.count}`);
         await logger.error(`❌ ${config.name} server has failed ${failedInfo.count} times. Maximum restart attempts (${this.MAX_RESTART_ATTEMPTS}) exceeded. Giving up.`);
         return;
       }
@@ -221,22 +252,31 @@ export class LSPClient {
       const backoffTime = Math.min(60000, 5000 * Math.pow(2, failedInfo.count - 1)); // Exponential backoff up to 60s
       
       if (timeSinceLastAttempt < backoffTime) {
+        console.log(`[DEBUG] Server in backoff period: ${timeSinceLastAttempt}ms < ${backoffTime}ms`);
         await logger.warn(`⚠️ ${config.name} server failed ${failedInfo.count} times. Waiting ${Math.round((backoffTime - timeSinceLastAttempt) / 1000)}s before retry...`);
         return;
       }
     }
 
     // Check if a process is already running for this language server
+    console.log(`[DEBUG] Checking for existing process...`);
     const existingProcess = await this.checkExistingProcess(config);
     if (existingProcess) {
-      await logger.warn(`⚠️ ${config.name} process already running (PID: ${existingProcess}). Not spawning another.`);
-      // Mark as failed to prevent continuous spawn attempts
-      this.failedServers.set(language, {
-        count: (failedInfo?.count || 0) + 1,
-        lastAttempt: Date.now()
-      });
-      return;
+      console.log(`[DEBUG] Found existing process PID: ${existingProcess} - killing it to start fresh`);
+      await logger.warn(`⚠️ ${config.name} process already running (PID: ${existingProcess}). Killing it to start fresh.`);
+      
+      // Kill the existing process to start fresh
+      try {
+        process.kill(existingProcess, 'SIGTERM');
+        // Wait a moment for the process to die
+        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log(`[DEBUG] Killed existing process ${existingProcess}`);
+      } catch (err) {
+        console.log(`[DEBUG] Failed to kill process ${existingProcess}:`, err);
+        // Process might already be dead, continue anyway
+      }
     }
+    console.log(`[DEBUG] No existing process found or cleaned up, continuing...`);
 
     // Clean up any stale servers before starting a new one
     await this.checkProcessAlive();
@@ -246,18 +286,22 @@ export class LSPClient {
       await this.cleanupZombiePythonProcesses();
     }
 
+    console.log(`[DEBUG] Checking if ${language} server is installed...`);
     await logger.info(`Starting ${config.name} Language Server...`);
     
     // Check if server is installed
     if (!isLanguageServerInstalled(language)) {
+      console.log(`[DEBUG] Server not installed, install check: ${config.installCheck}`);
       await logger.error(getInstallInstructions(language));
       
       // Skip auto-install for bundled servers or auto-download servers
       if (config.installCheck === 'BUNDLED') {
         // These are bundled in the binary, just continue
+        console.log(`[DEBUG] Server is bundled`);
         await logger.info(`${config.name} is bundled - no installation needed`);
       } else if (config.installCheck === 'SKIP') {
         // These auto-download via npx, just continue
+        console.log(`[DEBUG] Server uses SKIP - should auto-download`);
         await logger.info(`${config.name} will be downloaded automatically via npx...`);
       }
       // For non-global packages, try auto-install (but NOT for our bunx servers)
@@ -276,8 +320,26 @@ export class LSPClient {
       }
     }
 
+    // Create a promise to track the server startup
+    const startupPromise = this.doStartServer(language, config, rootPath);
+    this.startingServers.set(language, startupPromise);
+    
+    try {
+      await startupPromise;
+    } finally {
+      // Clean up the tracking promise
+      this.startingServers.delete(language);
+    }
+  }
+  
+  private async doStartServer(language: string, config: LanguageServerConfig, rootPath: string): Promise<void> {
     // Start the server
     try {
+      await logger.info(`🚀 Attempting to spawn ${config.name} server`);
+      await logger.info(`   Command: ${config.command}`);
+      await logger.info(`   Args: ${JSON.stringify(config.args || [])}`);
+      await logger.info(`   CWD: ${rootPath}`);
+      
       // Add resource limits to prevent CPU spam
       const spawnOptions: any = {
         cwd: rootPath,
@@ -306,16 +368,32 @@ export class LSPClient {
         spawnOptions.env.TSS_DEBUG = '0';
         spawnOptions.env.TSSERVER_LOG_VERBOSITY = 'compact';
       }
+      // Add Java memory limits to reduce risk of runaway heap usage
+      if (language === 'java') {
+        spawnOptions.env.JAVA_TOOL_OPTIONS = (spawnOptions.env.JAVA_TOOL_OPTIONS ? `${spawnOptions.env.JAVA_TOOL_OPTIONS} ` : '') + '-Xmx512m -Xms128m';
+      }
       
-      const serverProcess = spawn(config.command, config.args || [], spawnOptions);
+      // Build args per language (avoid mutating shared config)
+      const spawnArgs = [...(config.args || [])];
+      if (language === 'java' && config.command === 'jdtls') {
+        // Use a per-project workspace to avoid cross-project reindex and reduce churn
+        const dataDir = join(rootPath, '.jdtls');
+        spawnArgs.push('-data', dataDir);
+      }
+
+      console.log(`[DEBUG] About to spawn: ${config.command} ${spawnArgs.join(' ')}`);
+      const serverProcess = spawn(config.command, spawnArgs, spawnOptions);
+      console.log(`[DEBUG] Spawned process PID: ${serverProcess.pid}`);
 
       // Register the server in the database
       if (this.deduplicator && serverProcess.pid) {
         this.deduplicator.registerLanguageServer(this.projectHash, language, serverProcess.pid);
+        console.log(`[DEBUG] Registered server PID ${serverProcess.pid}`);
         await logger.info(`📝 Registered ${config.name} server (PID: ${serverProcess.pid})`);
       }
 
       serverProcess.on('error', async (err) => {
+        console.log(`[DEBUG] Server process error:`, err);
         await logger.error(`Failed to start ${config.name} server:`, err);
         // Track failed server to prevent infinite respawn
         const failedInfo = this.failedServers.get(language) || { count: 0, lastAttempt: 0 };
@@ -328,9 +406,24 @@ export class LSPClient {
           this.deduplicator.removeLanguageServer(this.projectHash, language);
         }
       });
+      
+      serverProcess.on('exit', (code, signal) => {
+        console.log(`[DEBUG] Server process exited early with code ${code} and signal ${signal}`);
+        if (this.deduplicator) {
+          this.deduplicator.removeLanguageServer(this.projectHash, language);
+        }
+        // Track failed server
+        const failedInfo = this.failedServers.get(language) || { count: 0, lastAttempt: 0 };
+        this.failedServers.set(language, {
+          count: failedInfo.count + 1,
+          lastAttempt: Date.now()
+        });
+      });
 
       serverProcess.stderr?.on('data', async (data) => {
-        await logger.error(`${config.name} server error:`, data.toString());
+        const errorMsg = data.toString();
+        console.log(`[DEBUG] Server stderr:`, errorMsg);
+        await logger.error(`${config.name} server error:`, errorMsg);
       });
 
       const connection = rpc.createMessageConnection(
@@ -345,7 +438,9 @@ export class LSPClient {
         initialized: false,  // Will be set to true after initialization
         rootUri: `file://${resolve(rootPath)}`,
         language,
-        metalsReady: language !== "scala"  // Non-Scala servers are immediately ready
+        metalsReady: language !== "scala",  // Non-Scala servers are immediately ready
+        state: 'starting',
+        startTime: Date.now()
       };
       
       // Handle diagnostics
@@ -420,6 +515,9 @@ export class LSPClient {
       });
 
       connection.listen();
+      
+      // Update state to initializing
+      server.state = 'initializing';
 
       // Initialize the server
       const initParams: InitializeParams = {
@@ -453,8 +551,15 @@ export class LSPClient {
         initializationOptions: await this.getInitializationOptions(language)
       };
 
-      await connection.sendRequest("initialize", initParams) as any;
-      await logger.info(`✅ ${config.name} server initialized`);
+      console.log(`[DEBUG] Sending initialize request...`);
+      try {
+        const initResult = await connection.sendRequest("initialize", initParams) as any;
+        console.log(`[DEBUG] Initialize response:`, JSON.stringify(initResult).substring(0, 200));
+        await logger.info(`✅ ${config.name} server initialized`);
+      } catch (err) {
+        console.log(`[DEBUG] Initialize failed:`, err);
+        throw err;
+      }
 
       // Send initialized notification
       await connection.sendNotification("initialized", {});
@@ -470,9 +575,14 @@ export class LSPClient {
       
       // Store the server
       this.servers.set(language, server);
-
-      // Handle process exit to clean up database
+      
+      // Wait for server to be ready based on language-specific timing
+      await this.waitForServerReady(server, language, config);
+      
+      // Remove the early exit handler and add a proper one
+      serverProcess.removeAllListeners('exit');
       serverProcess.on('exit', (code, signal) => {
+        console.log(`[DEBUG] Server process exited with code ${code} and signal ${signal}`);
         if (this.deduplicator) {
           this.deduplicator.removeLanguageServer(this.projectHash, language);
           logger.info(`🗑️  Cleaned up ${config.name} server entry (exit code: ${code})`);
@@ -539,19 +649,26 @@ export class LSPClient {
     }
 
     if (!targetLanguage) {
+      console.log(`[DEBUG] No language server for ${extension} files`);
       await logger.debug(`No language server for ${extension} files`);
       return;
     }
 
+    console.log(`[DEBUG] Opening ${extension} file with ${targetLanguage} server`);
+    await logger.info(`🔍 Opening ${extension} file with ${targetLanguage} server`);
+
     // Start server if not already running
     if (!this.servers.has(targetLanguage)) {
       const rootPath = resolve(process.cwd());
+      console.log(`[DEBUG] Starting ${targetLanguage} server for ${rootPath}`);
+      await logger.info(`🚀 Starting ${targetLanguage} server for ${rootPath}`);
       await this.startLanguageServer(targetLanguage, rootPath);
     }
 
     const server = this.servers.get(targetLanguage);
     if (!server || !server.initialized) {
-      await logger.debug(`Server not ready for ${targetLanguage}`);
+      console.log(`[DEBUG] Server not ready for ${targetLanguage} - server exists: ${!!server}, initialized: ${server?.initialized}`);
+      await logger.warn(`⚠️ Server not ready for ${targetLanguage}`);
       return;
     }
 
@@ -686,7 +803,7 @@ export class LSPClient {
   private getLanguageId(language: string): string {
     const languageIdMap: Record<string, string> = {
       typescript: "typescript",
-      // python: "python",
+      python: "python",
       rust: "rust",
       go: "go",
       java: "java",
@@ -779,6 +896,47 @@ export class LSPClient {
 
   getAllDiagnostics(): Map<string, Diagnostic[]> {
     return new Map(this.diagnostics);
+  }
+  
+  getActiveLanguages(): string[] {
+    return Array.from(this.servers.keys());
+  }
+  
+  private async waitForServerReady(server: LSPServer, language: string, config: LanguageServerConfig): Promise<void> {
+    // Language-specific readiness timing
+    const readinessTiming: Record<string, number> = {
+      typescript: 3000,  // TypeScript needs time to parse tsconfig and build type graph
+      java: 10000,       // Java needs time to load JVM and index
+      scala: 5000,       // Scala/Metals needs time to compile
+      python: 2000,      // Python needs time to analyze imports
+      rust: 3000,        // Rust analyzer needs time to build
+      go: 500,           // Go is fast
+      ruby: 1000,        // Ruby is relatively fast
+      php: 1000,         // PHP is relatively fast
+      cpp: 2000,         // C++ needs time to parse compile_commands
+      elixir: 2000,      // Elixir needs time to compile
+      lua: 500,          // Lua is fast
+      terraform: 1000    // Terraform is relatively fast
+    };
+    
+    const waitTime = readinessTiming[language] || 1000;
+    
+    await logger.info(`⏳ Waiting ${waitTime}ms for ${config.name} to be ready...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+    
+    // For TypeScript, ensure the server is truly ready by making a test request
+    if (language === 'typescript' && server.process && !server.process.killed) {
+      await logger.info(`🔍 Verifying TypeScript server is responsive...`);
+      // Give it a bit more time to ensure it's fully initialized
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Mark server as ready
+    server.state = 'ready';
+    server.readyTime = Date.now();
+    
+    const totalTime = server.readyTime - server.startTime;
+    await logger.info(`✅ ${config.name} server ready after ${totalTime}ms`);
   }
 
   async stopLanguageServer(language: string): Promise<void> {

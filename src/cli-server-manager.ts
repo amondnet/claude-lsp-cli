@@ -19,7 +19,9 @@ const startingServers = new Map<string, Promise<string>>();
  * Check if a server is running for a project
  */
 export async function isServerRunning(projectRoot: string): Promise<boolean> {
-  const projectHash = secureHash(projectRoot).substring(0, 16);
+  // Use global server for all projects (disabled for tests)
+  const USE_GLOBAL = process.env.CLAUDE_LSP_GLOBAL_MODE === 'true';
+  const projectHash = USE_GLOBAL ? "global" : secureHash(projectRoot).substring(0, 16);
   
   // Use same socket directory as server
   const socketDir = process.env.XDG_RUNTIME_DIR || 
@@ -45,7 +47,10 @@ export async function isServerRunning(projectRoot: string): Promise<boolean> {
  * Ensure server is running for a project
  */
 export async function ensureServerRunning(projectRoot: string): Promise<string> {
-  const projectHash = secureHash(projectRoot).substring(0, 16);
+  // Use global server for all projects (disabled for tests)
+  const USE_GLOBAL = process.env.CLAUDE_LSP_GLOBAL_MODE === 'true';
+  const projectHash = USE_GLOBAL ? "global" : secureHash(projectRoot).substring(0, 16);
+  const serverProjectRoot = USE_GLOBAL ? "GLOBAL" : projectRoot;
   
   // Check if server is already being started
   const existingStart = startingServers.get(projectHash);
@@ -62,7 +67,7 @@ export async function ensureServerRunning(projectRoot: string): Promise<string> 
   const registry = ServerRegistry.getInstance();
   
   // Check registry first
-  const existingServer = registry.getServerByPath(projectRoot);
+  const existingServer = registry.getServerByPath(serverProjectRoot);
   
   if (existingServer) {
     // Ping to verify it's actually running
@@ -79,7 +84,7 @@ export async function ensureServerRunning(projectRoot: string): Promise<string> 
   }
   
   // Create the startup promise to prevent race conditions
-  const startupPromise = startNewServer(projectRoot, projectHash, socketPath);
+  const startupPromise = startNewServer(serverProjectRoot, projectHash, socketPath);
   startingServers.set(projectHash, startupPromise);
   
   try {
@@ -92,10 +97,39 @@ export async function ensureServerRunning(projectRoot: string): Promise<string> 
 }
 
 /**
+ * Enforce max server limit by stopping oldest servers
+ */
+async function enforceMaxServers(maxServers: number = 3): Promise<void> {
+  const registry = ServerRegistry.getInstance();
+  const servers = registry.getAllActiveServers();
+  
+  if (servers.length >= maxServers) {
+    // Sort by last_response (oldest first)
+    const sortedServers = servers.sort((a, b) => 
+      new Date(a.last_response).getTime() - new Date(b.last_response).getTime()
+    );
+    
+    // Stop oldest servers to make room
+    const toStop = sortedServers.slice(0, servers.length - maxServers + 1);
+    for (const server of toStop) {
+      await stopServerQuiet(server.project_root);
+    }
+  }
+}
+
+/**
  * Start a new server process
  */
 async function startNewServer(projectRoot: string, projectHash: string, socketPath: string): Promise<string> {
   const registry = ServerRegistry.getInstance();
+  
+  // Don't enforce max servers in global mode - there's only one  
+  const USE_GLOBAL = process.env.CLAUDE_LSP_GLOBAL_MODE === 'true';
+  if (!USE_GLOBAL) {
+    // Enforce max server limit before starting new one
+    const MAX_SERVERS = parseInt(process.env.CLAUDE_LSP_MAX_SERVERS || '3');
+    await enforceMaxServers(MAX_SERVERS);
+  }
   
   // Start new server
   const serverPath = findServerBinary();
@@ -115,19 +149,29 @@ async function startNewServer(projectRoot: string, projectHash: string, socketPa
   registry.registerServer(projectRoot, [], child.pid!, socketPath);
   
   // Wait for server to be ready
-  const maxWait = 30000; // 30 seconds
+  const maxWait = parseInt(process.env.CLAUDE_LSP_STARTUP_TIMEOUT || '10000'); // 10 seconds default, configurable
   const startWait = Date.now();
   
   while (Date.now() - startWait < maxWait) {
     if (await isServerRunning(projectRoot)) {
       return socketPath;
     }
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 200)); // Check more frequently
   }
   
   // Timeout - clean up
   registry.markServerStopped(projectHash);
-  throw new Error('Server startup timeout');
+  
+  // Kill the child process if it's still running
+  try {
+    if (child.pid) {
+      process.kill(child.pid, 'SIGKILL');
+    }
+  } catch (error) {
+    // Process might already be dead
+  }
+  
+  throw new Error(`Server startup timeout after ${maxWait}ms. Check if language servers are properly installed.`);
 }
 
 /**
@@ -173,6 +217,45 @@ export async function startServer(projectRoot: string): Promise<void> {
     console.error(`❌ Failed to start server: ${error}`);
     throw error;
   }
+}
+
+/**
+ * Stop a server for a project (quiet version for auto-cleanup)
+ */
+async function stopServerQuiet(projectRoot: string): Promise<void> {
+  const projectHash = secureHash(projectRoot).substring(0, 16);
+  const registry = ServerRegistry.getInstance();
+  
+  const server = registry.getServerByPath(projectRoot);
+  if (!server) {
+    return;
+  }
+  
+  // Try graceful shutdown first
+  try {
+    const response = await fetch('http://localhost/shutdown', {
+      method: 'POST',
+      // @ts-ignore - Bun supports unix option
+      unix: server.socket_path,
+      signal: AbortSignal.timeout(3000)
+    });
+    
+    if (response.ok) {
+      registry.markServerStopped(projectHash);
+      return;
+    }
+  } catch {
+    // Graceful shutdown failed
+  }
+  
+  // Force kill
+  try {
+    process.kill(server.pid, 'SIGKILL');
+  } catch (error) {
+    // Process may have already exited
+  }
+  
+  registry.markServerStopped(projectHash);
 }
 
 /**

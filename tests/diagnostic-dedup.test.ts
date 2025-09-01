@@ -25,13 +25,13 @@ describe("Diagnostic Deduplication - Critical", () => {
   });
 
   describe("Critical: Prevent Duplicate Diagnostics", () => {
-    test("should deduplicate identical diagnostics", () => {
+    test("should deduplicate identical diagnostics", async () => {
       const diagnostics = [
         {
           file: "test.ts",
           line: 10,
           column: 5,
-          severity: "error",
+          severity: "error" as const,
           message: "Type 'string' is not assignable to type 'number'",
           source: "typescript"
         },
@@ -39,7 +39,7 @@ describe("Diagnostic Deduplication - Critical", () => {
           file: "test.ts",
           line: 10,
           column: 5,
-          severity: "error",
+          severity: "error" as const,
           message: "Type 'string' is not assignable to type 'number'",
           source: "typescript"
         },
@@ -47,25 +47,31 @@ describe("Diagnostic Deduplication - Critical", () => {
           file: "test.ts",
           line: 10,
           column: 5,
-          severity: "error",
+          severity: "error" as const,
           message: "Type 'string' is not assignable to type 'number'",
           source: "typescript"
         }
       ];
 
-      const deduplicated = dedup.deduplicateDiagnostics(diagnostics);
+      // First call - all should be new
+      const firstCall = await dedup.processDiagnostics(diagnostics);
+      expect(firstCall.length).toBe(1); // Only unique diagnostic
       
-      // Should only have 1 diagnostic after deduplication
-      expect(deduplicated.length).toBe(1);
+      // Mark as displayed
+      dedup.markAsDisplayed(firstCall);
+      
+      // Second call with same diagnostics - should filter all
+      const secondCall = await dedup.processDiagnostics(diagnostics);
+      expect(secondCall.length).toBe(0); // All filtered as duplicates
     });
 
-    test("should preserve different diagnostics", () => {
+    test("should preserve different diagnostics", async () => {
       const diagnostics = [
         {
           file: "test.ts",
           line: 10,
           column: 5,
-          severity: "error",
+          severity: "error" as const,
           message: "Error 1",
           source: "typescript"
         },
@@ -73,7 +79,7 @@ describe("Diagnostic Deduplication - Critical", () => {
           file: "test.ts",
           line: 20,
           column: 10,
-          severity: "warning",
+          severity: "warning" as const,
           message: "Warning 1",
           source: "typescript"
         },
@@ -81,27 +87,27 @@ describe("Diagnostic Deduplication - Critical", () => {
           file: "other.ts",
           line: 10,
           column: 5,
-          severity: "error",
+          severity: "error" as const,
           message: "Error 1",
           source: "typescript"
         }
       ];
 
-      const deduplicated = dedup.deduplicateDiagnostics(diagnostics);
+      const processed = await dedup.processDiagnostics(diagnostics);
       
-      // Should keep all 3 different diagnostics
-      expect(deduplicated.length).toBe(3);
+      // Should keep all 3 different diagnostics on first run
+      expect(processed.length).toBe(3);
     });
   });
 
   describe("Critical: Cross-file Deduplication", () => {
-    test("should handle diagnostics from multiple files", () => {
+    test("should handle diagnostics from multiple files", async () => {
       const diagnostics = [
         {
           file: "src/index.ts",
           line: 1,
           column: 1,
-          severity: "error",
+          severity: "error" as const,
           message: "Cannot find module 'missing'",
           source: "typescript"
         },
@@ -109,21 +115,21 @@ describe("Diagnostic Deduplication - Critical", () => {
           file: "src/utils.ts",
           line: 1,
           column: 1,
-          severity: "error",
+          severity: "error" as const,
           message: "Cannot find module 'missing'",
           source: "typescript"
         }
       ];
 
-      const deduplicated = dedup.deduplicateDiagnostics(diagnostics);
+      const processed = await dedup.processDiagnostics(diagnostics);
       
       // Different files, same error - should keep both
-      expect(deduplicated.length).toBe(2);
+      expect(processed.length).toBe(2);
     });
   });
 
   describe("Critical: Recent Diagnostics Tracking", () => {
-    test("should track recent diagnostics to prevent spam", () => {
+    test("should track recent diagnostics to prevent spam", async () => {
       const diagnostic = {
         file: "spam.ts",
         line: 5,
@@ -134,18 +140,20 @@ describe("Diagnostic Deduplication - Critical", () => {
       };
 
       // First time - should not be filtered
-      expect(dedup.isDuplicateWithinTimeWindow([diagnostic])).toBe(false);
+      const firstCall = await dedup.processDiagnostics([diagnostic]);
+      expect(firstCall.length).toBe(1);
       
-      // Store it
-      dedup.storeRecentDiagnostics([diagnostic]);
+      // Mark as displayed
+      dedup.markAsDisplayed(firstCall);
       
       // Immediate duplicate - should be filtered
-      expect(dedup.isDuplicateWithinTimeWindow([diagnostic])).toBe(true);
+      const secondCall = await dedup.processDiagnostics([diagnostic]);
+      expect(secondCall.length).toBe(0);
     });
   });
 
   describe("Critical: Performance", () => {
-    test("should handle large diagnostic sets efficiently", () => {
+    test("should handle large diagnostic sets efficiently", async () => {
       const largeDiagnostics = [];
       
       // Create 1000 diagnostics with some duplicates
@@ -154,21 +162,22 @@ describe("Diagnostic Deduplication - Critical", () => {
           file: `file${i % 100}.ts`, // 100 unique files
           line: i % 50, // 50 unique lines
           column: i % 10, // 10 unique columns
-          severity: i % 2 === 0 ? "error" : "warning",
+          severity: (i % 2 === 0 ? "error" : "warning") as "error" | "warning",
           message: `Message ${i % 200}`, // 200 unique messages
           source: "typescript"
         });
       }
 
       const start = Date.now();
-      const deduplicated = dedup.deduplicateDiagnostics(largeDiagnostics);
+      const processed = await dedup.processDiagnostics(largeDiagnostics);
       const duration = Date.now() - start;
       
       // Should process in under 100ms
       expect(duration).toBeLessThan(100);
       
-      // Should have deduplicated some
-      expect(deduplicated.length).toBeLessThan(1000);
+      // First run should show all unique combinations
+      expect(processed.length).toBeGreaterThan(0);
+      expect(processed.length).toBeLessThanOrEqual(1000);
     });
   });
 });

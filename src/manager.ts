@@ -211,9 +211,13 @@ export async function stopLSPServer(projectInfo: ProjectInfo) {
   
   if (existsSync(pidFile)) {
     const pid = await Bun.file(pidFile).text();
-    await $`kill ${pid.trim()}`.quiet();
+    try {
+      await $`kill ${pid.trim()}`.quiet();
+      await logger.info(`Killed LSP server process ${pid.trim()}`);
+    } catch (e) {
+      await logger.info(`Process ${pid.trim()} was already stopped`);
+    }
     await $`rm -f ${pidFile}`.quiet();
-    await logger.info(`Killed LSP server process ${pid.trim()}`);
   }
   
   if (existsSync(socketPath)) {

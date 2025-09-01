@@ -180,7 +180,7 @@ To prevent spam while ensuring you see important changes, the system uses **serv
 - 🚀 **Multi-Language Support**: 13 languages working (TypeScript, JavaScript, Python, Go, Java, C++, Ruby, PHP, Scala, Rust, Lua, Elixir, Terraform)
 - 🔍 **Real-time Diagnostics**: Automatic error checking after every code edit in Claude
 - 🤖 **Claude Integration**: Seamless hook integration with Claude Code
-- 📦 **Auto-install**: Automatically installs TypeScript and PHP language servers
+- 📦 **Bundled TypeScript**: TypeScript server is bundled; others require manual install
 - 🎯 **Smart Detection**: Auto-detects project languages and starts appropriate servers
 - ⚡ **Fast**: Built with Bun for optimal performance
 - 🔒 **Secure**: Unix socket permissions (0600), path traversal protection, rate limiting
@@ -191,15 +191,16 @@ To prevent spam while ensuring you see important changes, the system uses **serv
 ## 📊 Language Support Status (11/13 Tested - 85% Success Rate)
 
 ### ✅ Working Languages (13 languages) - Tested and Confirmed
-- **TypeScript** - Full diagnostics, auto-installs, excellent performance ✓
+- **TypeScript** - Full diagnostics (bundled), excellent performance ✓
 - **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
-- **Python** - Full diagnostics via pylsp (mypy, pyflakes, pycodestyle) ✓
+- **Python** - Full diagnostics via Pyright (fast, incremental type checking) ✓
 - **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
 - **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
 - **Java** - Full diagnostics via jdtls (requires `brew install jdtls`) ✓
+  - Enabled by default. To opt out, set `CLAUDE_LSP_DISABLE_JAVA=1`.
 - **C/C++** - Full diagnostics (requires clangd installed) ✓
 - **Ruby** - Full diagnostics via Solargraph (requires `gem install solargraph` and `.solargraph.yml` config) ✓
-- **PHP** - Full diagnostics (auto-installs Intelephense) ✓
+- **PHP** - Full diagnostics (requires `npm i -g intelephense`) ✓
 - **Scala** - Full diagnostics (requires `cs install metals`) ✓
 - **Lua** - Full diagnostics (install via `mise install lua-language-server`) ✓
 - **Elixir** - Full diagnostics via Elixir LS (requires `mise install elixir-ls`) ✓
@@ -393,13 +394,13 @@ ls -la ~/Library/Application\ Support/claude-lsp/run/*.sock
 | Language              | Auto-Install | Manual Install Command                                                                                                                                                                      |
 | --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript/JavaScript | ✅           | Automatic with bun                                                                                                                                                                          |
-| Python                | ✅           | `pip install python-lsp-server`                                                                                                                                                             |
+| Python                | ❌           | `npm i -g pyright` (provides `pyright-langserver`)                                                                                                                                          |
 | Rust                  | ❌           | Usually installed with rustup: `rustup component add rust-analyzer` |
 | Go                    | ❌           | `go install golang.org/x/tools/gopls@latest`                                                                                                                                                |
 | Java                  | ❌           | `brew install jdtls`                                                                                                                                                                        |
 | C/C++                 | ❌           | `brew install llvm` (macOS) or `apt install clangd` (Linux)                                                                                                                                 |
 | Ruby                  | ❌           | `gem install solargraph`                                                                                                                                                                    |
-| PHP                   | ✅           | `bun add intelephense`                                                                                                                                                                      |
+| PHP                   | ❌           | `npm i -g intelephense`                                                                                                                                                                     |
 | Scala                 | ❌           | `cs install metals` (requires [Coursier](https://get-coursier.io/docs/cli-installation))                                                                                                    |
 | HTML/CSS              | ✅           | Automatic with bun                                                                                                                                                                          |
 | JSON/YAML             | ✅           | Automatic with bun                                                                                                                                                                          |
@@ -594,12 +595,16 @@ Found 3 diagnostics:
 LSP_PORT=3939              # HTTP server port
 PROJECT_ROOT=/path/to/project
 DEBUG=true                  # Enable debug logging
-AUTO_INSTALL=true           # Auto-install language servers
 
 # Diagnostic deduplication settings
 CLAUDE_LSP_RETENTION_HOURS=24  # Diagnostic memory window in hours (default: 24)
                                # Controls how long resolved diagnostics are remembered
                                # before they can be reported again if they reappear
+
+# Language opt-outs (disable a server entirely)
+# Example: disable Python and PHP
+# CLAUDE_LSP_DISABLE_PYTHON=1
+# CLAUDE_LSP_DISABLE_PHP=1
 ```
 
 ### Claude Settings
@@ -659,6 +664,25 @@ bun run src/enhanced-server.ts
 - [Language Support Guide](docs/LANGUAGE_SUPPORT.md) - Detailed language server information
 - [API Documentation](docs/API.md) - HTTP API reference
 - [Hook Development](docs/HOOKS.md) - Creating custom Claude Code hooks
+
+### Enabling Languages
+
+Servers only start when their language server is available on your system. If a server isn’t installed, it won’t run. Use these commands to enable languages:
+
+- TypeScript/JavaScript: Bundled (no action needed). Optional global: `npm i -g typescript-language-server typescript`
+- Python: `npm i -g pyright` (provides `pyright-langserver`)
+- PHP: `npm i -g intelephense`
+- Java: `brew install jdtls` (macOS) or install from Eclipse JDT LS releases
+- Go: `go install golang.org/x/tools/gopls@latest`
+- Rust: `rustup component add rust-analyzer`
+- C/C++: `brew install llvm` (macOS) or `apt install clangd` (Linux)
+- Ruby: `gem install solargraph` (requires `.solargraph.yml` in project)
+- Scala: `cs install metals` (Coursier)
+- Lua: `mise install lua-language-server@latest && mise use -g lua-language-server@latest`
+- Elixir: `mise install elixir-ls@latest`
+- Terraform: `mise install terraform-ls@latest && mise use -g terraform-ls@latest`
+
+Disable any language with an env var: `CLAUDE_LSP_DISABLE_<LANG>=1` (e.g., `CLAUDE_LSP_DISABLE_PYTHON=1`).
 
 ## 🤝 Contributing
 

@@ -101,9 +101,9 @@ describe("Language Servers", () => {
       expect(installed).toBe(false);
       
       const instructions = getInstallInstructions("unknown-lang" as any);
-      // The function returns specific instructions, not "Unknown language"
+      // The function returns empty string for unknown languages
       expect(typeof instructions).toBe("string");
-      expect(instructions.length).toBeGreaterThan(0);
+      expect(instructions).toBe("");
     });
   });
 

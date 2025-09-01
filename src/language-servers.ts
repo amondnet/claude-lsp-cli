@@ -19,64 +19,48 @@ function getElixirLSVersionPaths(name: string): string[] {
   }
 }
 
-// Helper to find executable in common locations
-function findExecutable(name: string): string | null {
-  const possiblePaths = [
-    // Standard PATH
-    name,
-    // Bun global bin path
-    join(process.env.HOME || "", ".bun", "bin", name),
-    // Go paths
-    join(process.env.HOME || "", "go", "bin", name),
-    join(process.env.GOPATH || "", "bin", name),
-    // Cargo/Rust paths
-    join(process.env.HOME || "", ".cargo", "bin", name),
-    // Coursier paths (for Scala/Java tools)
-    join(process.env.HOME || "", "Library", "Application Support", "Coursier", "bin", name),
-    // mise/asdf paths
-    join(process.env.HOME || "", ".local", "share", "mise", "shims", name),
-    // mise elixir-ls specific paths (try common version patterns)
-    join(process.env.HOME || "", ".local", "share", "mise", "installs", "elixir-ls", "latest", name),
-    // Dynamic elixir-ls version detection
-    ...getElixirLSVersionPaths(name),
-    // Homebrew paths
-    "/opt/homebrew/bin/" + name,
-    "/usr/local/bin/" + name,
-    // System paths
-    "/usr/bin/" + name,
-  ];
+// Helper to find executable - package manager agnostic
+function findExecutable(name: string, alternativeNames?: string[]): string | null {
+  // Build list of names to try (original + alternatives)
+  const namesToTry = [name, ...(alternativeNames || [])];
   
-  for (const path of possiblePaths) {
-    if (path.includes(process.env.HOME || "") && !process.env.HOME) continue;
+  for (const cmdName of namesToTry) {
+    // Use 'which' to find in PATH (works with any package manager)
+    const whichResult = spawnSync('which', [cmdName], {
+      timeout: 1000,
+      encoding: 'utf8'
+    });
     
-    // Try different version check approaches
-    const versionCommands = [
-      ["--version"],
-      ["version"],
-      ["-v"],
-      ["--help"]
-    ];
-    
-    for (const args of versionCommands) {
-      const result = spawnSync(path, args, { 
-        timeout: 2000,
-        stdio: 'ignore'
-      });
-      
-      if (result.status === 0) {
-        return path;
-      }
-    }
-    
-    // Special case for ElixirLS - it starts outputting LSP messages instead of help
-    if (path.includes("language_server.sh")) {
-      const result = spawnSync(path, [], { 
-        timeout: 500,
-        stdio: 'ignore'
-      });
-      // ElixirLS always exits with 0 and outputs JSON-RPC messages
-      if (result.status === 0 || result.signal === 'SIGTERM') {
-        return path;
+    if (whichResult.status === 0 && whichResult.stdout) {
+      const path = whichResult.stdout.trim();
+      if (path && existsSync(path)) {
+        // For language servers, just verify the file exists
+        // Many LSP servers don't support --version or --help flags
+        if (cmdName.includes("language") || cmdName.includes("server") || 
+            cmdName === "intelephense" || cmdName === "solargraph" || 
+            cmdName === "metals" || cmdName === "jdtls" || cmdName === "gopls") {
+          return path;
+        } else {
+          // For other tools, try to verify they work
+          const testResult = spawnSync(path, ['--version'], {
+            timeout: 2000,
+            stdio: 'ignore'
+          });
+          
+          // Some commands don't support --version, try --help
+          if (testResult.status !== 0) {
+            const helpResult = spawnSync(path, ['--help'], {
+              timeout: 2000,
+              stdio: 'ignore'
+            });
+            
+            if (helpResult.status === 0) {
+              return path;
+            }
+          } else {
+            return path;
+          }
+        }
       }
     }
   }
@@ -120,6 +104,7 @@ export interface LanguageServerConfig {
   args?: string[];
   installCommand?: string | null;
   installCheck?: string;
+  alternativeCommands?: string[]; // Alternative command names to check
   projectFiles: string[];
   extensions: string[];
   requiresGlobal?: boolean;
@@ -128,25 +113,13 @@ export interface LanguageServerConfig {
   diagnostics?: DiagnosticCapabilities;
 }
 
-// Dynamic command resolution for TypeScript
-function getTypeScriptCommand(): { command: string; args: string[] } {
-  // Check if typescript-language-server is available directly
-  const tsServerPath = findExecutable("typescript-language-server");
-  if (tsServerPath) {
-    return { command: tsServerPath, args: ["--stdio"] };
-  }
-  
-  // Fallback to npx
-  return { command: "npx", args: ["-y", "typescript-language-server", "--stdio"] };
-}
-
 export const languageServers: Record<string, LanguageServerConfig> = {
   typescript: {
     name: "TypeScript",
-    command: getTypeScriptCommand().command,
-    args: getTypeScriptCommand().args,
+    command: "typescript-language-server",
+    args: ["--stdio"],
     installCommand: null,
-    installCheck: "SKIP",
+    installCheck: "BUNDLED",
     projectFiles: ["tsconfig.json", "package.json", "jsconfig.json"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
     diagnostics: {
@@ -172,11 +145,12 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   },
   
   python: {
-    name: "Python (pylsp)",
-    command: "pylsp",
-    args: [],
-    installCommand: "pip install python-lsp-server",
-    installCheck: "pylsp",
+    name: "Python (Pyright)",
+    command: "pyright-langserver",
+    args: ["--stdio"],
+    alternativeCommands: ["pyright", "pyright-python-langserver", "basedpyright", "basedpyright-langserver"],
+    installCommand: "npm i -g pyright  # Or: mise use -g node@latest && mise install pyright",
+    installCheck: "pyright-langserver",
     projectFiles: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", ".python-version"],
     extensions: [".py", ".pyi"],
     requiresGlobal: true
@@ -206,16 +180,17 @@ export const languageServers: Record<string, LanguageServerConfig> = {
     requiresGlobal: true
   },
   
-  // java: {
-  //   name: "Java",
-  //   command: "jdtls",
-  //   args: [],
-  //   installCommand: "brew install jdtls",  // macOS, different for other OS
-  //   installCheck: "jdtls",
-  //   projectFiles: ["pom.xml", "build.gradle", "build.gradle.kts", ".classpath"],
-  //   extensions: [".java"],
-  //   requiresGlobal: true
-  // }, // DISABLED: Java LSP causes infinite CPU loops
+  java: {
+    name: "Java",
+    command: "jdtls",
+    args: [],
+    installCommand: "brew install jdtls",  // macOS; on Linux install manually from Eclipse JDT LS releases
+    installCheck: "jdtls",
+    projectFiles: ["pom.xml", "build.gradle", "build.gradle.kts", ".classpath"],
+    extensions: [".java"],
+    requiresGlobal: true,
+    manualInstallUrl: "https://projects.eclipse.org/projects/eclipse.jdt.ls"
+  },
   
   cpp: {
     name: "C/C++",
@@ -252,45 +227,50 @@ export const languageServers: Record<string, LanguageServerConfig> = {
   
   php: {
     name: "PHP",
-    command: "npx",
-    args: ["-y", "intelephense", "--stdio"],
-    installCommand: "Auto-download via npx",
-    installCheck: "SKIP",
+    command: "intelephense",
+    args: ["--stdio"],
+    installCommand: "npm i -g intelephense",
+    installCheck: "intelephense",
     projectFiles: ["composer.json", ".php-cs-fixer.php"],
     extensions: [".php"],
+    requiresGlobal: true
   },
   
   lua: {
     name: "Lua",
     command: "lua-language-server",
     args: [],
-    installCommand: "mise install lua-language-server@latest && mise use -g lua-language-server@latest",
+    installCommand: null,  // Manual installation required
     installCheck: "lua-language-server",
     projectFiles: [".luarc.json"],
     extensions: [".lua"],
-    requiresGlobal: true
+    requiresGlobal: true,
+    manualInstallUrl: "https://github.com/LuaLS/lua-language-server/releases"
   },
   
   elixir: {
     name: "Elixir",
-    command: "language_server.sh",
+    command: "elixir-ls",
     args: [],
-    installCommand: "mise install elixir-ls@latest && mise use -g elixir-ls@latest",
-    installCheck: "language_server.sh",
+    alternativeCommands: ["language_server.sh", "elixir-ls.sh"],
+    installCommand: null,  // Manual installation required
+    installCheck: "elixir-ls",
     projectFiles: ["mix.exs"],
     extensions: [".ex", ".exs"],
-    requiresGlobal: true
+    requiresGlobal: true,
+    manualInstallUrl: "https://github.com/elixir-lsp/elixir-ls/releases"
   },
   
   terraform: {
     name: "Terraform",
     command: "terraform-ls",
     args: ["serve"],
-    installCommand: "mise install terraform-ls@latest && mise use -g terraform-ls@latest",
+    installCommand: "brew install terraform-ls",  // Cross-platform with homebrew
     installCheck: "terraform-ls",
     projectFiles: [".terraform"],
     extensions: [".tf", ".tfvars"],
-    requiresGlobal: true
+    requiresGlobal: true,
+    manualInstallUrl: "https://github.com/hashicorp/terraform-ls/releases"
   }
 };
 
@@ -316,22 +296,37 @@ export function isLanguageServerInstalled(language: string): boolean {
   
   // Special handling for bundled servers
   if (config.installCheck === 'BUNDLED') {
-    // These are included in our package.json dependencies
-    // Check if we can find them in our own node_modules
+    // Use findExecutable with alternatives to check if the command exists anywhere
+    const execPath = findExecutable(config.command, config.alternativeCommands);
+    if (execPath) {
+      // Update the config with the found path
+      languageServers[language].command = execPath;
+      return true;
+    }
+    
+    // Fallback: check our own node_modules/.bin directory
+    const { basename } = require('path');
     const moduleDir = join(import.meta.dir, '..', 'node_modules');
-    const binPath = join(moduleDir, '.bin', config.command);
+    const commandName = basename(config.command);
+    const binPath = join(moduleDir, '.bin', commandName);
     if (existsSync(binPath)) {
-      // Update command to use full path
       languageServers[language].command = binPath;
       return true;
     }
     return false;
   }
   
+  // Special handling for SKIP - these are auto-downloaded via npx
+  if (config.installCheck === 'SKIP') {
+    // These servers auto-download via npx, so we always return true
+    // The actual check happens when we try to run the command
+    return true;
+  }
+  
   try {
     if (config.requiresGlobal) {
-      // Use our helper to find the executable
-      const execPath = findExecutable(config.command);
+      // Use our helper to find the executable with alternative names
+      const execPath = findExecutable(config.command, config.alternativeCommands);
       if (execPath) {
         // Update the config with the found path
         languageServers[language].command = execPath;
@@ -339,7 +334,7 @@ export function isLanguageServerInstalled(language: string): boolean {
       }
       return false;
     } else {
-      // For bun packages, check node_modules
+      // For local packages, check node_modules
       return existsSync(join(process.cwd(), 'node_modules', config.installCheck || config.command));
     }
   } catch {
@@ -347,7 +342,7 @@ export function isLanguageServerInstalled(language: string): boolean {
   }
 }
 
-export function getInstallInstructions(language: string): string {
+export function getInstallInstructions(language: string, projectPath?: string): string {
   const config = languageServers[language];
   if (!config) return "";
   
@@ -362,13 +357,18 @@ export function getInstallInstructions(language: string): string {
   }
   
   if (config.requiresGlobal) {
+    const restartCommand = projectPath 
+      ? `claude-lsp-cli reset ${projectPath}`
+      : `claude-lsp-cli reset <project-path>`;
+    
     return `
 ${config.name} Language Server is not installed.
 
 To install it globally, run:
 ${config.installCommand}
 
-After installation, restart the LSP server.
+After installation, restart the LSP server by running:
+${restartCommand}
 `;
   } else {
     return `

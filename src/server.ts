@@ -38,6 +38,12 @@ class LSPHttpServer {
   private deduplicator: DiagnosticDeduplicator;
   private fileEventDebounce: Map<string, NodeJS.Timeout> = new Map();
 
+  private isLanguageDisabled(lang: string): boolean {
+    const key = `CLAUDE_LSP_DISABLE_${lang.toUpperCase()}`;
+    const val = process.env[key];
+    return !!val && (val === '1' || val.toLowerCase() === 'true');
+  }
+
   constructor(projectRoot: string) {
     // Normalize to absolute path for consistent hashing
     this.projectRoot = resolve(projectRoot);
@@ -81,7 +87,7 @@ class LSPHttpServer {
         'react': 'typescript',
         'next': 'typescript',
         'vue': 'typescript',
-        // 'python': 'python',  // Disabled - spamming issues
+        'python': 'python',
         'rust': 'rust',
         'go': 'go',
         'scala': 'scala',
@@ -96,8 +102,13 @@ class LSPHttpServer {
       
       const lspLanguage = languageMap[projectConfig.language];
       if (lspLanguage) {
-        await this.client.startLanguageServer(lspLanguage, this.projectRoot);
-        detectedLanguages.push(lspLanguage);
+        // Optional opt-in for Java to avoid high CPU on some setups
+        if (lspLanguage === 'java' && process.env.CLAUDE_LSP_DISABLE_JAVA === '1') {
+          await logger.warn("Java LSP disabled via CLAUDE_LSP_DISABLE_JAVA=1");
+        } else {
+          await this.client.startLanguageServer(lspLanguage, this.projectRoot);
+          detectedLanguages.push(lspLanguage);
+        }
       }
     } else {
       await logger.warn("⚠️  No supported project type detected");
@@ -499,15 +510,19 @@ class LSPHttpServer {
 
   private async handleDiagnostics(req: Request, headers: any): Promise<Response> {
     try {
+      console.log(`[SERVER-DEBUG] handleDiagnostics called with URL: ${req.url}`);
       const url = new URL(req.url);
       const filePath = url.searchParams.get('file');
+      console.log(`[SERVER-DEBUG] filePath parameter: ${filePath}`);
       
       // For now, revert to the original approach until worker threads are properly set up
       // This ensures diagnostics work correctly
       const response = await this.handleProjectDiagnostics(headers, filePath || undefined);
+      console.log(`[SERVER-DEBUG] handleProjectDiagnostics returned response`);
       return response;
       
     } catch (error) {
+      console.log(`[SERVER-DEBUG] Error in handleDiagnostics:`, error);
       await logger.error('Failed to handle diagnostics', error);
       throw error;
     }
@@ -522,20 +537,39 @@ class LSPHttpServer {
       
       if (!alreadyHasFiles) {
         // First time - need to discover and open files
+        console.log(`[SERVER-DEBUG] First time - discovering files...`);
         const discoverPromise = this.discoverAndOpenProjectFiles();
         const discoverTimeout = new Promise(resolve => setTimeout(resolve, 500)); // 0.5 seconds max
         await Promise.race([discoverPromise, discoverTimeout]);
         
+        console.log(`[SERVER-DEBUG] Opened ${this.openDocuments.size} documents`);
         // Wait for diagnostics to be collected (first time startup)
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // TypeScript needs more time to analyze files
+        const languages = await this.client.getActiveLanguages();
+        const hasTypeScript = languages.includes('typescript');
+        const hasJava = languages.includes('java');
+        
+        let waitTime = 1000; // Default wait time
+        if (hasJava) {
+          waitTime = 5000; // Java needs much more time
+        } else if (hasTypeScript) {
+          waitTime = 3000; // TypeScript needs 3 seconds
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       } else {
         // Server is warmed up - minimal wait for fresh diagnostics
+        console.log(`[SERVER-DEBUG] Server warmed up - ${this.openDocuments.size} documents already open`);
         await new Promise(resolve => setTimeout(resolve, 200)); // Just 200ms
       }
       
       // Get raw diagnostics from LSP
       const rawDiagnostics: DiagnosticResponse[] = [];
       const allDiagnosticsMap = this.client.getAllDiagnostics();
+      console.log(`[SERVER-DEBUG] getAllDiagnostics returned ${allDiagnosticsMap.size} files`);
+      for (const [file, diags] of allDiagnosticsMap) {
+        console.log(`[SERVER-DEBUG]   ${file}: ${diags.length} diagnostics`);
+      }
       
       // Track diagnostics for internal use
       const diagnosticFiles = Array.from(allDiagnosticsMap.keys());
@@ -722,7 +756,7 @@ class LSPHttpServer {
   private async handleLanguages(headers: any): Promise<Response> {
     try {
       // Import language detection utilities
-      const { detectProjectLanguages, languageServers } = await import('./language-servers');
+      const { detectProjectLanguages, languageServers, isLanguageServerInstalled } = await import('./language-servers');
       
       // Detect project languages based on project files
       const detectedLanguages = detectProjectLanguages(this.projectRoot);
@@ -730,10 +764,11 @@ class LSPHttpServer {
       // Create language info objects with details
       const languages = detectedLanguages.map(lang => {
         const config = languageServers[lang];
+        const installed = isLanguageServerInstalled(lang);
         return {
           language: lang,
           extensions: config?.extensions || [],
-          installed: true // Assume installed if detected
+          installed
         };
       });
       
@@ -832,7 +867,8 @@ class LSPHttpServer {
     const { detectProjectLanguages, languageServers } = await import('./language-servers');
     
     // Detect project languages based on project files
-    const detectedLanguages = detectProjectLanguages(this.projectRoot);
+    const detectedLanguages = detectProjectLanguages(this.projectRoot)
+      .filter(lang => !this.isLanguageDisabled(lang));
     
     // Collect all extensions for detected languages
     const extensions = new Set<string>();

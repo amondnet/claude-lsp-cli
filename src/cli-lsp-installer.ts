@@ -6,8 +6,7 @@
  * that the claude-lsp-server will manage.
  */
 
-import { spawn } from "child_process";
-import { languageServers, isLanguageServerInstalled } from "./language-servers";
+import { languageServers, isLanguageServerInstalled, detectProjectLanguages, getInstallInstructions } from "./language-servers";
 
 /**
  * Install a specific language server
@@ -19,86 +18,27 @@ export async function installLanguageServer(language: string): Promise<void> {
     console.log("Use 'claude-lsp-cli list-servers' to see available languages");
     return;
   }
-  
-  console.log(`Installing ${config.name} Language Server...`);
-  
-  // Handle different installation methods
-  if (config.installCheck === 'SKIP') {
-    console.log("✅ This language server uses auto-download via bunx/npx - no installation needed");
+  const installed = isLanguageServerInstalled(language);
+  if (installed) {
+    console.log(`✅ ${config.name} is already installed.`);
     return;
   }
-  
-  if (config.installCommand === null && config.manualInstallUrl) {
-    console.log(`❌ ${config.name} requires manual installation for security.`);
-    console.log(`Please install from: ${config.manualInstallUrl}`);
-    return;
-  }
-  
-  if (!config.installCommand) {
-    console.log(`❌ No installation method available for ${config.name}`);
-    return;
-  }
-  
-  // Parse and execute install command
-  console.log(`Running: ${config.installCommand}`);
-  const parts = config.installCommand.split(' ');
-  const [cmd, ...args] = parts;
-  
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, {
-      stdio: 'inherit',
-      shell: false
-    });
-    
-    proc.on('exit', (code) => {
-      if (code === 0) {
-        console.log(`✅ ${config.name} Language Server installed successfully!`);
-        resolve();
-      } else {
-        console.error(`❌ Installation failed with exit code ${code}`);
-        reject(new Error(`Installation failed with exit code ${code}`));
-      }
-    });
-    
-    proc.on('error', (error) => {
-      console.error(`❌ Failed to run installation command: ${error.message}`);
-      reject(error);
-    });
-  });
+  console.log(`\n${config.name} (${language})`);
+  console.log("- How to enable:");
+  console.log(getInstallInstructions(language));
 }
 
 /**
  * Install all available language servers
  */
 export async function installAllLanguageServers(): Promise<void> {
-  const installable = Object.entries(languageServers)
-    .filter(([_, config]) => 
-      config.installCommand && 
-      config.installCommand !== "Automatic - uses bunx cache" &&
-      config.installCheck !== 'SKIP'
-    );
-  
-  console.log(`Installing ${installable.length} language servers...`);
-  
-  let successCount = 0;
-  let failCount = 0;
-  
-  for (const [language, config] of installable) {
-    console.log(`\nInstalling ${config.name}...`);
-    try {
-      await installLanguageServer(language);
-      successCount++;
-    } catch (error) {
-      console.error(`Failed to install ${config.name}`);
-      failCount++;
+  console.log("\nEnable Language Servers (instructions only):\n");
+  for (const [language, config] of Object.entries(languageServers)) {
+    const installed = isLanguageServerInstalled(language);
+    console.log(`${installed ? '✅' : '❌'} ${config.name} (${language})`);
+    if (!installed) {
+      console.log(getInstallInstructions(language));
     }
-  }
-  
-  console.log("\n" + "=".repeat(40));
-  console.log(`Installation Summary:`);
-  console.log(`   ✅ Successful: ${successCount}`);
-  if (failCount > 0) {
-    console.log(`   ❌ Failed: ${failCount}`);
   }
 }
 
@@ -114,29 +54,22 @@ export async function listLanguageServers(): Promise<void> {
   );
   
   for (const [language, config] of entries) {
-    const installed = await isLanguageServerInstalled(config);
+    const installed = await isLanguageServerInstalled(language);
     const status = installed ? "✅ Installed" : "❌ Not installed";
     
     console.log(`${status} ${config.name} (${language})`);
     
     if (!installed) {
-      if (config.installCommand) {
-        if (config.installCheck === 'SKIP') {
-          console.log(`            Auto-downloads on first use`);
-        } else {
-          console.log(`            Install: claude-lsp-cli install ${language}`);
-        }
-      } else if (config.manualInstallUrl) {
-        console.log(`            Manual install: ${config.manualInstallUrl}`);
-      } else {
-        console.log(`            No installation method available`);
+      const instructions = getInstallInstructions(language).trim();
+      for (const line of instructions.split('\n')) {
+        if (line.trim()) console.log(`            ${line}`);
       }
     }
   }
   
   console.log("\n" + "=".repeat(40));
-  console.log("To install a specific server: claude-lsp-cli install <language>");
-  console.log("To install all servers: claude-lsp-cli install-all");
+  console.log("Show instructions for one language: claude-lsp-cli install <language>");
+  console.log("Show instructions for all: claude-lsp-cli install-all");
 }
 
 /**
@@ -203,7 +136,7 @@ export async function listProjects(baseDir: string): Promise<void> {
   
   const absolutePath = resolve(baseDir);
   const projects = await findNestedProjects(absolutePath);
-  
-  // Output as JSON array for consumption by tests or other tools
+  // Keep list-projects simple and non-overlapping with help/install commands
+  // Output just the array of project paths
   console.log(JSON.stringify(projects, null, 2));
 }

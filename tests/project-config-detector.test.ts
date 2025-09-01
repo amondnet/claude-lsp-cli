@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { ProjectConfigDetector } from "../src/project-config-detector";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
@@ -34,7 +34,7 @@ describe("ProjectConfigDetector", () => {
 
       expect(config).toBeTruthy();
       expect(config?.language).toBe("typescript");
-      expect(config?.framework).toBe("node");
+      expect(config?.framework).toBeUndefined(); // No specific framework, just TypeScript
     });
 
     test("should detect React project", async () => {
@@ -183,18 +183,25 @@ describe("ProjectConfigDetector", () => {
   });
 
   describe("Edge Cases", () => {
-    test("should return null for empty directory", async () => {
+    test("should return default config for empty directory", async () => {
       const detector = new ProjectConfigDetector(testDir);
       const config = await detector.detect();
 
-      expect(config).toBeNull();
+      // Empty directories default to JavaScript with mise package manager
+      expect(config).toBeTruthy();
+      expect(config?.language).toBe("javascript");
+      expect(config?.packageManager).toBe("mise");
+      expect(config?.framework).toBeUndefined();
     });
 
     test("should handle non-existent directory gracefully", async () => {
       const detector = new ProjectConfigDetector("/non/existent/path");
       const config = await detector.detect();
 
-      expect(config).toBeNull();
+      // Non-existent directories still return default config
+      expect(config).toBeTruthy();
+      expect(config?.language).toBe("javascript");
+      expect(config?.packageManager).toBe("mise");
     });
 
     test("should prioritize TypeScript over JavaScript", async () => {
@@ -209,14 +216,16 @@ describe("ProjectConfigDetector", () => {
       expect(config?.language).toBe("typescript");
     });
 
-    test("should detect based on file extensions if no config files", async () => {
+    test("should detect Python with requirements.txt", async () => {
       writeFileSync(join(testDir, "main.py"), "print('hello')");
       writeFileSync(join(testDir, "utils.py"), "def helper(): pass");
+      writeFileSync(join(testDir, "requirements.txt"), "requests==2.28.0");
 
       const detector = new ProjectConfigDetector(testDir);
       const config = await detector.detect();
 
       expect(config?.language).toBe("python");
+      expect(config?.packageManager).toBe("mise");
     });
   });
 });

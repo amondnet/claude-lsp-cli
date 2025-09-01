@@ -19,6 +19,7 @@ import { ServerRegistry } from "./utils/server-registry";
 import * as serverManager from "./cli-server-manager";
 import * as diagnosticsClient from "./cli-diagnostics";
 import * as lspInstaller from "./cli-lsp-installer";
+import { languageServers, isLanguageServerInstalled, getInstallInstructions } from "./language-servers";
 
 // Helper function to find the nearest project root for a file (delegates to diagnostics client)
 async function findNearestProjectRoot(filePath: string): Promise<string> {
@@ -361,64 +362,97 @@ async function queryMultiProjectDiagnostics(projects: string[]) {
   process.exit(0);
 }
 
-function showHelp() {
+async function showHelp() {
   console.log(`
-Claude LSP CLI - Language Server Protocol client for Claude Code
+Claude LSP CLI - Real-time diagnostics for Claude Code
 
-Usage:
-  claude-lsp-cli hook <event-type>           Handle Claude Code hook events
-  claude-lsp-cli diagnostics <project> [file] Query diagnostics
-  claude-lsp-cli status [project]            Show running LSP servers
-  claude-lsp-cli start <project>             Start LSP server for project
-  claude-lsp-cli stop <project>              Stop LSP server for project
-  claude-lsp-cli stop-all                    Stop all running LSP servers
-  claude-lsp-cli stop-idle [minutes]         Stop servers idle > N minutes (default: 30)
-  claude-lsp-cli reset <project>             Reset LSP server cache (fast)
-  claude-lsp-cli reset-dedup <project>       Reset deduplication only (faster)
-  claude-lsp-cli install <language>          Install language server
-  claude-lsp-cli install-all                 Install all supported language servers
-  claude-lsp-cli list-servers                List available language servers
-  claude-lsp-cli list-projects <directory>   Find all projects in directory
-  claude-lsp-cli get-lsp-scope <project>     Get LSP scope for a project
-  claude-lsp-cli help                        Show this help message
+Language Servers:
+  list-servers              Check which language servers are installed
+  install <language>        Get install instructions for a language
 
-Hook Event Types:
-  PreToolUse     - Before tool execution  
-  PostToolUse    - After tool execution (main use case)
-  
-Examples:
-  # Handle PostToolUse hook (called by Claude Code)
-  claude-lsp-cli hook PostToolUse
-  
-  # Query project-wide diagnostics (with deduplication)
-  claude-lsp-cli diagnostics /path/to/project
-  
-  # Query file-specific diagnostics (no deduplication)
-  claude-lsp-cli diagnostics /path/to/file.ts
-  
-  # Show running servers
-  claude-lsp-cli status
-  
-  # Start server for specific project
-  claude-lsp-cli start /path/to/project
-  
-  # Stop server for specific project
-  claude-lsp-cli stop /path/to/project
-  
-  # Kill all LSP servers
-  claude-lsp-cli stop-all
+Server Management:
+  status                    Show running LSP servers
+  start <project>           Start LSP server for project  
+  stop-all                  Stop all LSP servers
+  diagnostics <project>     Query project diagnostics
 
-  # List all projects in current directory
-  claude-lsp-cli list-projects .
+Setup Hook (for automatic diagnostics):
+  Add to ~/.claude/settings.json:
+  { "hooks": { "PostToolUse": [{ 
+    "hooks": [{ "type": "command", 
+      "command": "claude-lsp-cli hook PostToolUse" }] }] } }
 
-Configuration:
-  The CLI reads hook data from stdin when handling hook events.
-  For direct queries, it connects to the LSP server via Unix socket.
-  
 Environment Variables:
-  LOG_LEVEL      - Set logging level (ERROR, WARN, INFO, DEBUG)
-  CLAUDE_HOME    - Claude home directory (default: ~/.claude)
+  CLAUDE_LSP_GLOBAL_MODE=true    Use one global server (optional)
 `);
+}
+
+async function showAllCommands() {
+  console.log(`
+All Commands:
+
+Server Management:
+  status [project]          Show running LSP servers
+  start <project>           Start LSP server for project
+  stop <project>            Stop LSP server for project
+  stop-all                  Stop all running LSP servers
+  stop-idle [minutes]       Stop servers idle > N minutes
+
+Diagnostics:
+  diagnostics <project>     Query project-wide diagnostics
+  reset <project>           Reset LSP server cache
+  reset-dedup <project>     Reset deduplication only
+
+Language Servers:
+  list-servers              Show language server status
+  install <language>        Show install instructions
+  install-all               Show all install instructions
+
+Discovery:
+  list-projects <dir>       Find all projects in directory
+  get-lsp-scope <project>   Get LSP scope for a project
+
+Hook Integration:
+  hook <event-type>         Handle Claude Code hook events
+
+Environment Variables:
+  CLAUDE_LSP_GLOBAL_MODE    Use one global server (default: true)
+  CLAUDE_LSP_MAX_SERVERS    Max concurrent servers (default: 3)
+  LOG_LEVEL                 Set logging level (ERROR, WARN, INFO, DEBUG)
+`);
+}
+
+async function showLanguageServers() {
+  console.log("\nLanguage Servers Status:");
+  console.log("------------------------");
+  try {
+    const entries = Object.entries(languageServers).sort((a, b) => a[1].name.localeCompare(b[1].name));
+    
+    // Check all language servers in parallel for speed
+    const checkPromises = entries.map(async ([lang, cfg]) => ({
+      lang,
+      cfg,
+      installed: await Promise.resolve(isLanguageServerInstalled(lang))
+    }));
+    
+    const results = await Promise.all(checkPromises);
+    
+    // Display results in the original sorted order
+    for (const { lang, cfg, installed } of results) {
+      console.log(`${installed ? '✅' : '❌'} ${cfg.name} (${lang})`);
+      if (!installed) {
+        const instructions = getInstallInstructions(lang).trim();
+        if (instructions) {
+          console.log("  How to enable:");
+          for (const line of instructions.split('\n')) {
+            if (line.trim()) console.log(`    ${line}`);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Non-fatal; help should still print
+  }
 }
 
 async function showStatus(projectRoot?: string) {
@@ -846,7 +880,11 @@ async function resetServer(projectRoot: string) {
   const projectHash = secureHash(projectRoot).substring(0, 16);
   
   // Use the same socket path as the server
-  const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+  const socketDir = process.env.XDG_RUNTIME_DIR || 
+                   (process.platform === 'darwin' 
+                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
+                     : `${process.env.HOME}/.claude-lsp/run`);
+  const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
 
   try {
     console.log(`Resetting LSP server for project: ${projectRoot}`);
@@ -880,7 +918,11 @@ async function resetDedup(projectRoot: string) {
   const projectHash = secureHash(projectRoot).substring(0, 16);
   
   // Use the same socket path as the server
-  const socketPath = `/tmp/claude-lsp-${projectHash}.sock`;
+  const socketDir = process.env.XDG_RUNTIME_DIR || 
+                   (process.platform === 'darwin' 
+                     ? `${process.env.HOME}/Library/Application Support/claude-lsp/run`
+                     : `${process.env.HOME}/.claude-lsp/run`);
+  const socketPath = `${socketDir}/claude-lsp-${projectHash}.sock`;
 
   try {
     console.log(`Resetting deduplication for project: ${projectRoot}`);
@@ -1104,7 +1146,7 @@ if (command === "hook" && eventType) {
 } else if (command === "get-lsp-scope" && args[1]) {
   await getLspScope(args[1]);
 } else if (command === "help" || command === "--help" || command === "-h") {
-  showHelp();
+  await showHelp();
 } else if (command === "--version" || command === "-v") {
   // Read version from package.json
   try {
@@ -1116,9 +1158,9 @@ if (command === "hook" && eventType) {
   }
 } else if (!command) {
   // No command provided - just show help
-  showHelp();
+  await showHelp();
 } else {
   console.error(`Invalid command: ${command}. Use 'claude-lsp-cli help' for usage information.`);
-  showHelp();
+  await showHelp();
   process.exit(1);
 }

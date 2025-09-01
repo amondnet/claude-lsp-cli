@@ -8,7 +8,7 @@
  */
 
 // Import the CLI handler which contains all the logic
-import { handleHookEvent } from "../src/diagnostics";
+import { handleHookEvent } from "../src/cli-hooks";
 
 async function main() {
   try {
