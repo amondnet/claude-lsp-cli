@@ -363,18 +363,62 @@ async function queryMultiProjectDiagnostics(projects: string[]) {
 }
 
 async function showHelp() {
+  console.log(`Claude LSP CLI - Real-time diagnostics for Claude Code\n`);
+  
+  // Check language support in parallel
+  console.log("Language Support Status:");
+  console.log("─".repeat(70));
+  
+  const languages = [
+    { name: "TypeScript", cmd: "tsc", install: "npm install -g typescript" },
+    { name: "Python", cmd: "pyright", install: "pip install pyright" },
+    { name: "Go", cmd: "go", install: "https://go.dev/dl/" },
+    { name: "Rust", cmd: "rustc", install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" },
+    { name: "Java", cmd: "javac", install: "https://adoptium.net/" },
+    { name: "C/C++", cmd: "gcc", install: "Install GCC or Clang" },
+    { name: "PHP", cmd: "php", install: "https://www.php.net/downloads" },
+    { name: "Swift", cmd: "swiftc", install: "Install Xcode (macOS)" },
+  ];
+  
+  // Check all languages in parallel
+  const checkPromises = languages.map(async (lang) => {
+    try {
+      // Check in PATH and common locations
+      const proc = Bun.spawn(["which", lang.cmd], { 
+        stdio: ["ignore", "pipe", "ignore"],
+        env: { 
+          ...process.env, 
+          PATH: `${process.env.HOME}/.bun/bin:${process.env.HOME}/.local/bin:${process.env.PATH}` 
+        }
+      });
+      await proc.exited;
+      return { ...lang, installed: proc.exitCode === 0 };
+    } catch {
+      return { ...lang, installed: false };
+    }
+  });
+  
+  const results = await Promise.all(checkPromises);
+  
+  // Display results
+  for (const lang of results) {
+    const status = lang.installed ? "✅" : "❌";
+    const name = lang.name.padEnd(12);
+    console.log(`  ${status} ${name} ${lang.cmd.padEnd(10)}`);
+    if (!lang.installed) {
+      console.log(`     → Install: ${lang.install}`);
+    }
+  }
+  
   console.log(`
-Claude LSP CLI - Real-time diagnostics for Claude Code
-
-Language Servers:
+Commands:
   list-servers              Check which language servers are installed
   install <language>        Get install instructions for a language
-
-Server Management:
   status                    Show running LSP servers
   start <project>           Start LSP server for project  
   stop-all                  Stop all LSP servers
   diagnostics <project>     Query project diagnostics
+  help                      Show this help message
 
 Setup Hook (for automatic diagnostics):
   Add to ~/.claude/settings.json:
@@ -383,8 +427,7 @@ Setup Hook (for automatic diagnostics):
       "command": "claude-lsp-cli hook PostToolUse" }] }] } }
 
 Environment Variables:
-  CLAUDE_LSP_GLOBAL_MODE=true    Use one global server (optional)
-`);
+  CLAUDE_LSP_GLOBAL_MODE=true    Use one global server (optional)`);
 }
 
 async function showAllCommands() {

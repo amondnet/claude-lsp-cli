@@ -98,11 +98,16 @@ async function handlePostToolUse(hookData: any): Promise<boolean> {
   await logger.debug('Hook data received:', hookData);
   
   // Check if this is a file-specific tool (Edit, Write, MultiEdit, etc.)
-  // Support both 'tool' and 'toolName' fields for compatibility
-  const toolName = hookData?.toolName || hookData?.tool;
+  // Support both 'tool_name' (official) and 'tool' (legacy/test) fields
+  const toolName = hookData?.tool_name || hookData?.toolName || hookData?.tool;
   const fileSpecificTool = toolName && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(toolName);
-  // Also check output for file_path (tests use this structure)
-  const targetFile = hookData?.input?.file_path || hookData?.input?.input_path || hookData?.input?.path || hookData?.output?.file_path;
+  
+  // Extract target file using official schema + legacy fallbacks
+  const targetFile = hookData?.tool_input?.file_path || 
+                    hookData?.tool_response?.filePath ||
+                    hookData?.tool_response?.file_path ||
+                    hookData?.input?.file_path || 
+                    hookData?.output?.file_path;
   
   // Determine current project root early
   let currentProjectRoot: string | null = null;

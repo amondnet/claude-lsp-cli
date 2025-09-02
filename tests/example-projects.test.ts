@@ -1,262 +1,164 @@
-import { describe, test, expect, beforeAll } from "bun:test";
-import { join } from "path";
-import { existsSync, readdirSync } from "fs";
+import { describe, test, expect } from "bun:test";
 import { spawn } from "bun";
+import { existsSync } from "fs";
+import { join } from "path";
 
-const EXAMPLES_DIR = join(import.meta.dir, "../examples");
-const CLI_PATH = join(import.meta.dir, "../src/cli.ts");
+const HOOK_BIN = "./bin/claude-lsp-file-hook";
+const EXAMPLES_DIR = "./examples";
 
-// Get all example projects
-const exampleProjects = readdirSync(EXAMPLES_DIR)
-  .filter(dir => existsSync(join(EXAMPLES_DIR, dir)) && 
-          !dir.startsWith('.'));
+// Language-specific test files and expected error patterns
+const LANGUAGE_TESTS = [
+  {
+    project: "typescript-project",
+    file: "src/index.ts",
+    expectedPattern: /Type '(number|string|boolean)' is not assignable to type/,
+    requiresInstall: false
+  },
+  {
+    project: "python-project",
+    file: "main.py",
+    expectedPattern: /Type "str \| int" is not assignable to declared type "str"/,
+    requiresInstall: true // Requires pyright
+  },
+  {
+    project: "go-project",
+    file: "main.go",
+    expectedPattern: /cannot use .* \(.*type .*\) as .*type .* in/,
+    requiresInstall: true // Requires gopls
+  },
+  {
+    project: "java-project",
+    file: "src/main/java/com/example/Main.java",
+    expectedPattern: /incompatible types|cannot find symbol/,
+    requiresInstall: true // Requires jdtls
+  },
+  {
+    project: "rust-project",
+    file: "src/main.rs",
+    expectedPattern: /mismatched types|cannot find/,
+    requiresInstall: true // Requires rust-analyzer
+  },
+  {
+    project: "php-project",
+    file: "index.php",
+    expectedPattern: /Undefined variable|syntax error/,
+    requiresInstall: true // Requires intelephense
+  },
+  {
+    project: "cpp-project",
+    file: "main.cpp",
+    expectedPattern: /error:|undeclared identifier/,
+    requiresInstall: true // Requires clangd
+  }
+];
 
-describe("Example Projects Diagnostics", () => {
-  
-  describe("Project-Level Diagnostics", () => {
-    for (const projectName of exampleProjects) {
-      test(`should get diagnostics for ${projectName} project root`, async () => {
-        const projectPath = join(EXAMPLES_DIR, projectName);
-        
-        // Run diagnostics for the project root
-        const proc = spawn(["bun", CLI_PATH, "diagnostics", projectPath], {
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...process.env, DEBUG: "false" }
-        });
-        
-        const output = await new Response(proc.stdout).text();
-        const exitCode = await proc.exited;
-        
-        // Should exit successfully
-        expect(exitCode).toBe(0);
-        
-        // Should return valid JSON (may be wrapped in [[system-message]]:)
-        let diagnostics;
-        try {
-          // Handle both plain JSON and system-message format
-          let jsonStr = output;
-          if (output.includes('[[system-message]]:')) {
-            jsonStr = output.replace('[[system-message]]:', '').trim();
-          }
-          diagnostics = JSON.parse(jsonStr);
-        } catch (e) {
-          // Empty output is ok for some projects
-          if (!output || output.trim() === '') {
-            diagnostics = null;
-          } else {
-            throw new Error(`Invalid JSON output for ${projectName}: ${output}`);
-          }
-        }
-        
-        // Should have the expected structure
-        expect(diagnostics).toBeDefined();
-        
-        // If it's an object with diagnostics property
-        if (diagnostics && typeof diagnostics === 'object') {
-          if ('diagnostics' in diagnostics) {
-            expect(Array.isArray(diagnostics.diagnostics)).toBe(true);
-          } else if ('error' in diagnostics) {
-            // Error is ok for unsupported languages
-            expect(diagnostics.error).toBeDefined();
-          } else if (Array.isArray(diagnostics)) {
-            // Array of diagnostics is ok
-            expect(true).toBe(true);
-          }
-        }
-        
-        // Log summary for debugging
-        const diagCount = Array.isArray(diagnostics) ? diagnostics.length :
-                         diagnostics?.diagnostics ? diagnostics.diagnostics.length : 0;
-        console.log(`  ${projectName}: ${diagCount} diagnostics found`);
-      }, 30000); // 30 second timeout per project
-    }
+describe("Example Project Error Detection", () => {
+  // Check if hook binary exists
+  test("hook binary should exist", () => {
+    expect(existsSync(HOOK_BIN)).toBe(true);
   });
-  
-  describe("Individual File Diagnostics", () => {
-    // Define test files for each project type
-    const projectTestFiles: Record<string, string[]> = {
-      "typescript-project": ["src/index.ts", "src/utils.ts"],
-      "javascript-project": ["src/index.js"],
-      "python-project": ["main.py", "src/utils.py"],
-      "go-project": ["cmd/main.go", "internal/utils.go"],
-      "rust-project": ["src/main.rs", "src/lib.rs"],
-      "java-project": ["src/main/java/com/example/Main.java"],
-      "scala-project": ["src/main/scala/Main.scala"],
-      "ruby-project": ["lib/main.rb"],
-      "php-project": ["src/index.php"],
-      "cpp-project": ["src/main.cpp"],
-      "lua-project": ["src/main.lua"],
-      "elixir-project": ["lib/example.ex"],
-      "terraform-project": ["main.tf"],
-      "bun-project": ["index.ts"],
-      "aaa-test-project": ["package.json"] // JSON validation
-    };
+
+  // Test each language
+  for (const lang of LANGUAGE_TESTS) {
+    const projectPath = join(EXAMPLES_DIR, lang.project);
+    const filePath = join(projectPath, lang.file);
     
-    for (const [projectName, testFiles] of Object.entries(projectTestFiles)) {
-      if (!exampleProjects.includes(projectName)) continue;
-      
-      describe(`${projectName} files`, () => {
-        for (const testFile of testFiles) {
-          const filePath = join(EXAMPLES_DIR, projectName, testFile);
-          
-          // Only test if file exists
-          if (!existsSync(filePath)) {
-            test.skip(`should get diagnostics for ${testFile}`, () => {});
-            continue;
-          }
-          
-          test(`should get diagnostics for ${testFile}`, async () => {
-            const projectPath = join(EXAMPLES_DIR, projectName);
-            
-            // Run diagnostics for the specific file
-            const proc = spawn([
-              "bun", CLI_PATH, "diagnostics", 
-              projectPath, "--file", filePath
-            ], {
-              stdout: "pipe",
-              stderr: "pipe",
-              env: { ...process.env, DEBUG: "false" }
-            });
-            
-            const output = await new Response(proc.stdout).text();
-            const exitCode = await proc.exited;
-            
-            // Should exit successfully
-            expect(exitCode).toBe(0);
-            
-            // Should return valid JSON (may be wrapped in [[system-message]]:)
-            let diagnostics;
-            try {
-              // Handle both plain JSON and system-message format
-              let jsonStr = output;
-              if (output.includes('[[system-message]]:')) {
-                jsonStr = output.replace('[[system-message]]:', '').trim();
-              }
-              diagnostics = JSON.parse(jsonStr);
-            } catch (e) {
-              // Empty output is ok
-              if (!output || output.trim() === '') {
-                diagnostics = null;
-              } else {
-                throw new Error(`Invalid JSON for ${projectName}/${testFile}: ${output}`);
-              }
-            }
-            
-            // Should have the expected structure
-            expect(diagnostics).toBeDefined();
-            
-            // Check if diagnostics are for the requested file
-            if (Array.isArray(diagnostics)) {
-              // All diagnostics should be for the requested file or empty
-              const relevantDiags = diagnostics.filter(d => 
-                d.file === filePath || d.uri?.includes(testFile)
-              );
-              
-              // Log for debugging
-              console.log(`    ${testFile}: ${relevantDiags.length}/${diagnostics.length} diagnostics`);
-            } else if (diagnostics?.diagnostics) {
-              const relevantDiags = diagnostics.diagnostics.filter((d: any) => 
-                d.file === filePath || d.uri?.includes(testFile)
-              );
-              console.log(`    ${testFile}: ${relevantDiags.length}/${diagnostics.diagnostics.length} diagnostics`);
-            }
-          }, 20000); // 20 second timeout per file
+    // Skip if project doesn't exist
+    if (!existsSync(projectPath)) {
+      test.skip(`${lang.project} - project not found`, () => {});
+      continue;
+    }
+    
+    // Skip if file doesn't exist
+    if (!existsSync(filePath)) {
+      test.skip(`${lang.project} - ${lang.file} not found`, () => {});
+      continue;
+    }
+
+    test(`${lang.project} should detect errors in ${lang.file}`, async () => {
+      const proc = spawn([HOOK_BIN, "PostToolUse"], {
+        stdin: "pipe",
+        stderr: "pipe",
+        env: { 
+          ...process.env, 
+          PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}`,
+          CLAUDE_LSP_TIMEOUT: "10000" // 10 second timeout for slower checkers
         }
       });
-    }
-  });
-  
-  describe("Error Handling", () => {
-    test("should handle non-existent project gracefully", async () => {
-      const proc = spawn([
-        "bun", CLI_PATH, "diagnostics", 
-        "/non/existent/project"
-      ], {
-        stdout: "pipe",
-        stderr: "pipe"
-      });
       
-      const output = await new Response(proc.stdout).text();
+      // Send hook data for file edit
+      proc.stdin.write(JSON.stringify({
+        tool_name: "Edit",
+        tool_input: { 
+          file_path: filePath
+        }
+      }));
+      proc.stdin.end();
+      
+      const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
       
-      expect(exitCode).toBe(0);
-      
-      // Should return null or error JSON (may be wrapped)
-      let jsonStr = output;
-      if (output.includes('[[system-message]]:')) {
-        jsonStr = output.replace('[[system-message]]:', '').trim();
+      // Check if language tool is installed
+      if (stderr.includes("not installed") || stderr.includes("not found")) {
+        if (lang.requiresInstall) {
+          console.log(`⚠️  ${lang.project}: Language tool not installed, skipping error detection test`);
+          expect(exitCode).toBe(0); // No errors if tool not installed
+          return;
+        }
       }
-      const result = jsonStr ? JSON.parse(jsonStr) : null;
-      expect(result).toBeDefined();
+      
+      // Should have exit code 2 (errors found) for files with errors
+      expect(exitCode).toBe(2);
+      
+      // Should contain expected error pattern
+      expect(stderr).toMatch(lang.expectedPattern);
+      
+      // Should mention the file name
+      expect(stderr).toContain(lang.file.split('/').pop());
+      
+      // Should have proper system message format
+      expect(stderr).toContain("[[system-message]]:");
+    }, 15000); // 15 second timeout per test
+  }
+
+  test("should handle non-existent files gracefully", async () => {
+    const proc = spawn([HOOK_BIN, "PostToolUse"], {
+      stdin: "pipe", 
+      stderr: "pipe",
+      env: { ...process.env, PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` }
     });
     
-    test("should handle non-existent file gracefully", async () => {
-      const projectPath = join(EXAMPLES_DIR, "typescript-project");
-      const proc = spawn([
-        "bun", CLI_PATH, "diagnostics", 
-        projectPath, "--file", "/non/existent/file.ts"
-      ], {
-        stdout: "pipe",
-        stderr: "pipe"
-      });
-      
-      const output = await new Response(proc.stdout).text();
-      const exitCode = await proc.exited;
-      
-      expect(exitCode).toBe(0);
-      
-      // Should return empty array or null (may be wrapped)
-      let jsonStr = output;
-      if (output.includes('[[system-message]]:')) {
-        jsonStr = output.replace('[[system-message]]:', '').trim();
-      }
-      const result = jsonStr ? JSON.parse(jsonStr) : null;
-      expect(result).toBeDefined();
-    });
+    proc.stdin.write(JSON.stringify({
+      tool_name: "Edit",
+      tool_input: { file_path: "/tmp/does-not-exist.ts" }
+    }));
+    proc.stdin.end();
+    
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    
+    // Should exit cleanly without errors
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
   });
-  
-  describe("Performance Tests", () => {
-    test("should complete project diagnostics within reasonable time", async () => {
-      const projectPath = join(EXAMPLES_DIR, "typescript-project");
-      const startTime = Date.now();
-      
-      const proc = spawn(["bun", CLI_PATH, "diagnostics", projectPath], {
-        stdout: "pipe",
-        stderr: "pipe"
-      });
-      
-      await new Response(proc.stdout).text();
-      await proc.exited;
-      
-      const elapsed = Date.now() - startTime;
-      
-      // Should complete within 30 seconds
-      expect(elapsed).toBeLessThan(30000);
-      console.log(`  Project diagnostics completed in ${elapsed}ms`);
+
+  test("should handle files without extensions", async () => {
+    const proc = spawn([HOOK_BIN, "PostToolUse"], {
+      stdin: "pipe",
+      stderr: "pipe"
     });
     
-    test("should complete file diagnostics quickly", async () => {
-      const projectPath = join(EXAMPLES_DIR, "typescript-project");
-      const filePath = join(projectPath, "src/index.ts");
-      const startTime = Date.now();
-      
-      const proc = spawn([
-        "bun", CLI_PATH, "diagnostics", 
-        projectPath, "--file", filePath
-      ], {
-        stdout: "pipe",
-        stderr: "pipe"
-      });
-      
-      await new Response(proc.stdout).text();
-      await proc.exited;
-      
-      const elapsed = Date.now() - startTime;
-      
-      // File diagnostics should be faster than project diagnostics
-      expect(elapsed).toBeLessThan(15000);
-      console.log(`  File diagnostics completed in ${elapsed}ms`);
-    });
+    proc.stdin.write(JSON.stringify({
+      tool_name: "Edit",
+      tool_input: { file_path: "/tmp/README" }
+    }));
+    proc.stdin.end();
+    
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    
+    // Should exit cleanly without checking
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
   });
 });
