@@ -26,10 +26,10 @@ claude-lsp-cli diagnostics examples/go-project/cmd/server/main.go
 # Java - multiple errors
 claude-lsp-cli diagnostics examples/java-project/src/main/java/com/example/Main.java
 
-# Lua - multiple errors (WIP: needs validation)
+# Lua - multiple errors
 claude-lsp-cli diagnostics examples/lua-project/main.lua
 
-# PHP - multiple errors (WIP: needs validation)
+# PHP - multiple errors
 claude-lsp-cli diagnostics examples/php-project/src/User.php
 
 # Python - multiple errors

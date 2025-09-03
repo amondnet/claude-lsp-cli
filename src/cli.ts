@@ -69,7 +69,10 @@ function markResultShown(filePath: string, diagnosticsCount: number): void {
   } catch {}
 }
 
-function extractFilePath(hookData: any): string | null {
+function extractFilePaths(hookData: any): string[] {
+  const files: string[] = [];
+  
+  // Check single file candidates first
   const candidates = [
     hookData?.tool_input?.file_path,
     hookData?.tool_response?.filePath,
@@ -80,21 +83,41 @@ function extractFilePath(hookData: any): string | null {
   for (const candidate of candidates) {
     if (candidate && typeof candidate === "string") {
       if (candidate.match(/\.(ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf)$/i)) {
-        return candidate;
+        files.push(candidate);
       }
     }
   }
   
-  if (hookData?.tool_name === "Bash" && hookData?.tool_response?.output) {
-    const output = hookData.tool_response.output;
-    const fileRegex = /(?:^|\s|["'])(\/[^\s"']+\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?:$|\s|["'])/gmi;
-    const match = fileRegex.exec(output);
-    if (match) {
-      return match[1];
+  // Check Bash commands for multiple files
+  if (hookData?.tool_name === "Bash") {
+    // Prioritize output first (contains actual processed files after wildcard expansion)
+    if (hookData?.tool_response?.output) {
+      const output = hookData.tool_response.output;
+      const fileRegex = /(?:^|\s|["'])([^\s"']*[\/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?:$|\s|["'])/gmi;
+      let match;
+      while ((match = fileRegex.exec(output)) !== null) {
+        files.push(match[1]);
+      }
+    }
+    
+    // Fall back to command input only if no files found in output
+    if (files.length === 0 && hookData?.tool_input?.command) {
+      const command = hookData.tool_input.command;
+      const fileRegex = /(?:^|\s|["'])([^\s"']*[\/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?:$|\s|["'])/gmi;
+      let match;
+      while ((match = fileRegex.exec(command)) !== null) {
+        files.push(match[1]);
+      }
     }
   }
   
-  return null;
+  // Remove duplicates and return
+  return Array.from(new Set(files));
+}
+
+function extractFilePath(hookData: any): string | null {
+  const files = extractFilePaths(hookData);
+  return files.length > 0 ? files[0] : null;
 }
 
 async function handleHookEvent(eventType: string): Promise<void> {
@@ -112,34 +135,65 @@ async function handleHookEvent(eventType: string): Promise<void> {
         process.exit(0);
       }
       
-      const filePath = extractFilePath(hookData);
-      if (!filePath) {
+      const filePaths = extractFilePaths(hookData);
+      if (filePaths.length === 0) {
         process.exit(0);
       }
       
-      const absolutePath = filePath.startsWith("/") 
-        ? filePath 
-        : join(hookData?.cwd || process.cwd(), filePath);
+      // Process all files in parallel and collect results
+      const absolutePaths = filePaths.map(filePath => 
+        filePath.startsWith("/") 
+          ? filePath 
+          : join(hookData?.cwd || process.cwd(), filePath)
+      );
       
-      const result = await checkFile(absolutePath);
+      const results = await Promise.all(
+        absolutePaths.map(absolutePath => checkFile(absolutePath))
+      );
       
-      if (result && result.diagnostics.length > 0) {
-        const importantIssues = result.diagnostics.filter(
-          d => d.severity === "error" || d.severity === "warning"
-        );
+      let allDiagnostics = [];
+      let hasErrors = false;
+      
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const absolutePath = absolutePaths[i];
         
-        if (importantIssues.length > 0 && shouldShowResult(absolutePath, importantIssues.length)) {
-          const formatted = formatDiagnostics({
-            ...result,
-            diagnostics: importantIssues
-          });
+        if (result && result.diagnostics.length > 0) {
+          const importantIssues = result.diagnostics.filter(
+            d => d.severity === "error" || d.severity === "warning"
+          );
           
-          if (formatted) {
+          if (importantIssues.length > 0 && shouldShowResult(absolutePath, importantIssues.length)) {
+            // Add file context to diagnostics
+            const fileRelativePath = result.file || filePaths[i];
+            for (const diag of importantIssues) {
+              allDiagnostics.push({
+                ...diag,
+                file: fileRelativePath
+              });
+            }
             markResultShown(absolutePath, importantIssues.length);
-            console.error(formatted);
-            process.exit(2);
+            hasErrors = true;
           }
         }
+      }
+      
+      // Show combined results if any errors found
+      if (hasErrors && allDiagnostics.length > 0) {
+        const errors = allDiagnostics.filter(d => d.severity === "error");
+        const warnings = allDiagnostics.filter(d => d.severity === "warning");
+        
+        const summaryParts = [];
+        if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
+        if (warnings.length > 0) summaryParts.push(`${warnings.length} warnings`);
+        
+        const combinedResult = {
+          diagnostics: allDiagnostics.slice(0, 5), // Show at most 5 items
+          summary: summaryParts.join(", ")
+        };
+        
+        console.error(`[[system-message]]:${JSON.stringify(combinedResult)}`);
+        process.exit(2);
       }
       
       process.exit(0);

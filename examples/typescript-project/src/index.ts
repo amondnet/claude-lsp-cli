@@ -14,9 +14,9 @@ const error4: number[] = "not an array"; // Type error 4
 const error5: object = 456; // Type error 5
 
 // Undefined variables
-console.log(undefinedVar1); // Undefined 1
-console.log(undefinedVar2); // Undefined 2
-console.log(undefinedVar3); // Undefined 3
+console.debug(undefinedVar1); // Undefined 1
+console.debug(undefinedVar2); // Undefined 2
+console.debug(undefinedVar3); // Undefined 3
 
 interface User {
   id: number;
@@ -38,7 +38,7 @@ class Server {
         const users = await this.userService.getAllUsers();
         res.json(users);
       } catch (error) {
-        console.log(unknownVariable); // Error: undefined variable
+        console.debug(unknownVariable); // Error: undefined variable
         res.status(500).json({ error: 'Internal server error' });
       }
     });
@@ -57,7 +57,7 @@ class Server {
   
   public start(): void {
     app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
+      console.debug(`Server running on port ${port}`);
       this.nonExistentMethod(); // Error: method doesn't exist
     });
   }
