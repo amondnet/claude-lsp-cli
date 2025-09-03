@@ -17,6 +17,8 @@ function findProjectRoot(filePath: string): string {
     // Check for common project markers
     if (existsSync(join(dir, ".git")) ||
         existsSync(join(dir, "package.json")) ||
+        existsSync(join(dir, "bun.lockb")) ||        // Bun projects
+        existsSync(join(dir, "tsconfig.json")) ||     // TypeScript projects
         existsSync(join(dir, "pyproject.toml")) ||
         existsSync(join(dir, "go.mod")) ||
         existsSync(join(dir, "Cargo.toml")) ||
@@ -174,8 +176,51 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  // Build tsc arguments based on project configuration
+  const tscArgs = ["tsc", "--noEmit", "--pretty", "false"];
+  
+  // Check if tsconfig.json exists
+  const tsconfigPath = join(projectRoot, "tsconfig.json");
+  const hasTsConfig = existsSync(tsconfigPath);
+  
+  // Check if this is a Bun project
+  const isBunProject = existsSync(join(projectRoot, "bun.lockb")) || 
+                       existsSync(join(projectRoot, "bunfig.toml"));
+  
+  if (hasTsConfig) {
+    // Use project's tsconfig.json
+    tscArgs.push("-p", tsconfigPath);
+  } else {
+    // Use sensible defaults based on environment
+    if (isBunProject) {
+      // Bun-specific defaults
+      tscArgs.push(
+        "--module", "esnext",
+        "--target", "esnext",
+        "--moduleResolution", "bundler",
+        "--allowImportingTsExtensions",
+        "--moduleDetection", "force",
+        "--jsx", "react-jsx"
+      );
+    } else {
+      // Standard Node.js defaults
+      tscArgs.push(
+        "--module", "commonjs",
+        "--target", "es2020",
+        "--esModuleInterop",
+        "--skipLibCheck"
+      );
+    }
+    
+    // Always check JS files when no config
+    tscArgs.push("--allowJs", "--checkJs");
+  }
+  
+  // Add the file to check
+  tscArgs.push(relativePath);
+
   const { stdout, stderr, timedOut } = await runCommand(
-    ["tsc", "--noEmit", "--pretty", "false", "--allowJs", "--checkJs", relativePath],
+    tscArgs,
     CHECKER_TIMEOUT,
     { NO_COLOR: "1" },
     projectRoot
