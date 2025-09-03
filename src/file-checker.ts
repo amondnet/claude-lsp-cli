@@ -547,12 +547,13 @@ async function checkScala(file: string): Promise<FileCheckResult> {
 async function checkLua(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
     file,
-    tool: "lua",
+    tool: "luac",
     diagnostics: []
   };
 
+  // Use luac -p for syntax checking (lua doesn't have a -c flag)
   const { stderr, timedOut } = await runCommand(
-    ["lua", "-c", file],
+    ["luac", "-p", file],
     FAST_TIMEOUT
   );
 
@@ -561,10 +562,10 @@ async function checkLua(file: string): Promise<FileCheckResult> {
     return result;
   }
 
-  // Parse Lua syntax check output
+  // Parse luac output format: luac: file.lua:line: message
   const lines = stderr.split("\n");
   for (const line of lines) {
-    const match = line.match(/lua: .+?:(\d+): (.+)/);
+    const match = line.match(/luac: .+?:(\d+): (.+)/);
     if (match) {
       result.diagnostics.push({
         line: parseInt(match[1]),

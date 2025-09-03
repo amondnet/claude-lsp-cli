@@ -82,4 +82,23 @@ class User
     {
         return $number * 2;
     }
+    
+    // Syntax errors for testing PHP lint
+    public function syntaxErrors() {
+        // Missing semicolon
+        $test = "missing semicolon"
+        
+        // Unclosed bracket
+        if ($test == "something" {
+            echo "test";
+        }
+        
+        // Invalid syntax
+        function inside() {
+            // Can't define function inside method
+        }
+        
+        // Missing closing quote
+        $str = "unclosed string;
+    }
 }// trigger

@@ -41,3 +41,20 @@ end
 if _MAIN then
     main()
 end
+
+-- Syntax errors for testing luac
+function broken_syntax()
+    local x = 10
+    if x > 5 then
+        print("x is greater than 5"
+        -- Missing closing parenthesis above
+    end
+    
+    -- Unclosed string
+    local str = "this string is not closed
+    
+    -- Invalid syntax - missing 'then'
+    if true
+        print("missing then")
+    end
+end
