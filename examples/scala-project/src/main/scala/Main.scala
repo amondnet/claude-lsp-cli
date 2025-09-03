@@ -1,30 +1,29 @@
-import akka.actor.typed.ActorSystem
-import akka.actor.typed.scaladsl.Behaviors
-import UndefinedLibrary._  // Error: undefined import
+// Scala example with intentional errors - no external dependencies
+
+case class User(name: String, age: Int)
 
 object Main extends App {
-  // Error: using undefined variable
-  implicit val system: ActorSystem[Nothing] = ActorSystem(Behaviors.empty, systemName)
-  
   def main(args: Array[String]): Unit = {
-    // Error: wrong number of arguments to apply method
+    // Error: wrong number of arguments to case class constructor
     val user1 = User("Alice", 25, "extra_param")
     
-    // Error: calling undefined method
+    // Error: calling undefined method on case class
     user1.setName("Alice Smith")
     
-    // Error: wrong argument type
-    user1.updateAge("twenty-five")
+    // Error: wrong argument type - expecting Int, got String
+    val user2 = User("Bob", "twenty-five")
     
     // Error: using undefined variable
     println(s"Total users: $totalCount")
     
     // Error: calling method on undefined object
-    undefinedUser.getInfo
+    undefinedUser.getName
     
-    // Error: using undefined collection method
-    val users = List(user1, user2, user3)  // Error: user2, user3 undefined
-    users.processAll(_.getInfo)  // Error: undefined method
+    // Error: undefined variables in list
+    val users = List(user1, user2, user3, user4)  // user3, user4 undefined
+    
+    // Error: calling undefined method on List
+    users.processAll(_.name)
     
     // Error: pattern matching with undefined extractor
     user1 match {
@@ -32,17 +31,18 @@ object Main extends App {
       case _ => println("Unknown user")
     }
     
-    // Error: accessing undefined object method
+    // Error: accessing undefined object
     UndefinedObject.processUser(user1)
     
+    // Error: wrong method call - User doesn't have getInfo method
     println(user1.getInfo)
     
-    // Error: not terminating actor system
+    // Error: type mismatch in assignment
+    val count: String = users.length  // Int assigned to String
   }
   
-  // Error: method signature doesn't match call
-  def processUsers(users: List[User], config: Config): Unit = {
-    // Error: undefined type Config and calling undefined method
-    users.foreach(user => user.process(config))
+  // Error: undefined parameter type
+  def processUsers(users: List[User], config: UndefinedConfig): Unit = {
+    users.foreach(user => user.process(config))  // Error: User doesn't have process method
   }
 }

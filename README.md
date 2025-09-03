@@ -38,7 +38,7 @@ claude-lsp-cli diagnostics examples/python-project/main.py
 # Rust - multiple errors
 claude-lsp-cli diagnostics examples/rust-project/src/main.rs
 
-# Scala - multiple errors
+# Scala - 9 errors
 claude-lsp-cli diagnostics examples/scala-project/src/main/scala/Main.scala
 
 # Terraform - 1 warning
