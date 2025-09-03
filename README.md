@@ -1,41 +1,73 @@
 # Claude Code LSP
 
-A Language Server Protocol (LSP) client that integrates with Claude Code to provide real-time diagnostics and language intelligence for multiple programming languages.
+A file-based type checker that integrates with Claude Code to provide real-time diagnostics for 11+ programming languages using direct tool invocation.
 
 ## 🎯 How It Works
 
-This LSP server integrates with Claude Code through a **PostToolUse hook** that automatically checks your code after every edit, providing instant feedback about errors, warnings, and code issues directly in your Claude conversation.
+This system integrates with Claude Code through a **PostToolUse hook** that automatically checks your code after every edit using direct compiler/tool invocation, providing instant feedback about errors, warnings, and code issues directly in your Claude conversation.
 
-## 🔍 How Project Detection Works
+## 📋 Testing Commands
 
-The LSP client automatically detects your project root using a smart algorithm:
+Test the file-based diagnostics for each example file with intentional errors:
 
-1. **Starts from the edited file's directory** and walks UP the directory tree
-2. **Looks for version control markers** (primary indicator):
-   - `.git` (Git)
-   - `.hg` (Mercurial)  
-   - `.svn` (Subversion)
-3. **Also checks for language-specific files**:
-   - **TypeScript/JavaScript**: `tsconfig.json`, `package.json`
-   - **Python**: `setup.py`, `pyproject.toml`, `requirements.txt`, `.venv`, `Pipfile`
-4. **Scans common subdirectories** (`ui/`, `frontend/`, `backend/`, `api/`, `web/`, `server/`, `client/`)
-5. **Returns the FIRST directory with version control** as the project root
-6. **Falls back to directory with language files** if no version control found
+```bash
+# TypeScript - 30 errors
+claude-lsp-cli diagnostics examples/typescript-project/src/index.ts
 
-### Important Notes
+# Python - 19 errors, 1 warning  
+claude-lsp-cli diagnostics examples/python-project/main.py
 
-- **One project per detection**: Only finds the first/nearest project root
-- **Walks UP only**: Starts from file location and goes up to find root
-- **Version control wins**: `.git` directory takes precedence over language files
-- **Works from any file**: Edit any file in the project, it finds the root
+# Go - multiple errors
+claude-lsp-cli diagnostics examples/go-project/main.go
 
-### Example Project Structure
+# Rust - multiple errors
+claude-lsp-cli diagnostics examples/rust-project/src/main.rs
 
+# Java - multiple errors
+claude-lsp-cli diagnostics examples/java-project/src/main/java/com/example/Main.java
+
+# C++ - multiple errors
+claude-lsp-cli diagnostics examples/cpp-project/src/main.cpp
+
+# PHP - parse errors
+claude-lsp-cli diagnostics examples/php-project/src/index.php
+
+# Scala - 3 errors
+claude-lsp-cli diagnostics examples/scala-project/src/main/scala/Main.scala
+
+# Terraform - 1 warning
+claude-lsp-cli diagnostics examples/terraform-project/main.tf
+
+# Swift - multiple errors (requires swift)
+claude-lsp-cli diagnostics examples/swift-project/Sources/main.swift
+
+# Kotlin - multiple errors (requires kotlin)
+claude-lsp-cli diagnostics examples/kotlin-project/src/main/kotlin/Main.kt
 ```
-~/my-project/           # <- Project root (has .git)
-├── .git/              # <- Version control marker (detected!)
-├── package.json       # <- Also detected for TypeScript
-├── src/
+
+## 🔍 How File Processing Works
+
+The file checker processes individual files using direct tool invocation:
+
+1. **File Detection**: Automatically detects language from file extension
+2. **Tool Selection**: Chooses appropriate checker tool (tsc, pylance, go build, etc.)
+3. **Direct Execution**: Runs tool directly with the file path
+4. **Output Parsing**: Parses tool output into standardized diagnostic format
+5. **Deduplication**: Tracks recent results to prevent spam
+
+### Supported Languages & Tools
+
+- **TypeScript**: `tsc --noEmit` for type checking
+- **Python**: `pylance` or `mypy` for static analysis  
+- **Go**: `go build` for compilation errors
+- **Rust**: `rustc --error-format json` for diagnostics
+- **Java**: `javac` for compilation checking
+- **C++**: `g++` or `clang++` for compilation
+- **PHP**: `php -l` for syntax checking
+- **Scala**: `scalac` for compilation
+- **Terraform**: `terraform validate` for configuration validation
+
+### Example Processing
 │   └── index.ts      # <- Edit this file
 └── backend/
     ├── requirements.txt  # <- Python detected in subdir

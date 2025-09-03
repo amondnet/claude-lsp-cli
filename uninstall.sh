@@ -55,7 +55,7 @@ remove_directory() {
 # 1. Remove binaries
 echo "📦 Removing binaries..."
 remove_file "$INSTALL_DIR/claude-lsp-cli" "CLI binary"
-remove_file "$INSTALL_DIR/claude-lsp-server" "Server binary"
+remove_file "$INSTALL_DIR/claude-lsp-file-hook" "Hook binary"
 remove_file "$INSTALL_DIR/claude-lsp-hook" "Hook binary"
 remove_file "$INSTALL_DIR/claude-lsp-diagnostics" "Diagnostics binary"
 
@@ -64,28 +64,15 @@ echo ""
 echo "📁 Removing data directory..."
 remove_directory "$DATA_DIR" "LSP data directory"
 
-# 3. Clean up running LSP servers
+# 3. Clean up state files
 echo ""
-echo "🔄 Cleaning up running LSP servers..."
-# Find and kill any running claude-lsp-server processes
-if pgrep -f "claude-lsp-server" > /dev/null 2>&1; then
-    pkill -f "claude-lsp-server" || true
-    # Wait for processes to actually terminate (max 5 seconds)
-    count=0
-    while pgrep -f "claude-lsp-server" > /dev/null 2>&1 && [ $count -lt 50 ]; do
-        sleep 0.1
-        count=$((count + 1))
-    done
-    if [ $count -lt 50 ]; then
-        echo -e "${GREEN}✓${NC} Stopped running LSP servers"
-    else
-        # Force kill if still running
-        pkill -9 -f "claude-lsp-server" || true
-        sleep 0.5  # Give it time to die
-        echo -e "${GREEN}✓${NC} Force stopped running LSP servers"
-    fi
+echo "🔄 Cleaning up state files..."
+# Clean up project state files
+if ls /tmp/claude-lsp-last-*.json >/dev/null 2>&1; then
+    rm -f /tmp/claude-lsp-last-*.json
+    echo -e "${GREEN}✓${NC} Removed project state files"
 else
-    echo -e "${YELLOW}⚠${NC} No running LSP servers found"
+    echo -e "${YELLOW}⚠${NC} No state files found"
 fi
 
 # Remove Unix sockets

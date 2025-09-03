@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Claude Code LSP Local Binary Installer
-# Installs the locally built binaries from bin/ directory
+# Claude Code File-Based Diagnostics Installer  
+# Installs the file-based type checking binaries
 
 set -e
 
@@ -14,36 +14,17 @@ echo "🚀 Claude Code LSP Local Binary Installer"
 echo "=========================================="
 echo ""
 
-# Clean up any existing LSP server processes before installation
-echo "🧹 Cleaning up existing processes..."
-if pgrep -f "claude-lsp-server" > /dev/null 2>&1; then
-    echo "  Stopping existing LSP servers..."
-    pkill -f "claude-lsp-server" 2>/dev/null || true
-    # Wait for processes to terminate (max 3 seconds)
-    count=0
-    while pgrep -f "claude-lsp-server" > /dev/null 2>&1 && [ $count -lt 30 ]; do
-        sleep 0.1
-        count=$((count + 1))
-    done
-    if [ $count -ge 30 ]; then
-        # Force kill if still running
-        pkill -9 -f "claude-lsp-server" 2>/dev/null || true
-        sleep 0.5  # Give it time to die
-    fi
-    echo "  ✓ Stopped existing LSP servers"
-fi
-
-# Also clean up any stale Unix sockets
+# Clean up any old files
+echo "🧹 Cleaning up old files..."
 if ls /tmp/claude-lsp-*.sock >/dev/null 2>&1; then
     rm -f /tmp/claude-lsp-*.sock
-    echo "  ✓ Removed stale Unix sockets"
+    echo "  ✓ Removed old socket files"
 fi
 
-# Clean up SQLite database to ensure fresh schema
-CLAUDE_DATA_DIR="$HOME/.claude/data"
-if [ -f "$CLAUDE_DATA_DIR/claude-code-lsp.db" ]; then
-    rm -f "$CLAUDE_DATA_DIR/claude-code-lsp.db"
-    echo "  ✓ Removed old SQLite database (will be recreated with latest schema)"
+# Clean up old project state files
+if ls /tmp/claude-lsp-last-*.json >/dev/null 2>&1; then
+    rm -f /tmp/claude-lsp-last-*.json
+    echo "  ✓ Removed old state files"
 fi
 echo ""
 
@@ -72,9 +53,10 @@ else
     exit 1
 fi
 
-# Check if binaries were built successfully
-if [ ! -f "$SCRIPT_DIR/bin/claude-lsp-cli" ] || [ ! -f "$SCRIPT_DIR/bin/claude-lsp-server" ]; then
-    echo "❌ Build failed - binaries not found in $SCRIPT_DIR/bin/"
+# Check if binary was built successfully
+if [ ! -f "$SCRIPT_DIR/bin/claude-lsp-cli" ]; then
+    echo "❌ Build failed - binary not found in $SCRIPT_DIR/bin/"
+    echo "Expected: claude-lsp-cli"
     exit 1
 fi
 
@@ -83,10 +65,10 @@ echo "📁 Creating directories..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$DATA_DIR"
 
-# Install the locally built binaries
-echo "📋 Installing local binaries..."
+# Install the locally built binary
+echo "📋 Installing local binary..."
 
-# Kill any running instances of the binaries before copying
+# Kill any running instances of the binary before copying
 if pgrep -f "claude-lsp-cli" > /dev/null 2>&1; then
     echo "  Stopping running claude-lsp-cli instances..."
     pkill -f "claude-lsp-cli" 2>/dev/null || true
@@ -96,21 +78,16 @@ fi
 # Use install command which handles busy files better, or force copy
 if command -v install &> /dev/null; then
     install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
-    install -m 755 "$SCRIPT_DIR/bin/claude-lsp-server" "$INSTALL_DIR/"
 else
-    # Fallback: remove existing files first if they exist
+    # Fallback: remove existing file first if it exists
     [ -f "$INSTALL_DIR/claude-lsp-cli" ] && rm -f "$INSTALL_DIR/claude-lsp-cli"
-    [ -f "$INSTALL_DIR/claude-lsp-server" ] && rm -f "$INSTALL_DIR/claude-lsp-server"
     
     cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
-    cp "$SCRIPT_DIR/bin/claude-lsp-server" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/claude-lsp-cli"
-    chmod +x "$INSTALL_DIR/claude-lsp-server"
 fi
 
-echo "✅ Installed binaries from $SCRIPT_DIR/bin/ to $INSTALL_DIR/"
+echo "✅ Installed binary from $SCRIPT_DIR/bin/ to $INSTALL_DIR/"
 echo "   CLI: $INSTALL_DIR/claude-lsp-cli"
-echo "   Server: $INSTALL_DIR/claude-lsp-server"
 
 # Add to PATH if needed
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -178,17 +155,16 @@ fi
 echo ""
 echo "✅ Installation complete!"
 echo ""
-echo "The LSP system will automatically:"
+echo "The file-based diagnostics system will automatically:"
 echo "  • Check your code after every edit in Claude Code"
-echo "  • Start language servers as needed"
-echo "  • Provide real-time diagnostics"
+echo "  • Use direct tool invocation (no language servers needed)"
+echo "  • Provide fast diagnostics with 11 language support"
 echo ""
 echo "To test manually:"
-echo "  claude-lsp-cli diagnostics /path/to/project"
+echo "  claude-lsp-cli diagnostics /path/to/file.ts"
 echo ""
 echo "To uninstall:"
 echo "  Run: $SCRIPT_DIR/uninstall.sh"
 echo "  Or manually:"
-echo "    rm -f ~/.local/bin/claude-lsp-{cli,server,hook,diagnostics}"
+echo "    rm -f ~/.local/bin/claude-lsp-cli"
 echo "    Remove hooks from ~/.claude/settings.json"
-echo "    Remove Diagnostics & Self-Correction Protocol from ~/.claude/CLAUDE.md"

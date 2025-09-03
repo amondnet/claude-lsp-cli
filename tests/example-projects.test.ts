@@ -24,31 +24,55 @@ const LANGUAGE_TESTS = [
     project: "go-project",
     file: "main.go",
     expectedPattern: /cannot use .* \(.*type .*\) as .*type .* in/,
-    requiresInstall: true // Requires gopls
-  },
-  {
-    project: "java-project",
-    file: "src/main/java/com/example/Main.java",
-    expectedPattern: /incompatible types|cannot find symbol/,
-    requiresInstall: true // Requires jdtls
+    requiresInstall: true // Requires go
   },
   {
     project: "rust-project",
     file: "src/main.rs",
     expectedPattern: /mismatched types|cannot find/,
-    requiresInstall: true // Requires rust-analyzer
+    requiresInstall: true // Requires rustc
   },
   {
-    project: "php-project",
-    file: "index.php",
-    expectedPattern: /Undefined variable|syntax error/,
-    requiresInstall: true // Requires intelephense
+    project: "java-project",
+    file: "src/main/java/com/example/Main.java",
+    expectedPattern: /incompatible types|cannot find symbol/,
+    requiresInstall: true // Requires javac
   },
   {
     project: "cpp-project",
     file: "main.cpp",
     expectedPattern: /error:|undeclared identifier/,
-    requiresInstall: true // Requires clangd
+    requiresInstall: true // Requires gcc
+  },
+  {
+    project: "php-project",
+    file: "index.php",
+    expectedPattern: /Parse error|syntax error/,
+    requiresInstall: true // Requires php
+  },
+  {
+    project: "scala-project",
+    file: "src/main/scala/Main.scala",
+    expectedPattern: /error:|not found/,
+    requiresInstall: true // Requires scalac
+  },
+  {
+    project: "lua-project",
+    file: "src/main.lua",
+    expectedPattern: /lua:|syntax error/,
+    requiresInstall: true // Requires lua
+  },
+  {
+    project: "elixir-project",
+    file: "lib/example.ex",
+    expectedPattern: /CompileError|SyntaxError/,
+    requiresInstall: true // Requires elixir
+  },
+  {
+    project: "terraform-project",
+    file: "main.tf",
+    expectedPattern: /Formatting issues|error/,
+    requiresInstall: true // Requires terraform
   }
 ];
 

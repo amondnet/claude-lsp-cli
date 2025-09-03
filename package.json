@@ -1,14 +1,12 @@
 {
   "name": "claude-code-lsp",
-  "version": "3.0.0",
-  "description": "Universal Language Server Protocol client for Claude Code - supports 25+ programming languages with automatic server management",
-  "module": "index.ts",
+  "version": "4.0.0",
+  "description": "File-based type checker for Claude Code - supports 11+ programming languages with direct tool invocation",
+  "module": "src/file-checker.ts",
   "type": "module",
-  "main": "index.ts",
+  "main": "src/file-checker.ts",
   "exports": {
-    ".": "./index.ts",
-    "./client": "./src/lsp-client.ts",
-    "./server": "./src/server.ts"
+    ".": "./src/file-checker.ts"
   },
   "repository": {
     "type": "git",
@@ -37,15 +35,9 @@
   },
   "homepage": "https://github.com/teamchong/claude-code-lsp#readme",
   "scripts": {
-    "start": "bun run src/server.ts",
-    "dev": "bun --watch src/server.ts",
     "test": "bun test",
     "build:cli": "mkdir -p bin && bun build src/cli.ts --compile --outfile bin/claude-lsp-cli",
-    "build:server": "mkdir -p bin && bun build src/server.ts --compile --outfile bin/claude-lsp-server",
-    "build:file": "mkdir -p bin && bun build src/cli-file.ts --compile --outfile bin/claude-lsp-file",
-    "build": "mkdir -p bin && bun run build:cli && bun run build:server && bun run build:file",
-    "check": "bun run src/cli-file.ts check",
-    "languages": "bun run src/cli-file.ts languages"
+    "build": "bun run build:cli"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -54,14 +46,7 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "ignore": "^7.0.5",
-    "intelephense": "^1.14.4",
-    "pyright": "^1.1.403",
-    "typescript": "^5.9.2",
-    "typescript-language-server": "^4.4.0",
-    "vscode-jsonrpc": "^8.2.1",
-    "vscode-languageclient": "^9.0.1",
-    "vscode-languageserver-protocol": "^3.17.5"
+    "typescript": "^5.9.2"
   },
   "engines": {
     "bun": ">=1.0.0"

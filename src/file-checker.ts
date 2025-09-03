@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * File-Based Type Checker - Simple per-file diagnostics
+ * File-Based Type Checker V2 - With timeout handling
  * 
- * No project discovery, just check individual files based on their type
+ * Handles slow commands gracefully with configurable timeouts
  */
 
 import { spawn } from "bun";
@@ -10,8 +10,9 @@ import { existsSync } from "fs";
 import { dirname, basename, extname } from "path";
 import { logger } from "./utils/logger";
 
-// Timeout for type checkers (5 seconds default, can be overridden)
+// Configurable timeout (default 5 seconds)
 const CHECKER_TIMEOUT = parseInt(process.env.CLAUDE_LSP_TIMEOUT || "5000");
+const FAST_TIMEOUT = 2000; // 2 seconds for simpler checks
 
 export interface FileCheckResult {
   file: string;
@@ -22,128 +23,118 @@ export interface FileCheckResult {
     severity: "error" | "warning" | "info";
     message: string;
   }>;
+  timedOut?: boolean;
 }
 
 /**
- * Language checkers by file extension
+ * Run command with timeout and automatic kill
  */
-const FILE_CHECKERS: Record<string, (file: string) => Promise<FileCheckResult>> = {
-  // TypeScript
-  ".ts": checkTypeScript,
-  ".tsx": checkTypeScript,
-  ".mts": checkTypeScript,
-  ".cts": checkTypeScript,
-  
-  // JavaScript
-  ".js": checkJavaScript,
-  ".jsx": checkJavaScript,
-  ".mjs": checkJavaScript,
-  ".cjs": checkJavaScript,
-  
-  // Python
-  ".py": checkPython,
-  ".pyi": checkPython,
-  
-  // Go
-  ".go": checkGo,
-  
-  // Rust
-  ".rs": checkRust,
-  
-  // Java
-  ".java": checkJava,
-  
-  // C/C++
-  ".c": checkC,
-  ".cpp": checkCpp,
-  ".cc": checkCpp,
-  ".cxx": checkCpp,
-  ".h": checkC,
-  ".hpp": checkCpp,
-  
-  // Ruby
-  ".rb": checkRuby,
-  
-  // PHP
-  ".php": checkPHP,
-  
-  // Swift
-  ".swift": checkSwift,
-  
-  // Kotlin
-  ".kt": checkKotlin,
-  ".kts": checkKotlin,
-};
+async function runCommand(
+  args: string[],
+  timeout: number = CHECKER_TIMEOUT,
+  env?: Record<string, string>
+): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
+  const proc = spawn(args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: env ? { ...process.env, ...env } : process.env
+  });
+
+  const timeoutId = setTimeout(() => {
+    proc.kill(9); // SIGKILL to ensure termination
+  }, timeout);
+
+  try {
+    // Read streams with timeout
+    const stdoutPromise = new Response(proc.stdout).text();
+    const stderrPromise = new Response(proc.stderr).text();
+    
+    // Race against timeout
+    const result = await Promise.race([
+      Promise.all([stdoutPromise, stderrPromise, proc.exited]),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeout))
+    ]);
+
+    clearTimeout(timeoutId);
+
+    if (result === null) {
+      // Timed out
+      proc.kill(9);
+      return { stdout: "", stderr: "Command timed out", timedOut: true };
+    }
+
+    const [stdout, stderr] = result;
+    return { stdout, stderr, timedOut: false };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    proc.kill(9);
+    return { stdout: "", stderr: String(error), timedOut: true };
+  }
+}
 
 /**
- * Check a single file for type errors
+ * Check a single file with timeout protection
  */
 export async function checkFile(filePath: string): Promise<FileCheckResult | null> {
   if (!existsSync(filePath)) {
     return null;
   }
-  
+
   const ext = extname(filePath).toLowerCase();
-  const checker = FILE_CHECKERS[ext];
-  
-  if (!checker) {
-    logger.debug(`No checker for extension: ${ext}`);
-    return null;
-  }
-  
-  try {
-    return await checker(filePath);
-  } catch (error) {
-    logger.error(`Failed to check file: ${filePath}`, { error });
-    return {
-      file: filePath,
-      tool: "unknown",
-      diagnostics: []
-    };
-  }
-}
+  const result: FileCheckResult = {
+    file: filePath,
+    tool: "unknown",
+    diagnostics: []
+  };
 
-/**
- * Run a command with timeout
- */
-async function runWithTimeout(
-  args: string[], 
-  options: any = {},
-  timeout: number = CHECKER_TIMEOUT
-): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
-  const proc = spawn(args, {
-    stdio: ["ignore", "pipe", "pipe"],
-    ...options
-  });
-  
-  // Create timeout promise
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Command timed out after ${timeout}ms`));
-    }, timeout);
-  });
-  
-  try {
-    // Race between process completion and timeout
-    const [stdout, stderr] = await Promise.race([
-      Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text()
-      ]),
-      timeoutPromise
-    ]);
+  switch (ext) {
+    case ".ts":
+    case ".tsx":
+    case ".mts":
+    case ".cts":
+      return await checkTypeScript(filePath);
     
-    const exitCode = await proc.exited;
-    return { stdout, stderr, exitCode, timedOut: false };
-  } catch (error) {
-    // Timeout occurred
-    logger.debug(`Command timed out: ${args[0]}`, { timeout });
-    return { stdout: "", stderr: "", exitCode: -1, timedOut: true };
+    
+    case ".py":
+    case ".pyi":
+      return await checkPython(filePath);
+    
+    case ".go":
+      return await checkGo(filePath);
+    
+    case ".rs":
+      return await checkRust(filePath);
+    
+    case ".java":
+      return await checkJava(filePath);
+    
+    case ".cpp":
+    case ".cxx":
+    case ".cc":
+    case ".c":
+      return await checkCpp(filePath);
+    
+    case ".php":
+      return await checkPhp(filePath);
+    
+    case ".scala":
+      return await checkScala(filePath);
+    
+    case ".lua":
+      return await checkLua(filePath);
+    
+    case ".ex":
+    case ".exs":
+      return await checkElixir(filePath);
+    
+    case ".tf":
+      return await checkTerraform(filePath);
+      
+    default:
+      return null;
   }
 }
 
-// Individual language checkers
+// Language-specific checkers with timeout
 
 async function checkTypeScript(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
@@ -151,91 +142,43 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
     tool: "tsc",
     diagnostics: []
   };
-  
-  // Try to find tsconfig.json in parent directories
-  let tsConfig = await findUpward(dirname(file), "tsconfig.json");
-  
-  // For single file checking, don't use -p with tsconfig (it checks whole project)
-  const args = ["tsc", "--noEmit", "--pretty", "false", "--allowJs", "--checkJs", file];
-  
-  try {
-    const { stdout, stderr, timedOut } = await runWithTimeout(args, {
-      env: { ...process.env, NO_COLOR: "1" }
+
+  const { stdout, stderr, timedOut } = await runCommand(
+    ["tsc", "--noEmit", "--pretty", "false", "--allowJs", "--checkJs", file],
+    CHECKER_TIMEOUT,
+    { NO_COLOR: "1" }
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning",
+      message: `TypeScript check timed out after ${CHECKER_TIMEOUT}ms`
     });
-    
-    if (timedOut) {
-      result.diagnostics.push({
-        line: 1,
-        column: 1,
-        severity: "warning",
-        message: "TypeScript check timed out after 5 seconds"
-      });
-      return result;
-    }
-    
-    // TypeScript outputs to stderr
-    const output = stderr || stdout;
-    
-    // Parse TypeScript output
-    const lines = output.split("\n");
-    for (const line of lines) {
-      // file.ts(line,col): error TS2322: message
-      const match = line.match(/^(.+?)\((\d+),(\d+)\): (error|warning) TS\d+: (.+)$/);
-      if (match) {
-        // Only include errors for the target file (not dependencies)
-        const errorFile = match[1];
-        // Check if this error is for our target file
-        if (errorFile.includes(basename(file))) {
-          result.diagnostics.push({
-            line: parseInt(match[2]),
-            column: parseInt(match[3]),
-            severity: match[4] as "error" | "warning",
-            message: match[5]
-          });
-        }
-      }
-    }
-  } catch (error) {
-    // tsc not installed or failed
-    logger.debug(`TypeScript check failed for ${file}`, { error });
+    return result;
   }
+
+  // Parse TypeScript output
+  const output = stderr || stdout;
+  const lines = output.split("\n");
   
+  for (const line of lines) {
+    const match = line.match(/^(.+?)\((\d+),(\d+)\): (error|warning) TS\d+: (.+)$/);
+    if (match && match[1].includes(basename(file))) {
+      result.diagnostics.push({
+        line: parseInt(match[2]),
+        column: parseInt(match[3]),
+        severity: match[4] as "error" | "warning",
+        message: match[5]
+      });
+    }
+  }
+
   return result;
 }
 
-async function checkJavaScript(file: string): Promise<FileCheckResult> {
-  const result: FileCheckResult = {
-    file,
-    tool: "eslint",
-    diagnostics: []
-  };
-  
-  // Try ESLint if available
-  try {
-    const proc = spawn(["eslint", "--format", "json", file], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    
-    const eslintResults = JSON.parse(stdout);
-    if (eslintResults[0]?.messages) {
-      for (const msg of eslintResults[0].messages) {
-        result.diagnostics.push({
-          line: msg.line || 1,
-          column: msg.column || 1,
-          severity: msg.severity === 2 ? "error" : "warning",
-          message: `${msg.message} (${msg.ruleId || "unknown"})`
-        });
-      }
-    }
-  } catch {
-    // ESLint not available, that's ok for JS
-  }
-  
-  return result;
-}
 
 async function checkPython(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
@@ -243,57 +186,64 @@ async function checkPython(file: string): Promise<FileCheckResult> {
     tool: "pyright",
     diagnostics: []
   };
-  
-  // Try pyright first
+
+  // Try pyright with longer timeout (it can be slow on first run)
+  const { stdout, timedOut } = await runCommand(
+    ["pyright", "--outputjson", file],
+    CHECKER_TIMEOUT * 2, // 10 seconds for Python
+    { PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` }
+  );
+
+  if (timedOut) {
+    // Try faster mypy as fallback
+    const mypyResult = await runCommand(
+      ["mypy", "--no-error-summary", "--show-column-numbers", file],
+      FAST_TIMEOUT
+    );
+    
+    if (!mypyResult.timedOut) {
+      result.tool = "mypy";
+      const lines = mypyResult.stdout.split("\n");
+      for (const line of lines) {
+        const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
+        if (match) {
+          result.diagnostics.push({
+            line: parseInt(match[1]),
+            column: parseInt(match[2]),
+            severity: match[3] as "error" | "warning",
+            message: match[4]
+          });
+        }
+      }
+    } else {
+      result.timedOut = true;
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: "warning",
+        message: "Python check timed out"
+      });
+    }
+    return result;
+  }
+
+  // Parse pyright output
   try {
-    const proc = spawn(["pyright", "--outputjson", file], {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` }
-    });
-    
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    
     const pyrightResult = JSON.parse(stdout);
     for (const diag of pyrightResult.generalDiagnostics || []) {
       if (diag.file.includes(basename(file))) {
         result.diagnostics.push({
-          line: diag.range?.start?.line + 1 || 1,
-          column: diag.range?.start?.character + 1 || 1,
+          line: (diag.range?.start?.line || 0) + 1,
+          column: (diag.range?.start?.character || 0) + 1,
           severity: diag.severity === "error" ? "error" : "warning",
           message: diag.message
         });
       }
     }
   } catch {
-    // Try mypy as fallback
-    try {
-      const proc = spawn(["mypy", "--no-error-summary", "--show-column-numbers", file], {
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      
-      const stdout = await new Response(proc.stdout).text();
-      await proc.exited;
-      
-      result.tool = "mypy";
-      const lines = stdout.split("\n");
-      for (const line of lines) {
-        // file.py:line:col: error: message
-        const match = line.match(/^.+?:(\d+):(\d+): (error|warning|note): (.+)$/);
-        if (match) {
-          result.diagnostics.push({
-            line: parseInt(match[1]),
-            column: parseInt(match[2]),
-            severity: match[3] === "error" ? "error" : "warning",
-            message: match[4]
-          });
-        }
-      }
-    } catch {
-      // No Python checker available
-    }
+    // Parsing failed
   }
-  
+
   return result;
 }
 
@@ -303,32 +253,31 @@ async function checkGo(file: string): Promise<FileCheckResult> {
     tool: "go",
     diagnostics: []
   };
-  
-  try {
-    const proc = spawn(["go", "vet", file], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // go vet format: file:line:col: message
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      const match = line.match(/^.+?:(\d+):(\d+): (.+)$/);
-      if (match) {
-        result.diagnostics.push({
-          line: parseInt(match[1]),
-          column: parseInt(match[2]),
-          severity: "error",
-          message: match[3]
-        });
-      }
-    }
-  } catch {
-    // go not installed
+
+  const { stderr, timedOut } = await runCommand(
+    ["go", "run", file],
+    FAST_TIMEOUT // Go run will catch type errors
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    return result;
   }
-  
+
+  // Parse go vet output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    const match = line.match(/^.+?:(\d+):(\d+): (.+)$/);
+    if (match) {
+      result.diagnostics.push({
+        line: parseInt(match[1]),
+        column: parseInt(match[2]),
+        severity: "error",
+        message: match[3]
+      });
+    }
+  }
+
   return result;
 }
 
@@ -338,39 +287,44 @@ async function checkRust(file: string): Promise<FileCheckResult> {
     tool: "rustc",
     diagnostics: []
   };
-  
-  try {
-    // Use rustc for single file checking
-    const proc = spawn(["rustc", "--error-format=json", "--crate-type", "lib", "-Z", "no-codegen", file], {
-      stdio: ["ignore", "pipe", "pipe"]
+
+  // Rust can be slow to compile
+  const { stderr, timedOut } = await runCommand(
+    ["rustc", "--error-format=json", "--edition", "2021", file],
+    CHECKER_TIMEOUT * 2 // 10 seconds for Rust
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning",
+      message: "Rust check timed out"
     });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // Parse JSON output
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const msg = JSON.parse(line);
-        if (msg.message && msg.spans?.[0]) {
-          const span = msg.spans[0];
-          result.diagnostics.push({
-            line: span.line_start || 1,
-            column: span.column_start || 1,
-            severity: msg.level === "error" ? "error" : "warning",
-            message: msg.message
-          });
-        }
-      } catch {
-        // Not JSON line
-      }
-    }
-  } catch {
-    // rustc not available
+    return result;
   }
-  
+
+  // Parse JSON output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      const msg = JSON.parse(line);
+      if (msg.message && msg.spans?.[0]) {
+        const span = msg.spans[0];
+        result.diagnostics.push({
+          line: span.line_start || 1,
+          column: span.column_start || 1,
+          severity: msg.level === "error" ? "error" : "warning",
+          message: msg.message
+        });
+      }
+    } catch {
+      // Not JSON
+    }
+  }
+
   return result;
 }
 
@@ -380,158 +334,102 @@ async function checkJava(file: string): Promise<FileCheckResult> {
     tool: "javac",
     diagnostics: []
   };
-  
-  try {
-    const proc = spawn(["javac", "-Xlint:all", "-d", "/tmp", file], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // javac format: file:line: error: message
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      const match = line.match(/^.+?:(\d+): (error|warning): (.+)$/);
-      if (match) {
-        result.diagnostics.push({
-          line: parseInt(match[1]),
-          column: 1,
-          severity: match[2] as "error" | "warning",
-          message: match[3]
-        });
-      }
-    }
-  } catch {
-    // javac not available
-  }
-  
-  return result;
-}
 
-async function checkC(file: string): Promise<FileCheckResult> {
-  const result: FileCheckResult = {
-    file,
-    tool: "gcc",
-    diagnostics: []
-  };
-  
-  try {
-    const proc = spawn(["gcc", "-fsyntax-only", "-Wall", file], {
-      stdio: ["ignore", "pipe", "pipe"]
+  // Java compilation can be slow
+  const { stderr, timedOut } = await runCommand(
+    ["javac", "-Xlint:all", "-d", "/tmp", file],
+    CHECKER_TIMEOUT
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning",
+      message: "Java check timed out"
     });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // gcc format: file:line:col: error: message
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
-      if (match) {
-        result.diagnostics.push({
-          line: parseInt(match[1]),
-          column: parseInt(match[2]),
-          severity: match[3] as "error" | "warning",
-          message: match[4]
-        });
-      }
-    }
-  } catch {
-    // gcc not available
+    return result;
   }
-  
+
+  // Parse javac output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    const match = line.match(/^.+?:(\d+): (error|warning): (.+)$/);
+    if (match) {
+      result.diagnostics.push({
+        line: parseInt(match[1]),
+        column: 1,
+        severity: match[2] as "error" | "warning",
+        message: match[3]
+      });
+    }
+  }
+
   return result;
 }
 
 async function checkCpp(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
     file,
-    tool: "g++",
+    tool: "gcc",
     diagnostics: []
   };
-  
-  try {
-    const proc = spawn(["g++", "-fsyntax-only", "-Wall", "-std=c++17", file], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // g++ format: file:line:col: error: message
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
-      if (match) {
-        result.diagnostics.push({
-          line: parseInt(match[1]),
-          column: parseInt(match[2]),
-          severity: match[3] as "error" | "warning",
-          message: match[4]
-        });
-      }
-    }
-  } catch {
-    // g++ not available
-  }
-  
-  return result;
-}
 
-async function checkRuby(file: string): Promise<FileCheckResult> {
-  const result: FileCheckResult = {
-    file,
-    tool: "ruby",
-    diagnostics: []
-  };
-  
-  try {
-    // Ruby syntax check
-    const proc = spawn(["ruby", "-c", file], {
-      stdio: ["ignore", "pipe", "pipe"]
+  const { stderr, timedOut } = await runCommand(
+    ["gcc", "-fsyntax-only", "-Wall", file],
+    CHECKER_TIMEOUT
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning",
+      message: "C++ check timed out"
     });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // Ruby syntax error format
-    const match = stderr.match(/^.+?:(\d+): (.+)$/m);
+    return result;
+  }
+
+  // Parse GCC output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
     if (match) {
       result.diagnostics.push({
         line: parseInt(match[1]),
-        column: 1,
-        severity: "error",
-        message: match[2]
+        column: parseInt(match[2]),
+        severity: match[3] as "error" | "warning",
+        message: match[4]
       });
     }
-  } catch {
-    // ruby not available
   }
-  
+
   return result;
 }
 
-async function checkPHP(file: string): Promise<FileCheckResult> {
+async function checkPhp(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
     file,
     tool: "php",
     diagnostics: []
   };
-  
-  try {
-    // PHP lint
-    const proc = spawn(["php", "-l", file], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    const output = stdout + stderr;
-    // PHP Parse error: syntax error, unexpected ... in file on line X
-    const match = output.match(/Parse error: (.+) in .+ on line (\d+)/);
+
+  const { stderr, timedOut } = await runCommand(
+    ["php", "-l", file],
+    FAST_TIMEOUT
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    return result;
+  }
+
+  // Parse PHP lint output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    const match = line.match(/Parse error: (.+) in .+ on line (\d+)/);
     if (match) {
       result.diagnostics.push({
         line: parseInt(match[2]),
@@ -540,143 +438,210 @@ async function checkPHP(file: string): Promise<FileCheckResult> {
         message: match[1]
       });
     }
-  } catch {
-    // php not available
   }
-  
+
   return result;
 }
 
-async function checkSwift(file: string): Promise<FileCheckResult> {
+async function checkScala(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
     file,
-    tool: "swiftc",
+    tool: "scalac",
     diagnostics: []
   };
-  
-  try {
-    const proc = spawn(["swiftc", "-parse", file], {
-      stdio: ["ignore", "pipe", "pipe"]
+
+  const { stderr, timedOut } = await runCommand(
+    ["scalac", file],
+    CHECKER_TIMEOUT * 2 // Scala can be slow
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning",
+      message: "Scala check timed out"
     });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // Swift error format: file:line:col: error: message
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
-      if (match) {
-        result.diagnostics.push({
-          line: parseInt(match[1]),
-          column: parseInt(match[2]),
-          severity: match[3] as "error" | "warning",
-          message: match[4]
-        });
-      }
-    }
-  } catch {
-    // swiftc not available
+    return result;
   }
-  
+
+  // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:1:7")
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    // Match Scala 3 error format: "-- [E006] Error Type: file:line:col"
+    const match = line.match(/-- \[E\d+\] (.+) Error: .+?:(\d+):\d+/);
+    if (match) {
+      result.diagnostics.push({
+        line: parseInt(match[2]),
+        column: 1,
+        severity: "error",
+        message: match[1] + " Error"
+      });
+    }
+  }
+
   return result;
 }
 
-async function checkKotlin(file: string): Promise<FileCheckResult> {
+async function checkLua(file: string): Promise<FileCheckResult> {
   const result: FileCheckResult = {
     file,
-    tool: "kotlinc",
+    tool: "lua",
     diagnostics: []
   };
-  
-  try {
-    const proc = spawn(["kotlinc", "-no-stdlib", file], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    
-    // Kotlin error format: file:line:col: error: message
-    const lines = stderr.split("\n");
-    for (const line of lines) {
-      const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
-      if (match) {
-        result.diagnostics.push({
-          line: parseInt(match[1]),
-          column: parseInt(match[2]),
-          severity: match[3] as "error" | "warning",
-          message: match[4]
-        });
-      }
-    }
-  } catch {
-    // kotlinc not available
+
+  const { stderr, timedOut } = await runCommand(
+    ["lua", "-c", file],
+    FAST_TIMEOUT
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    return result;
   }
-  
+
+  // Parse Lua syntax check output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    const match = line.match(/lua: .+?:(\d+): (.+)/);
+    if (match) {
+      result.diagnostics.push({
+        line: parseInt(match[1]),
+        column: 1,
+        severity: "error",
+        message: match[2]
+      });
+    }
+  }
+
   return result;
 }
 
-// Utility function to find file upward
-async function findUpward(startDir: string, filename: string): Promise<string | null> {
-  let currentDir = startDir;
-  
-  while (currentDir !== "/" && currentDir !== ".") {
-    const candidate = `${currentDir}/${filename}`;
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-    
-    const parent = dirname(currentDir);
-    if (parent === currentDir) break;
-    currentDir = parent;
+async function checkElixir(file: string): Promise<FileCheckResult> {
+  const result: FileCheckResult = {
+    file,
+    tool: "elixir",
+    diagnostics: []
+  };
+
+  const { stderr, timedOut } = await runCommand(
+    ["elixir", "-c", file],
+    CHECKER_TIMEOUT
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning", 
+      message: "Elixir check timed out"
+    });
+    return result;
   }
-  
-  return null;
+
+  // Parse Elixir output
+  const lines = stderr.split("\n");
+  for (const line of lines) {
+    const match = line.match(/\*\* \((CompileError|SyntaxError)\) (.+?):(\d+): (.+)/);
+    if (match) {
+      result.diagnostics.push({
+        line: parseInt(match[3]),
+        column: 1,
+        severity: "error",
+        message: match[4]
+      });
+    }
+  }
+
+  return result;
 }
 
-// Format diagnostics for Claude
+async function checkTerraform(file: string): Promise<FileCheckResult> {
+  const result: FileCheckResult = {
+    file,
+    tool: "terraform",
+    diagnostics: []
+  };
+
+  const { stdout, stderr, timedOut } = await runCommand(
+    ["terraform", "fmt", "-check", "-diff", file],
+    FAST_TIMEOUT
+  );
+
+  if (timedOut) {
+    result.timedOut = true;
+    return result;
+  }
+
+  // Terraform fmt outputs diff to stderr when formatting issues found
+  if (stderr.trim() || stdout.trim()) {
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: "warning",
+      message: "Formatting issues detected"
+    });
+  }
+
+  return result;
+}
+
+// Format diagnostics for output
 export function formatDiagnostics(result: FileCheckResult): string {
   if (!result || result.diagnostics.length === 0) {
+    if (result?.timedOut) {
+      return `[[system-message]]:{"summary":"check timed out after ${CHECKER_TIMEOUT}ms"}`;
+    }
     return "";
   }
-  
+
   const errors = result.diagnostics.filter(d => d.severity === "error");
   const warnings = result.diagnostics.filter(d => d.severity === "warning");
   
-  let output = `[[system-message]]: ${basename(result.file)} has ${errors.length} errors and ${warnings.length} warnings\n\n`;
+  // Build summary - only show non-zero counts
+  const summaryParts = [];
+  if (errors.length > 0) summaryParts.push(`errors: ${errors.length}`);
+  if (warnings.length > 0) summaryParts.push(`warnings: ${warnings.length}`);
   
-  // Show first 10 issues
-  const toShow = result.diagnostics.slice(0, 10);
-  for (const diag of toShow) {
-    output += `${basename(result.file)}:${diag.line}:${diag.column} ${diag.severity}: ${diag.message}\n`;
+  const jsonResult = {
+    diagnostics: result.diagnostics.slice(0, 5), // Show at most 5 items
+    summary: summaryParts.length > 0 ? summaryParts.join(", ") : "no warnings or errors"
+  };
+  
+  if (result.timedOut) {
+    jsonResult.summary += " (partial results due to timeout)";
   }
   
-  if (result.diagnostics.length > 10) {
-    output += `\n... and ${result.diagnostics.length - 10} more issues`;
-  }
-  
-  return output;
+  return `[[system-message]]:${JSON.stringify(jsonResult)}`;
 }
 
-// CLI interface
+// CLI for testing
 if (import.meta.main) {
   const file = process.argv[2];
   
   if (!file) {
-    console.error("Usage: file-checker.ts <file>");
+    console.error("Usage: file-checker-v2.ts <file>");
+    console.error(`Timeout: ${CHECKER_TIMEOUT}ms (set CLAUDE_LSP_TIMEOUT env var to change)`);
     process.exit(1);
   }
   
+  console.log(`Checking ${file} (timeout: ${CHECKER_TIMEOUT}ms)...`);
+  const start = Date.now();
+  
   const result = await checkFile(file);
+  const elapsed = Date.now() - start;
   
   if (result) {
     const formatted = formatDiagnostics(result);
     if (formatted) {
       console.log(formatted);
-      process.exit(1);
+      console.log(`\nCompleted in ${elapsed}ms`);
+      // Exit code 2 for errors/warnings found (matches expectation)
+      process.exit(2);
     } else {
-      console.log(`No issues found in ${file}`);
+      console.log(`✅ No issues found (${elapsed}ms)`);
     }
   } else {
     console.log(`Cannot check ${file} (unsupported type or file not found)`);
