@@ -585,9 +585,14 @@ async function checkElixir(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const { stderr, timedOut } = await runCommand(
-    ["elixir", "-c", file],
-    CHECKER_TIMEOUT
+    ["elixir", relativePath],
+    CHECKER_TIMEOUT,
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -604,13 +609,34 @@ async function checkElixir(file: string): Promise<FileCheckResult> {
   // Parse Elixir output
   const lines = stderr.split("\n");
   for (const line of lines) {
-    const match = line.match(/\*\* \((CompileError|SyntaxError)\) (.+?):(\d+): (.+)/);
-    if (match) {
+    // Match the new error format: "error: message" followed by location
+    if (line.trim().startsWith("error:")) {
+      const errorMessage = line.replace(/^\s*error:\s*/, "");
+      
+      // Look for location info in subsequent lines
+      for (let i = lines.indexOf(line) + 1; i < lines.length; i++) {
+        const locationLine = lines[i];
+        const locationMatch = locationLine.match(/└─\s+(.+?):(\d+):(\d+):/);
+        if (locationMatch) {
+          result.diagnostics.push({
+            line: parseInt(locationMatch[2]),
+            column: parseInt(locationMatch[3]),
+            severity: "error",
+            message: errorMessage
+          });
+          break;
+        }
+      }
+    }
+    
+    // Also match the old format for backward compatibility
+    const oldMatch = line.match(/\*\* \((CompileError|SyntaxError)\) (.+?):(\d+): (.+)/);
+    if (oldMatch) {
       result.diagnostics.push({
-        line: parseInt(match[3]),
+        line: parseInt(oldMatch[3]),
         column: 1,
         severity: "error",
-        message: match[4]
+        message: oldMatch[4]
       });
     }
   }

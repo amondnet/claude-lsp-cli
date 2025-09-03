@@ -17,7 +17,7 @@ claude-lsp-cli diagnostics src/cli.ts
 # C++ - 1 error (missing header files)
 claude-lsp-cli diagnostics examples/cpp-project/src/main.cpp
 
-# Elixir - multiple errors (WIP: needs project setup)
+# Elixir - 3 errors
 claude-lsp-cli diagnostics examples/elixir-project/lib/main.ex
 
 # Go - multiple errors
