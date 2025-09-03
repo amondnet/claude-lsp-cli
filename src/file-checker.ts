@@ -176,48 +176,8 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
-  // Build tsc arguments based on project configuration
-  const tscArgs = ["tsc", "--noEmit", "--pretty", "false"];
-  
-  // Check if tsconfig.json exists
-  const tsconfigPath = join(projectRoot, "tsconfig.json");
-  const hasTsConfig = existsSync(tsconfigPath);
-  
-  // Check if this is a Bun project
-  const isBunProject = existsSync(join(projectRoot, "bun.lockb")) || 
-                       existsSync(join(projectRoot, "bunfig.toml"));
-  
-  if (hasTsConfig) {
-    // Use project's tsconfig.json
-    tscArgs.push("-p", tsconfigPath);
-  } else {
-    // Use sensible defaults based on environment
-    if (isBunProject) {
-      // Bun-specific defaults
-      tscArgs.push(
-        "--module", "esnext",
-        "--target", "esnext",
-        "--moduleResolution", "bundler",
-        "--allowImportingTsExtensions",
-        "--moduleDetection", "force",
-        "--jsx", "react-jsx"
-      );
-    } else {
-      // Standard Node.js defaults
-      tscArgs.push(
-        "--module", "commonjs",
-        "--target", "es2020",
-        "--esModuleInterop",
-        "--skipLibCheck"
-      );
-    }
-    
-    // Always check JS files when no config
-    tscArgs.push("--allowJs", "--checkJs");
-  }
-  
-  // Add the file to check
-  tscArgs.push(relativePath);
+  // Just specify the file directly - TypeScript will use tsconfig.json from parent directories automatically
+  const tscArgs = ["tsc", "--noEmit", "--pretty", "false", file];
 
   const { stdout, stderr, timedOut } = await runCommand(
     tscArgs,

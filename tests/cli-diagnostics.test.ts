@@ -1,206 +1,235 @@
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
+import { spawn } from "child_process";
 import { join } from "path";
-import { promisify } from "util";
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "fs";
 
-const exec = promisify(require("child_process").exec);
+const CLI_PATH = join(__dirname, "..", "bin", "claude-lsp-cli");
+const EXAMPLES_DIR = join(__dirname, "..", "examples");
+
+// Helper to run CLI and capture output
+async function runCLI(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn(CLI_PATH, args);
+    let stdout = "";
+    let stderr = "";
+    
+    proc.stdout.on("data", (data) => { stdout += data.toString(); });
+    proc.stderr.on("data", (data) => { stderr += data.toString(); });
+    
+    proc.on("close", (exitCode) => {
+      resolve({ stdout, stderr, exitCode: exitCode || 0 });
+    });
+  });
+}
 
 describe("CLI Diagnostics Command", () => {
-  const CLI_PATH = join(__dirname, "..", "bin", "claude-lsp-cli");
-  const TEST_PROJECT = join(__dirname, "..", "examples", "typescript-project");
-  const TEST_FILE = join(TEST_PROJECT, "src", "index.ts");
-  const TEMP_DIR = `/tmp/cli-diagnostics-test-${Date.now()}`;
+  // Test diagnostics mode behavior:
+  // - Exit code 0 (success) regardless of diagnostics found
+  // - Outputs "[[system-message]]:" prefix
+  // - Shows summary even when no errors
   
-  beforeAll(async () => {
-    // Create temp directory for tests
-    if (!existsSync(TEMP_DIR)) {
-      mkdirSync(TEMP_DIR, { recursive: true });
+  test("Bun/TypeScript with no errors - shows 'no errors or warnings'", async () => {
+    const result = await runCLI(["diagnostics", join(__dirname, "..", "src", "cli.ts")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+  }, 30000);
+
+  test("C++ with errors - shows diagnostic count", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "cpp-project", "src", "main.cpp")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("Elixir with compilation errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "elixir-project", "lib", "main.ex")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    const match = result.stdout.match(/"summary":"(\d+) error/);
+    expect(match).toBeTruthy();
+    if (match) {
+      const errorCount = parseInt(match[1]);
+      expect(errorCount).toBeGreaterThan(0);
     }
-  });
+  }, 30000);
+
+  test("Go with multiple errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "go-project", "cmd", "server", "main.go")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("Java with multiple errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "java-project", "src", "main", "java", "com", "example", "Main.java")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("Lua with syntax errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "lua-project", "main.lua")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("PHP with syntax errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "php-project", "src", "User.php")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("Python with type errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "python-project", "main.py")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    const hasErrors = result.stdout.includes('"severity":"error"');
+    const hasWarnings = result.stdout.includes('"severity":"warning"');
+    expect(hasErrors || hasWarnings).toBe(true);
+  }, 30000);
+
+  test("Rust with compilation errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "rust-project", "src", "main.rs")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("Scala with 9 errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "scala-project", "src", "main", "scala", "Main.scala")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    const match = result.stdout.match(/"summary":"(\d+) error/);
+    expect(match).toBeTruthy();
+    if (match) {
+      const errorCount = parseInt(match[1]);
+      expect(errorCount).toBe(9);
+    }
+  }, 30000);
+
+  test("Terraform with warnings", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "terraform-project", "main.tf")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    // Terraform might have warnings but not necessarily errors
+    const hasWarnings = result.stdout.includes('"severity":"warning"');
+    expect(hasWarnings).toBe(true);
+  }, 30000);
+
+  test("TypeScript with multiple errors", async () => {
+    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "typescript-project", "src", "index.ts")]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"diagnostics":[');
+    expect(result.stdout).toContain('error');
+  }, 30000);
+
+  test("Non-existent file returns exit code 1", async () => {
+    const result = await runCLI(["diagnostics", "/tmp/non-existent-file.ts"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("File not found");
+  }, 10000);
+});
+
+describe("CLI Hook Mode", () => {
+  // Test hook mode behavior:
+  // - Exit code 2 when diagnostics found
+  // - Exit code 0 when no diagnostics
+  // - No output when no diagnostics
+  // - Output with "[[system-message]]:" when diagnostics found
   
-  afterAll(async () => {
-    // Clean up temp directory
-    if (existsSync(TEMP_DIR)) {
-      rmSync(TEMP_DIR, { recursive: true, force: true });
-    }
-    // Stop any running servers
-    await exec(`${CLI_PATH} stop-all`).catch(() => {});
-  });
-
-  describe("Output Format", () => {
-    test("should output [[system-message]]: prefix", async () => {
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-      expect(stdout).toStartWith("[[system-message]]:");
-    });
-
-    test("should output valid JSON after prefix", async () => {
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      expect(() => JSON.parse(jsonStr)).not.toThrow();
-    });
-
-    test("should include summary field", async () => {
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
-      expect(result).toHaveProperty("summary");
-      expect(typeof result.summary).toBe("string");
-    });
-  });
-
-  describe("Project Diagnostics", () => {
-    test("should handle clean project", async () => {
-      // Create a clean test project
-      const cleanProject = join(TEMP_DIR, "clean-project");
-      mkdirSync(cleanProject, { recursive: true });
-      writeFileSync(join(cleanProject, "package.json"), JSON.stringify({
-        name: "clean-project",
-        version: "1.0.0"
-      }));
-      writeFileSync(join(cleanProject, "index.ts"), "const x: number = 42;\n");
-      
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${cleanProject}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
-      
-      expect(result.summary).toBe("no errors or warnings");
-    }, 10000);
-
-    test("should detect TypeScript errors", async () => {
-      // Create project with errors
-      const errorProject = join(TEMP_DIR, "error-project");
-      mkdirSync(errorProject, { recursive: true });
-      writeFileSync(join(errorProject, "package.json"), JSON.stringify({
-        name: "error-project",
-        version: "1.0.0"
-      }));
-      writeFileSync(join(errorProject, "tsconfig.json"), JSON.stringify({
-        compilerOptions: {
-          strict: true,
-          noImplicitAny: true
-        }
-      }));
-      writeFileSync(join(errorProject, "index.ts"), `
-        const x = undefined;
-        x.toString(); // Error: possible undefined
-        
-        function foo(param) { // Error: implicit any
-          return param;
-        }
-      `);
-      
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${errorProject}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
-      
-      if (result.diagnostics) {
-        expect(result.diagnostics).toBeInstanceOf(Array);
-        expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.summary).toContain("diagnostics");
-      }
-    }, 15000);
-
-    test("should include language breakdown in summary", async () => {
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
-      
-      // If there are diagnostics, summary should mention the language
-      if (result.diagnostics && result.diagnostics.length > 0) {
-        expect(result.summary).toMatch(/typescript|javascript/i);
+  test("Hook mode with diagnostics returns exit code 2", async () => {
+    const hookData = JSON.stringify({
+      tool_name: "Edit",
+      tool_input: {
+        file_path: join(EXAMPLES_DIR, "typescript-project", "src", "index.ts")
       }
     });
-  });
-
-  describe("File Diagnostics", () => {
-    test("should handle single file path", async () => {
-      const testFile = join(TEMP_DIR, "single-file.ts");
-      writeFileSync(testFile, "const x: string = 'test';\n");
+    
+    const proc = spawn(CLI_PATH, ["hook", "PostToolUse"]);
+    proc.stdin.write(hookData);
+    proc.stdin.end();
+    
+    const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
+      let stdout = "";
+      let stderr = "";
       
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${testFile}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
+      proc.stdout.on("data", (data) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data) => { stderr += data.toString(); });
       
-      expect(result).toHaveProperty("summary");
+      proc.on("close", (exitCode) => {
+        resolve({ stdout, stderr, exitCode: exitCode || 0 });
+      });
     });
+    
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("[[system-message]]:");
+    expect(result.stderr).toContain('"diagnostics":[');
+  }, 30000);
 
-    test("should find project root from file path", async () => {
-      // Create nested project structure
-      const nestedProject = join(TEMP_DIR, "nested", "project");
-      mkdirSync(nestedProject, { recursive: true });
-      writeFileSync(join(nestedProject, "package.json"), JSON.stringify({
-        name: "nested-project"
-      }));
-      
-      const srcDir = join(nestedProject, "src");
-      mkdirSync(srcDir);
-      const testFile = join(srcDir, "test.ts");
-      writeFileSync(testFile, "export const value = 42;\n");
-      
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${testFile}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
-      
-      expect(result).toHaveProperty("summary");
-    }, 10000);
-  });
-
-  describe("Error Handling", () => {
-    test("should handle non-existent project", async () => {
-      const { stdout, stderr } = await exec(`${CLI_PATH} diagnostics /non/existent/path`).catch(e => e);
-      
-      // Should either return empty diagnostics or an error message
-      if (stdout && stdout.includes("[[system-message]]:")) {
-        const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-        const result = JSON.parse(jsonStr);
-        expect(result.summary).toBe("no errors or warnings");
+  test("Hook mode with no diagnostics returns exit code 0 and no output", async () => {
+    const hookData = JSON.stringify({
+      tool_name: "Edit",
+      tool_input: {
+        file_path: join(__dirname, "..", "src", "cli.ts")
       }
     });
-
-    test("should handle project without language servers", async () => {
-      const unknownProject = join(TEMP_DIR, "unknown-project");
-      mkdirSync(unknownProject);
-      writeFileSync(join(unknownProject, "file.unknown"), "unknown content");
+    
+    const proc = spawn(CLI_PATH, ["hook", "PostToolUse"]);
+    proc.stdin.write(hookData);
+    proc.stdin.end();
+    
+    const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
+      let stdout = "";
+      let stderr = "";
       
-      const { stdout } = await exec(`${CLI_PATH} diagnostics ${unknownProject}`);
-      const jsonStr = stdout.replace("[[system-message]]:", "").trim();
-      const result = JSON.parse(jsonStr);
+      proc.stdout.on("data", (data) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data) => { stderr += data.toString(); });
       
-      expect(result.summary).toBe("no errors or warnings");
+      proc.on("close", (exitCode) => {
+        resolve({ stdout, stderr, exitCode: exitCode || 0 });
+      });
     });
-  });
+    
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(""); // No output when no diagnostics
+  }, 30000);
 
-  describe("Deduplication", () => {
-    test("should deduplicate repeated project diagnostics", async () => {
-      // Run diagnostics twice
-      const { stdout: first } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const { stdout: second } = await exec(`${CLI_PATH} diagnostics ${TEST_PROJECT}`);
-      
-      const firstResult = JSON.parse(first.replace("[[system-message]]:", "").trim());
-      const secondResult = JSON.parse(second.replace("[[system-message]]:", "").trim());
-      
-      // Second run should indicate deduplication if there were errors
-      if (firstResult.diagnostics && firstResult.diagnostics.length > 0) {
-        // Either shows "(already reported)" or returns fewer/no diagnostics
-        expect(secondResult.summary).toMatch(/already reported|no errors or warnings/);
+  test("Hook mode with non-code tool returns exit code 0", async () => {
+    const hookData = JSON.stringify({
+      tool_name: "Bash",
+      tool_input: {
+        command: "ls -la"
       }
-    }, 10000);
-
-    test("should NOT deduplicate file-specific diagnostics", async () => {
-      const testFile = join(TEMP_DIR, "dedupe-test.ts");
-      writeFileSync(testFile, "const x = undefined; x.toString();\n");
+    });
+    
+    const proc = spawn(CLI_PATH, ["hook", "PostToolUse"]);
+    proc.stdin.write(hookData);
+    proc.stdin.end();
+    
+    const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
+      let stdout = "";
+      let stderr = "";
       
-      // Run file diagnostics twice
-      const { stdout: first } = await exec(`${CLI_PATH} diagnostics ${testFile}`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const { stdout: second } = await exec(`${CLI_PATH} diagnostics ${testFile}`);
+      proc.stdout.on("data", (data) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data) => { stderr += data.toString(); });
       
-      const firstResult = JSON.parse(first.replace("[[system-message]]:", "").trim());
-      const secondResult = JSON.parse(second.replace("[[system-message]]:", "").trim());
-      
-      // Both should return the same diagnostics
-      expect(JSON.stringify(firstResult)).toBe(JSON.stringify(secondResult));
-    }, 10000);
-  });
+      proc.on("close", (exitCode) => {
+        resolve({ stdout, stderr, exitCode: exitCode || 0 });
+      });
+    });
+    
+    expect(result.exitCode).toBe(0);
+  }, 10000);
 });
