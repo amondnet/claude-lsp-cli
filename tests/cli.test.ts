@@ -24,8 +24,11 @@ describe("CLI - Main Entry Point", () => {
         const match = stdout.match(/\[\[system-message\]\]:(.+)/);
         if (match) {
           const response = JSON.parse(match[1]);
-          expect(response).toHaveProperty("diagnostics");
           expect(response).toHaveProperty("summary");
+          // diagnostics property is only present when there are actual diagnostics
+          if (response.summary !== "no errors or warnings") {
+            expect(response).toHaveProperty("diagnostics");
+          }
         }
       }
       
@@ -44,54 +47,42 @@ describe("CLI - Main Entry Point", () => {
         }
       };
       
-      const { stderr } = await exec(
+      const result = await exec(
         `echo '${JSON.stringify(hookData)}' | ${CLI_PATH} hook PostToolUse`
-      );
+      ).catch(e => e);
       
-      // Should not error
-      expect(stderr || "").not.toContain("Error:");
+      // Hook should process the file and output diagnostics (exit code 2 is expected for diagnostics)
+      // The test file has TypeScript errors so we expect diagnostic output
+      expect(result.stderr || "").toContain("[[system-message]]:");
+      expect(result.code).toBe(2); // Exit code 2 when diagnostics found
     }, 10000);
   });
 
-  describe("Critical Command: server management", () => {
-    test("should start and stop servers without errors", async () => {
-      const testProject = join(import.meta.dir, "..", "examples", "javascript-project");
+  describe("Critical Command: enable/disable", () => {
+    test("should enable and disable languages", async () => {
+      // Disable scala
+      const { stdout: disableOut } = await exec(`${CLI_PATH} disable scala`);
+      expect(disableOut).toContain("Disabled scala");
       
-      // Start server
-      const { stdout: startOutput } = await exec(`${CLI_PATH} start ${testProject}`);
-      expect(startOutput.toLowerCase()).toContain("started");
-      
-      // Stop server
-      const { stdout: stopOutput } = await exec(`${CLI_PATH} stop ${testProject}`);
-      expect(stopOutput.toLowerCase()).toMatch(/stop|killed/);
-    }, 20000);
-  });
-
-  describe("Critical Command: status", () => {
-    test("should show server status without errors", async () => {
-      const { stdout, stderr } = await exec(`${CLI_PATH} status`);
-      
-      // Should show status info
-      expect(stdout).toMatch(/server|No LSP servers/i);
-      
-      // Should not error
-      expect(stderr || "").not.toContain("Error:");
+      // Enable scala
+      const { stdout: enableOut } = await exec(`${CLI_PATH} enable scala`);
+      expect(enableOut).toContain("Enabled scala");
     }, 10000);
   });
 
   describe("Error Handling", () => {
     test("should handle invalid commands gracefully", async () => {
-      const { stdout } = await exec(`${CLI_PATH} invalid-command`).catch(e => e);
+      const result = await exec(`${CLI_PATH} invalid-command`).catch(e => e);
       
-      // Should show help or error message, not crash
-      expect(stdout).toBeTruthy();
+      // Should show error message about unknown command
+      expect(result.stdout || result.stderr || "").toContain("Unknown command");
     }, 5000);
 
     test("should handle missing arguments gracefully", async () => {
-      const { stdout } = await exec(`${CLI_PATH} diagnostics`).catch(e => e);
+      const result = await exec(`${CLI_PATH} diagnostics`).catch(e => e);
       
-      // Should show error or help
-      expect(stdout || "").toBeTruthy();
+      // Should show error about unknown command (because diagnostics without args is treated as unknown)
+      expect(result.stderr || result.stdout || "").toContain("Unknown command");
     }, 5000);
   });
 });

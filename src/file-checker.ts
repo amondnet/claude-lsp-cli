@@ -6,7 +6,7 @@
  */
 
 import { spawn } from "bun";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { dirname, basename, extname, join, relative } from "path";
 
 // Project root detection
@@ -14,11 +14,10 @@ function findProjectRoot(filePath: string): string {
   let dir = dirname(filePath);
   
   while (dir !== "/" && dir.length > 1) {
-    // Check for common project markers
+    // Check for common project markers (excluding tsconfig.json)
     if (existsSync(join(dir, ".git")) ||
         existsSync(join(dir, "package.json")) ||
         existsSync(join(dir, "bun.lockb")) ||        // Bun projects
-        existsSync(join(dir, "tsconfig.json")) ||     // TypeScript projects
         existsSync(join(dir, "pyproject.toml")) ||
         existsSync(join(dir, "go.mod")) ||
         existsSync(join(dir, "Cargo.toml")) ||
@@ -35,9 +34,21 @@ function findProjectRoot(filePath: string): string {
   return dirname(filePath); // fallback to file directory
 }
 
-// Configurable timeout (default 5 seconds)
-const CHECKER_TIMEOUT = parseInt(process.env.CLAUDE_LSP_TIMEOUT || "5000");
-const FAST_TIMEOUT = 2000; // 2 seconds for simpler checks
+// Find the nearest tsconfig.json for TypeScript configuration
+function findTsconfigRoot(filePath: string): string | null {
+  let dir = dirname(filePath);
+  
+  while (dir !== "/" && dir.length > 1) {
+    if (existsSync(join(dir, "tsconfig.json"))) {
+      return dir;
+    }
+    dir = dirname(dir);
+  }
+  
+  return null; // No tsconfig.json found
+}
+
+// No timeout - let tools complete naturally
 
 export interface FileCheckResult {
   file: string;
@@ -56,7 +67,6 @@ export interface FileCheckResult {
  */
 async function runCommand(
   args: string[],
-  timeout: number = CHECKER_TIMEOUT,
   env?: Record<string, string>,
   cwd?: string
 ): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
@@ -66,41 +76,36 @@ async function runCommand(
     cwd: cwd || process.cwd()
   });
 
-  const timeoutId = setTimeout(() => {
-    proc.kill(9); // SIGKILL to ensure termination
-  }, timeout);
-
   try {
-    // Read streams with timeout
-    const stdoutPromise = new Response(proc.stdout).text();
-    const stderrPromise = new Response(proc.stderr).text();
-    
-    // Race against timeout
-    const result = await Promise.race([
-      Promise.all([stdoutPromise, stderrPromise, proc.exited]),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeout))
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text()
     ]);
-
-    clearTimeout(timeoutId);
-
-    if (result === null) {
-      // Timed out
-      proc.kill(9);
-      return { stdout: "", stderr: "Command timed out", timedOut: true };
-    }
-
-    const [stdout, stderr] = result;
+    
+    await proc.exited;
+    
     return { stdout, stderr, timedOut: false };
   } catch (error) {
-    clearTimeout(timeoutId);
-    proc.kill(9);
-    return { stdout: "", stderr: String(error), timedOut: true };
+    return { stdout: "", stderr: String(error), timedOut: false };
   }
 }
 
 /**
  * Check a single file with timeout protection
  */
+// Helper function to read LSP config
+function readLspConfig(projectRoot: string): any {
+  const configPath = join(projectRoot, ".claude", "lsp-config.json");
+  try {
+    if (existsSync(configPath)) {
+      return JSON.parse(readFileSync(configPath, "utf8"));
+    }
+  } catch (e) {
+    // Ignore config parsing errors
+  }
+  return {};
+}
+
 export async function checkFile(filePath: string): Promise<FileCheckResult | null> {
   if (!existsSync(filePath)) {
     return null;
@@ -176,14 +181,177 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
-  // Just specify the file directly - TypeScript will use tsconfig.json from parent directories automatically
-  const tscArgs = ["tsc", "--noEmit", "--pretty", "false", file];
+  // Build tsc arguments dynamically
+  const tscArgs = ["tsc", "--noEmit", "--pretty", "false"];
+  
+  // Find the nearest tsconfig.json
+  const tsconfigRoot = findTsconfigRoot(file);
+  
+  if (process.env.DEBUG) {
+    console.error("Project root:", projectRoot);
+    console.error("Tsconfig root:", tsconfigRoot);
+  }
+  
+  if (tsconfigRoot) {
+    const tsconfigPath = join(tsconfigRoot, "tsconfig.json");
+    if (process.env.DEBUG) {
+      console.error("Attempting to read tsconfig from:", tsconfigPath);
+    }
+    try {
+      // Read and strip comments from tsconfig (TypeScript allows comments but JSON.parse doesn't)
+      const tsconfigContent = readFileSync(tsconfigPath, "utf-8");
+      
+      // More careful comment removal that doesn't break strings
+      const cleanedContent = tsconfigContent
+        .split('\n')
+        .map(line => {
+          // Don't remove // inside strings
+          let inString = false;
+          let result = '';
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const next = line[i + 1];
+            
+            if (char === '"' && (i === 0 || line[i - 1] !== '\\')) {
+              inString = !inString;
+            }
+            
+            if (!inString && char === '/' && next === '/') {
+              break; // Rest of line is a comment
+            }
+            
+            result += char;
+          }
+          return result.trim();
+        })
+        .filter(line => line.length > 0) // Remove empty lines
+        .join('\n')
+        .replace(/\/\*[\s\S]*?\*\//g, ''); // Remove /* */ comments (still simple regex)
+      
+      const tsconfig = JSON.parse(cleanedContent);
+      const compilerOptions = tsconfig.compilerOptions || {};
+      
+      if (process.env.DEBUG) {
+        console.error("Found tsconfig.json at:", tsconfigPath);
+        console.error("Module:", compilerOptions.module, "Target:", compilerOptions.target);
+        console.error("Types:", compilerOptions.types);
+      }
+      
+      // Add module and target if they support modern features
+      if (compilerOptions.module === "ESNext" || compilerOptions.module === "esnext") {
+        tscArgs.push("--module", "esnext");
+      }
+      if (compilerOptions.target === "ESNext" || compilerOptions.target === "esnext") {
+        tscArgs.push("--target", "esnext");
+      }
+      
+      // Add lib if specified
+      if (compilerOptions.lib && Array.isArray(compilerOptions.lib)) {
+        tscArgs.push("--lib", compilerOptions.lib.join(","));
+      }
+      
+      // Add moduleResolution if it's bundler
+      if (compilerOptions.moduleResolution === "bundler") {
+        tscArgs.push("--moduleResolution", "bundler");
+      }
+      
+      // Add jsx if specified
+      if (compilerOptions.jsx) {
+        tscArgs.push("--jsx", compilerOptions.jsx);
+      }
+      
+      // Add boolean flags
+      if (compilerOptions.allowJs) {
+        tscArgs.push("--allowJs");
+      }
+      if (compilerOptions.allowImportingTsExtensions) {
+        tscArgs.push("--allowImportingTsExtensions");
+      }
+      if (compilerOptions.strict) {
+        tscArgs.push("--strict");
+      }
+      if (compilerOptions.skipLibCheck) {
+        tscArgs.push("--skipLibCheck");
+      }
+      if (compilerOptions.esModuleInterop) {
+        tscArgs.push("--esModuleInterop");
+      }
+      if (compilerOptions.resolveJsonModule) {
+        tscArgs.push("--resolveJsonModule");
+      }
+      if (compilerOptions.isolatedModules) {
+        tscArgs.push("--isolatedModules");
+      }
+      
+      // Add baseUrl if specified (important for path resolution)
+      if (compilerOptions.baseUrl) {
+        tscArgs.push("--baseUrl", compilerOptions.baseUrl);
+      }
+      
+      // Add paths if specified (for @ imports etc)
+      if (compilerOptions.paths) {
+        // TypeScript CLI doesn't support --paths directly, but baseUrl helps
+        // The paths config needs the tsconfig.json to work properly
+      }
+      if (compilerOptions.noFallthroughCasesInSwitch) {
+        tscArgs.push("--noFallthroughCasesInSwitch");
+      }
+      if (compilerOptions.noImplicitOverride) {
+        tscArgs.push("--noImplicitOverride");
+      }
+      if (compilerOptions.moduleDetection) {
+        tscArgs.push("--moduleDetection", compilerOptions.moduleDetection);
+      }
+      
+      // Add flags that might be false (only add if explicitly true)
+      if (compilerOptions.noUnusedLocals === true) {
+        tscArgs.push("--noUnusedLocals");
+      }
+      if (compilerOptions.noUnusedParameters === true) {
+        tscArgs.push("--noUnusedParameters");
+      }
+      if (compilerOptions.noUncheckedIndexedAccess === true) {
+        tscArgs.push("--noUncheckedIndexedAccess");
+      }
+      if (compilerOptions.verbatimModuleSyntax === true) {
+        tscArgs.push("--verbatimModuleSyntax");
+      }
+      
+      // Check for Bun types
+      const types = compilerOptions.types || [];
+      if (types.includes("bun")) {
+        tscArgs.push("--types", "bun");
+        result.tool = "tsc (bun)";
+      }
+    } catch (e) {
+      // If we can't parse tsconfig, just use defaults
+      if (process.env.DEBUG) {
+        console.error("Error reading tsconfig:", e);
+      }
+    }
+  }
+  
+  // Determine working directory and file argument
+  const workingDir = tsconfigRoot || projectRoot;
+  
+  // When we have a tsconfig, use a relative path from that directory
+  // This helps tsc properly resolve module paths
+  const fileArg = tsconfigRoot ? relative(tsconfigRoot, file) : file;
+  
+  // Add the file to check
+  tscArgs.push(fileArg);
+  
+  // Debug: Log the command being run
+  if (process.env.DEBUG) {
+    console.error("Running:", tscArgs.join(" "));
+    console.error("From directory:", workingDir);
+  }
 
+  // Run tsc from the directory containing tsconfig.json if found, otherwise from project root
   const { stdout, stderr, timedOut } = await runCommand(
     tscArgs,
-    CHECKER_TIMEOUT,
     { NO_COLOR: "1" },
-    projectRoot
+    workingDir
   );
 
   if (timedOut) {
@@ -192,7 +360,7 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
       line: 1,
       column: 1,
       severity: "warning",
-      message: `TypeScript check timed out after ${CHECKER_TIMEOUT}ms`
+      message: `TypeScript check timed out`
     });
     return result;
   }
@@ -203,18 +371,27 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
   
   for (const line of lines) {
     const match = line.match(/^(.+?)\((\d+),(\d+)\): (error|warning) TS\d+: (.+)$/);
-    if (match && match[1].includes(basename(file))) {
-      let message = match[5];
-      // Clean up absolute paths in error messages
-      message = message.replace(new RegExp(projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '');
-      message = message.replace(/^\/+/, ''); // Remove leading slashes
+    if (match) {
+      const matchedFile = match[1];
+      // Match if it's the same file - tsc outputs relative path when run from project root
+      // Check: exact match, relative path match, or basename match
+      const isTargetFile = matchedFile === file || 
+                          matchedFile === relativePath ||
+                          (matchedFile.includes(basename(file)) && !matchedFile.includes('node_modules'));
       
-      result.diagnostics.push({
-        line: parseInt(match[2]),
-        column: parseInt(match[3]),
-        severity: match[4] as "error" | "warning",
-        message: message
-      });
+      if (isTargetFile) {
+        let message = match[5];
+        // Clean up absolute paths in error messages
+        message = message.replace(new RegExp(projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '');
+        message = message.replace(/^\/+/, ''); // Remove leading slashes
+        
+        result.diagnostics.push({
+          line: parseInt(match[2]),
+          column: parseInt(match[3]),
+          severity: match[4] as "error" | "warning",
+          message: message
+        });
+      }
     }
   }
 
@@ -250,7 +427,6 @@ async function checkPython(file: string): Promise<FileCheckResult> {
   // Try pyright with longer timeout (it can be slow on first run)
   const { stdout, timedOut } = await runCommand(
     pyrightArgs,
-    CHECKER_TIMEOUT * 2, // 10 seconds for Python
     { PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` },
     projectRoot
   );
@@ -259,7 +435,7 @@ async function checkPython(file: string): Promise<FileCheckResult> {
     // Try faster mypy as fallback
     const mypyResult = await runCommand(
       ["mypy", "--no-error-summary", "--show-column-numbers", file],
-      FAST_TIMEOUT
+      
     );
     
     if (!mypyResult.timedOut) {
@@ -328,7 +504,6 @@ async function checkGo(file: string): Promise<FileCheckResult> {
 
   const { stderr, stdout, timedOut } = await runCommand(
     goArgs,
-    FAST_TIMEOUT,
     {},
     hasGoMod ? projectRoot : undefined
   );
@@ -356,16 +531,20 @@ async function checkGo(file: string): Promise<FileCheckResult> {
 }
 
 async function checkRust(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "rustc",
     diagnostics: []
   };
 
   // Rust can be slow to compile
   const { stderr, timedOut } = await runCommand(
-    ["rustc", "--error-format=json", "--edition", "2021", file],
-    CHECKER_TIMEOUT * 2 // 10 seconds for Rust
+    ["rustc", "--error-format=json", "--edition", "2021", relativePath],
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -441,7 +620,6 @@ async function checkJava(file: string): Promise<FileCheckResult> {
   // Java compilation can be slow
   const { stderr, timedOut } = await runCommand(
     javacArgs,
-    CHECKER_TIMEOUT,
     {},
     hasPom || hasGradle ? projectRoot : undefined
   );
@@ -475,15 +653,19 @@ async function checkJava(file: string): Promise<FileCheckResult> {
 }
 
 async function checkCpp(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "gcc",
     diagnostics: []
   };
 
   const { stderr, timedOut } = await runCommand(
-    ["gcc", "-fsyntax-only", "-Wall", file],
-    CHECKER_TIMEOUT
+    ["gcc", "-fsyntax-only", "-Wall", relativePath],
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -516,15 +698,19 @@ async function checkCpp(file: string): Promise<FileCheckResult> {
 }
 
 async function checkPhp(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "php",
     diagnostics: []
   };
 
   const { stderr, timedOut } = await runCommand(
-    ["php", "-l", file],
-    FAST_TIMEOUT
+    ["php", "-l", relativePath],
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -559,22 +745,59 @@ async function checkScala(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
-  // Check if this is an sbt or gradle project
-  const hasBuildSbt = existsSync(join(projectRoot, "build.sbt"));
-  const hasBuildGradle = existsSync(join(projectRoot, "build.gradle"));
+  // Check if Scala checking is disabled via config file
+  const scalaConfig = readLspConfig(projectRoot);
+  const globalDisabled = scalaConfig.disable === true;
+  const scalaDisabled = scalaConfig.disableScala === true;
   
-  // For Scala projects with build files, we can't effectively check single files
-  // because scalac needs the full classpath and dependencies
-  if (hasBuildSbt || hasBuildGradle) {
-    // Skip checking - return no diagnostics for now
-    // In a real setup, we'd need to use sbt/gradle or metals LSP
-    return result;
+  if (globalDisabled || scalaDisabled) {
+    result.tool = "scalac (disabled)";
+    return result; // Return empty diagnostics
   }
 
-  // Only run scalac for simple single-file Scala scripts
+  let scalaArgs = ["scalac", "-explain"];
+  
+  const hasBuildSbt = existsSync(join(projectRoot, "build.sbt"));
+  if (hasBuildSbt) {
+    // Try to get classpath from sbt (this is fast if project is already compiled)
+    const { stdout: classpath } = await runCommand(
+      ["sbt", "-no-colors", "-batch", "export compile:dependencyClasspath"],
+      {},
+      projectRoot
+    );
+    
+    if (classpath && !classpath.includes("error")) {
+      // Extract the actual classpath from sbt output
+      const cpLine = classpath.split("\n").find(line => line.includes(".jar") || line.includes("/classes"));
+      if (cpLine) {
+        scalaArgs.push("-cp", cpLine.trim());
+      }
+    }
+    
+    // Also add common source directories to classpath
+    const srcDirs = [
+      join(projectRoot, "target", "scala-3.3.1", "classes"),
+      join(projectRoot, "target", "scala-3.3.0", "classes"),
+      join(projectRoot, "target", "scala-2.13", "classes"),
+      join(projectRoot, "target", "scala-2.12", "classes"),
+      join(projectRoot, "core", "jvm", "target", "scala-3.3.1", "classes"),
+      join(projectRoot, "core", "jvm", "target", "scala-3.3.0", "classes"),
+    ].filter(existsSync);
+    
+    if (srcDirs.length > 0) {
+      const existingCp = scalaArgs.includes("-cp") ? scalaArgs[scalaArgs.indexOf("-cp") + 1] : "";
+      const separator = existingCp ? ":" : "";
+      scalaArgs[scalaArgs.indexOf("-cp") + 1] = existingCp + separator + srcDirs.join(":");
+    }
+  }
+  
+  scalaArgs.push(file);
+
+  // Run scalac with or without classpath
   const { stderr, timedOut } = await runCommand(
-    ["scalac", "-explain", file],
-    CHECKER_TIMEOUT * 2 // Scala can be slow
+    scalaArgs,
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -625,20 +848,58 @@ async function checkScala(file: string): Promise<FileCheckResult> {
     }
   }
 
+  // Filter common false positives in multi-module SBT projects
+  const hasProjectDir = existsSync(join(projectRoot, "project"));
+  
+  // Check global and language-specific filter settings from config file
+  const filterConfig = readLspConfig(projectRoot);
+  const globalFilterEnabled = filterConfig.disableFilter !== true; // Default: enabled
+  const scalaFilterEnabled = filterConfig.disableScalaFilter !== true; // Default: enabled
+  const filterEnabled = globalFilterEnabled && scalaFilterEnabled;
+  
+  if (hasBuildSbt && hasProjectDir && filterEnabled) {
+    // Conservative filtering - only filter very specific cross-module patterns
+    result.diagnostics = result.diagnostics.filter(diagnostic => {
+      const message = diagnostic.message.toLowerCase();
+      
+      // Very specific false positive patterns that are clearly cross-module issues
+      const crossModulePatterns = [
+        /value \w+ is not a member of \w+ - did you mean/i, // "value task is not a member of rapid - did you mean rapid.Task?"
+        /value \w+ is not a member of \w+$/i,               // "value monitor is not a member of rapid" (ends with package name)
+        /value \w+ is not a member of any$/i,               // "value taskTypeWithDepth is not a member of Any"
+        /^cyclic error$/i,                                  // "Cyclic Error" - compilation dependency issues
+        /^type error$/i,                                    // "Type Error" - generic type resolution failures
+        /^type mismatch error$/i,                           // "Type Mismatch Error" - cross-module type mismatches
+        /not found: type \w+$/i,                            // "Not found: type Fiber" - cross-module type references
+      ];
+      
+      // Keep diagnostic if it doesn't match cross-module patterns
+      return !crossModulePatterns.some(pattern => pattern.test(message));
+    });
+    
+    if (result.diagnostics.length === 0) {
+      result.tool = "scalac (filtered)";
+    }
+  }
+
   return result;
 }
 
 async function checkLua(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "luac",
     diagnostics: []
   };
 
   // Use luac -p for syntax checking (lua doesn't have a -c flag)
   const { stderr, timedOut } = await runCommand(
-    ["luac", "-p", file],
-    FAST_TIMEOUT
+    ["luac", "-p", relativePath],
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -675,7 +936,6 @@ async function checkElixir(file: string): Promise<FileCheckResult> {
   
   const { stderr, timedOut } = await runCommand(
     ["elixir", relativePath],
-    CHECKER_TIMEOUT,
     undefined,
     projectRoot
   );
@@ -730,15 +990,19 @@ async function checkElixir(file: string): Promise<FileCheckResult> {
 }
 
 async function checkTerraform(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "terraform",
     diagnostics: []
   };
 
   const { stdout, stderr, timedOut } = await runCommand(
-    ["terraform", "fmt", "-check", "-diff", file],
-    FAST_TIMEOUT
+    ["terraform", "fmt", "-check", "-diff", relativePath],
+    undefined,
+    projectRoot
   );
 
   if (timedOut) {
@@ -762,23 +1026,20 @@ async function checkTerraform(file: string): Promise<FileCheckResult> {
 // Format diagnostics for output
 export function formatDiagnostics(result: FileCheckResult): string {
   if (!result || result.diagnostics.length === 0) {
-    if (result?.timedOut) {
-      return `[[system-message]]:{"summary":"check timed out after ${CHECKER_TIMEOUT}ms"}`;
-    }
     return "";
   }
 
   const errors = result.diagnostics.filter(d => d.severity === "error");
   const warnings = result.diagnostics.filter(d => d.severity === "warning");
   
-  // Build summary - only show non-zero counts
+  // Build summary - only show non-zero counts (use (s) format for consistency)
   const summaryParts = [];
   if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
-  if (warnings.length > 0) summaryParts.push(`${warnings.length} warnings`);
+  if (warnings.length > 0) summaryParts.push(`${warnings.length} warning(s)`);
   
   const jsonResult = {
     diagnostics: result.diagnostics.slice(0, 5), // Show at most 5 items
-    summary: summaryParts.length > 0 ? summaryParts.join(", ") : "no errors or warnings"
+    summary: summaryParts.length > 0 ? summaryParts.join(" and ") : "no errors or warnings"
   };
   
   if (result.timedOut) {
@@ -794,11 +1055,11 @@ if (import.meta.main) {
   
   if (!file) {
     console.error("Usage: file-checker-v2.ts <file>");
-    console.error(`Timeout: ${CHECKER_TIMEOUT}ms (set CLAUDE_LSP_TIMEOUT env var to change)`);
+    console.error("Usage: file-checker-v2.ts <file>");
     process.exit(1);
   }
   
-  console.log(`Checking ${file} (timeout: ${CHECKER_TIMEOUT}ms)...`);
+  console.log(`Checking ${file}...`);
   const start = Date.now();
   
   const result = await checkFile(file);

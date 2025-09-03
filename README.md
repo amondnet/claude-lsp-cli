@@ -12,7 +12,7 @@ Test the file-based diagnostics for each example file with intentional errors:
 
 ```bash
 # Bun - no errro
-claude-lsp-cli diagnostics src/cli.ts
+claude-lsp-cli diagnostics src/file-checker.ts
 
 # C++ - 1 error (missing header files)
 claude-lsp-cli diagnostics examples/cpp-project/src/main.cpp
@@ -226,23 +226,20 @@ To prevent spam while ensuring you see important changes, the system uses **serv
 - 🔄 **Persistent Servers**: Servers stay running between Claude sessions for optimal performance
 - 🛡️ **Enterprise-Ready**: Comprehensive security features and proper error handling
 
-## 📊 Language Support Status (11/13 Tested - 85% Success Rate)
+## 📊 Language Support Status (11 Languages with Direct File Checking)
 
-### ✅ Working Languages (13 languages) - Tested and Confirmed
-- **TypeScript** - Full diagnostics (bundled), excellent performance ✓
-- **JavaScript** - Full diagnostics via TypeScript server, works out of box ✓
-- **Python** - Full diagnostics via Pyright (fast, incremental type checking) ✓
-- **Rust** - Full diagnostics (requires rust-analyzer installed) ✓
-- **Go** - Full diagnostics (requires `go install golang.org/x/tools/gopls@latest`) ✓
-- **Java** - Full diagnostics via jdtls (requires `brew install jdtls`) ✓
-  - Enabled by default. To opt out, set `CLAUDE_LSP_DISABLE_JAVA=1`.
-- **C/C++** - Full diagnostics (requires clangd installed) ✓
-- **Ruby** - Full diagnostics via Solargraph (requires `gem install solargraph` and `.solargraph.yml` config) ✓
-- **PHP** - Full diagnostics (requires `npm i -g intelephense`) ✓
-- **Scala** - Full diagnostics (requires `cs install metals`) ✓
-- **Lua** - Full diagnostics (install via `mise install lua-language-server`) ✓
-- **Elixir** - Full diagnostics via Elixir LS (requires `mise install elixir-ls`) ✓
-- **Terraform** - Partial diagnostics (install via `mise install terraform-ls`) ✓
+### ✅ Supported Languages - File-based Checking
+- **TypeScript** (.ts, .tsx, .mts, .cts) - via `tsc` (included with Bun) ✓
+- **Python** (.py, .pyi) - via `pyright` (requires `npm i -g pyright`) ✓
+- **Go** (.go) - via `go vet` (requires Go installed) ✓
+- **Rust** (.rs) - via `rustc` (requires Rust installed) ✓
+- **Java** (.java) - via `javac` (requires JDK installed) ✓
+- **C/C++** (.c, .cpp, .cc, .cxx) - via `gcc` (requires GCC or Clang) ✓
+- **PHP** (.php) - via `php -l` (requires PHP installed) ✓
+- **Scala** (.scala) - via `scalac` (requires Scala installed) ✓
+- **Lua** (.lua) - via `luac` (requires Lua installed) ✓
+- **Elixir** (.ex, .exs) - via `elixir` (requires Elixir installed) ✓
+- **Terraform** (.tf) - via `terraform fmt` (requires Terraform installed) ✓
 
 
 ## 📦 Prerequisites
@@ -684,28 +681,28 @@ bun run src/enhanced-server.ts
 - Check that the file extension is supported
 - Ensure the language server is installed
 
+
 ## 📚 Documentation
 
 - [Language Support Guide](docs/LANGUAGE_SUPPORT.md) - Detailed language server information
 - [API Documentation](docs/API.md) - HTTP API reference
 - [Hook Development](docs/HOOKS.md) - Creating custom Claude Code hooks
 
-### Enabling Languages
+### Installing Language Support
 
-Servers only start when their language server is available on your system. If a server isn’t installed, it won’t run. Use these commands to enable languages:
+Claude Code LSP uses direct file checking with language-specific tools. Install the tools for languages you need:
 
-- TypeScript/JavaScript: Bundled (no action needed). Optional global: `npm i -g typescript-language-server typescript`
-- Python: `npm i -g pyright` (provides `pyright-langserver`)
-- PHP: `npm i -g intelephense`
-- Java: `brew install jdtls` (macOS) or install from Eclipse JDT LS releases
-- Go: `go install golang.org/x/tools/gopls@latest`
-- Rust: `rustup component add rust-analyzer`
-- C/C++: `brew install llvm` (macOS) or `apt install clangd` (Linux)
-- Ruby: `gem install solargraph` (requires `.solargraph.yml` in project)
-- Scala: `cs install metals` (Coursier)
-- Lua: `mise install lua-language-server@latest && mise use -g lua-language-server@latest`
-- Elixir: `mise install elixir-ls@latest`
-- Terraform: `mise install terraform-ls@latest && mise use -g terraform-ls@latest`
+- **TypeScript**: Included with Bun (no action needed)
+- **Python**: `npm i -g pyright`
+- **Go**: Install Go from https://golang.org
+- **Rust**: Install Rust from https://rustup.rs
+- **Java**: Install JDK (Java Development Kit)
+- **C/C++**: Install GCC (`apt install gcc` on Linux, Xcode on macOS)
+- **PHP**: Install PHP (`apt install php` on Linux, `brew install php` on macOS)
+- **Scala**: Install Scala (`brew install scala` on macOS)
+- **Lua**: Install Lua (`brew install lua` on macOS)
+- **Elixir**: Install Elixir (`brew install elixir` on macOS)
+- **Terraform**: Install Terraform from https://terraform.io
 
 Disable any language with an env var: `CLAUDE_LSP_DISABLE_<LANG>=1` (e.g., `CLAUDE_LSP_DISABLE_PYTHON=1`).
 

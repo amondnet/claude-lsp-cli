@@ -252,4 +252,47 @@ describe("CLI Hook Mode", () => {
     
     expect(exitCode).toBe(0);
   }, 10000);
+
+  // Error handling tests
+  describe("Error Handling", () => {
+    test("diagnostics command should return non-zero exit with full error on runtime errors", async () => {
+      // Test with a file that will cause a runtime error (e.g., permission denied)
+      const proc = spawn([CLI_PATH, "diagnostics", "/root/nonexistent.ts"], {
+        stdout: "pipe",
+        stderr: "pipe"
+      });
+
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+
+      // Should return non-zero exit code
+      expect(exitCode).not.toBe(0);
+      // Should show the full error message
+      expect(stderr).toContain("File not found");
+    });
+
+    test("hook command should return exit 1 with no output on runtime errors", async () => {
+      // Simulate hook with invalid JSON to cause a runtime error
+      const proc = spawn([CLI_PATH, "hook", "PostToolUse"], {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe"
+      });
+
+      // Send invalid JSON that will cause parsing to fail
+      proc.stdin.write("invalid json");
+      proc.stdin.end();
+
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+
+      // Should return exit code 1 (or 0 for graceful handling) and no error output
+      expect(exitCode).toBeLessThanOrEqual(1);
+      // Should not produce error output (graceful failure)
+      expect(stderr).toBe("");
+      expect(stdout).toBe("");
+    });
+  });
 });

@@ -6,11 +6,20 @@
  * Usage:
  *   claude-lsp-cli hook <event-type>     - Handle Claude Code hook events
  *   claude-lsp-cli diagnostics <file>    - Check file for errors
+ *   claude-lsp-cli disable <language>    - Disable language checking
+ *   claude-lsp-cli enable <language>     - Enable language checking
  *   claude-lsp-cli help                  - Show help
+ * 
+ * Environment Variables:
+ *   CLAUDE_LSP_DISABLE=true             - Disable all language checking
+ *   CLAUDE_LSP_DISABLE_SCALA=true       - Disable Scala checking only
+ *   CLAUDE_LSP_FILTER=false             - Disable all false positive filtering
+ *   CLAUDE_LSP_FILTER_SCALA=false       - Disable Scala-specific filtering only
  */
 
-import { resolve, join } from "path";
+import { resolve, join, dirname } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import { spawn } from "bun";
 import { checkFile, formatDiagnostics } from "./file-checker";
 
 // Parse command line arguments
@@ -88,26 +97,23 @@ function extractFilePaths(hookData: any): string[] {
     }
   }
   
-  // Check Bash commands for multiple files
-  if (hookData?.tool_name === "Bash") {
-    // Prioritize output first (contains actual processed files after wildcard expansion)
-    if (hookData?.tool_response?.output) {
-      const output = hookData.tool_response.output;
-      const fileRegex = /(?:^|\s|["'])([^\s"']*[\/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?:$|\s|["'])/gmi;
-      let match;
-      while ((match = fileRegex.exec(output)) !== null) {
-        files.push(match[1]);
-      }
+  // Check tool response output for file paths (e.g., from Bash commands)
+  if (hookData?.tool_response?.output) {
+    const output = hookData.tool_response.output;
+    const fileRegex = /(?:^|\s|["'])([^\s"']*[\/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?=$|\s|["'])/gmi;
+    let match;
+    while ((match = fileRegex.exec(output)) !== null) {
+      files.push(match[1]);
     }
-    
-    // Fall back to command input only if no files found in output
-    if (files.length === 0 && hookData?.tool_input?.command) {
-      const command = hookData.tool_input.command;
-      const fileRegex = /(?:^|\s|["'])([^\s"']*[\/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?:$|\s|["'])/gmi;
-      let match;
-      while ((match = fileRegex.exec(command)) !== null) {
-        files.push(match[1]);
-      }
+  }
+  
+  // Check tool input command for file paths (e.g., Bash commands)
+  if (files.length === 0 && hookData?.tool_input?.command) {
+    const command = hookData.tool_input.command;
+    const fileRegex = /(?:^|\s|["'])([^\s"']*[\/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?=$|\s|["'])/gmi;
+    let match;
+    while ((match = fileRegex.exec(command)) !== null) {
+      files.push(match[1]);
     }
   }
   
@@ -147,6 +153,12 @@ async function handleHookEvent(eventType: string): Promise<void> {
           : join(hookData?.cwd || process.cwd(), filePath)
       );
       
+      // Debug: log files being checked
+      if (process.env.DEBUG === "true" || process.env.DEBUG_EXTRACTION === "true") {
+        console.error("Extracted file paths:", filePaths);
+        console.error("Absolute paths to check:", absolutePaths);
+      }
+      
       const results = await Promise.all(
         absolutePaths.map(absolutePath => checkFile(absolutePath))
       );
@@ -185,7 +197,7 @@ async function handleHookEvent(eventType: string): Promise<void> {
         
         const summaryParts = [];
         if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
-        if (warnings.length > 0) summaryParts.push(`${warnings.length} warnings`);
+        if (warnings.length > 0) summaryParts.push(`${warnings.length} warning(s)`);
         
         const combinedResult = {
           diagnostics: allDiagnostics.slice(0, 5), // Show at most 5 items
@@ -212,24 +224,181 @@ async function showHelp(): Promise<void> {
   console.log(`Claude LSP CLI - File-based diagnostics for Claude Code
 
 Commands:
-  hook <event>          Handle Claude Code hook events
-  diagnostics <file>    Check individual file for errors/warnings
-  help                  Show this help message
+  hook <event>             Handle Claude Code hook events
+  diagnostics <file>       Check individual file for errors/warnings
+  disable <language>       Disable language checking (e.g. disable scala)
+  enable <language>        Enable language checking (e.g. enable scala)
+  help                     Show this help message
 
 Examples:
   claude-lsp-cli diagnostics src/index.ts
   claude-lsp-cli hook PostToolUse
 
-Supported Languages:
-  TypeScript, Python, Go, Rust, Java, C++, PHP, Scala, Terraform
-  Swift, Kotlin (if tools installed)
+Language Support Status:`);
 
+  // Check if there's a config file and read disabled languages
+  const configPath = join(process.cwd(), ".claude", "lsp-config.json");
+  let disabledLanguages = new Set<string>();
+  let globalDisabled = false;
+  
+  try {
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, "utf8"));
+      globalDisabled = config.disable === true;
+      if (config.disableScala === true) disabledLanguages.add("Scala");
+      if (config.disableTypeScript === true) disabledLanguages.add("TypeScript");
+      if (config.disablePython === true) disabledLanguages.add("Python");
+      if (config.disableGo === true) disabledLanguages.add("Go");
+      if (config.disableRust === true) disabledLanguages.add("Rust");
+      if (config.disableJava === true) disabledLanguages.add("Java");
+      if (config.disableCpp === true) disabledLanguages.add("C/C++");
+      if (config.disablePhp === true) disabledLanguages.add("PHP");
+      if (config.disableLua === true) disabledLanguages.add("Lua");
+      if (config.disableElixir === true) disabledLanguages.add("Elixir");
+      if (config.disableTerraform === true) disabledLanguages.add("Terraform");
+    }
+  } catch (e) {
+    // Ignore config parsing errors
+  }
+
+  if (globalDisabled) {
+    console.log("  🚫 All language checking is DISABLED via config");
+  }
+
+  // Check which language tools are available (matching actual file checker commands)
+  const languages = [
+    { name: "TypeScript", code: "typescript", command: "tsc", versionArg: "--version", install: "npm install -g typescript" },
+    { name: "Python", code: "python", command: "pyright", versionArg: "--version", install: "npm install -g pyright" },
+    { name: "Go", code: "go", command: "go", versionArg: "version", install: "Install Go from https://golang.org" },
+    { name: "Rust", code: "rust", command: "rustc", versionArg: "--version", install: "Install Rust from https://rustup.rs" },
+    { name: "Java", code: "java", command: "javac", versionArg: "-version", install: "Install Java JDK" },
+    { name: "C/C++", code: "cpp", command: "gcc", versionArg: "--version", install: "Install GCC or Clang" },
+    { name: "PHP", code: "php", command: "php", versionArg: "--version", install: "Install PHP" },
+    { name: "Scala", code: "scala", command: "scalac", versionArg: "-version", install: "Install Scala" },
+    { name: "Lua", code: "lua", command: "luac", versionArg: "-v", install: "Install Lua" },
+    { name: "Elixir", code: "elixir", command: "elixir", versionArg: "--version", install: "Install Elixir" },
+    { name: "Terraform", code: "terraform", command: "terraform", versionArg: "version", install: "Install Terraform" },
+  ];
+
+  // Check all languages in parallel, then display in order
+  const checks = languages.map(async (lang) => {
+    try {
+      const proc = spawn([lang.command, lang.versionArg], { stdout: "ignore", stderr: "ignore" });
+      await proc.exited;
+      return {
+        name: lang.name,
+        code: lang.code,
+        available: proc.exitCode === 0,
+        install: lang.install
+      };
+    } catch {
+      return {
+        name: lang.name,
+        code: lang.code,
+        available: false,
+        install: lang.install
+      };
+    }
+  });
+
+  const results = await Promise.all(checks);
+  
+  // Display results in original order
+  for (const result of results) {
+    const isDisabled = globalDisabled || disabledLanguages.has(result.name);
+    
+    if (isDisabled) {
+      console.log(`  🚫 ${result.name} (${result.code}): DISABLED via config`);
+    } else if (result.available) {
+      console.log(`  ✅ ${result.name} (${result.code}): Available`);
+    } else {
+      console.log(`  ❌ ${result.name} (${result.code}): Not found - ${result.install}`);
+    }
+  }
+  
+  // Show config instructions only if there are disabled languages
+  if (globalDisabled || disabledLanguages.size > 0) {
+    console.log(`
+To enable/disable languages use:
+  claude-lsp-cli enable <language>     # Enable specific language
+  claude-lsp-cli disable <language>    # Disable specific language
+  
+Examples:
+  claude-lsp-cli enable scala
+  claude-lsp-cli disable python`);
+  }
+
+  console.log(`
 Features:
   • Direct tool invocation (no LSP servers)
   • Built-in deduplication  
   • Fast single-file checking
-  • Standardized JSON output format
-`);
+  • Standardized JSON output format`);
+}
+
+// Config management functions
+function updateConfig(configPath: string, updates: Record<string, any>): void {
+  let config: any = {};
+  
+  // Read existing config
+  try {
+    if (existsSync(configPath)) {
+      config = JSON.parse(readFileSync(configPath, "utf8"));
+    }
+  } catch (e) {
+    // Start with empty config if parsing fails
+  }
+  
+  // Apply updates
+  Object.assign(config, updates);
+  
+  // Ensure directory exists
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) {
+    require("fs").mkdirSync(dir, { recursive: true });
+  }
+  
+  // Write updated config
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+}
+
+async function disableLanguage(language: string): Promise<void> {
+  const configPath = join(process.cwd(), ".claude", "lsp-config.json");
+  const langKey = `disable${language.charAt(0).toUpperCase() + language.slice(1).toLowerCase()}`;
+  
+  updateConfig(configPath, { [langKey]: true });
+  console.log(`✅ Disabled ${language} checking`);
+}
+
+async function enableLanguage(language: string): Promise<void> {
+  const configPath = join(process.cwd(), ".claude", "lsp-config.json");
+  const langKey = `disable${language.charAt(0).toUpperCase() + language.slice(1).toLowerCase()}`;
+  
+  // Read current config
+  let config: any = {};
+  try {
+    if (existsSync(configPath)) {
+      config = JSON.parse(readFileSync(configPath, "utf8"));
+    }
+  } catch (e) {
+    // Empty config is fine
+  }
+  
+  // Remove the disable key
+  delete config[langKey];
+  
+  // Write updated config (or remove file if empty)
+  if (Object.keys(config).length === 0) {
+    if (existsSync(configPath)) {
+      require("fs").unlinkSync(configPath);
+      console.log(`✅ Enabled ${language} checking (removed config)`);
+    } else {
+      console.log(`✅ ${language} checking is already enabled`);
+    }
+  } else {
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log(`✅ Enabled ${language} checking`);
+  }
 }
 
 // Main execution
@@ -255,6 +424,12 @@ Features:
     }
     
     // CLI always exits 0 (success) - only program errors use non-zero
+    process.exit(0);
+  } else if (command === "disable" && args[1]) {
+    await disableLanguage(args[1]);
+    process.exit(0);
+  } else if (command === "enable" && args[1]) {
+    await enableLanguage(args[1]);
     process.exit(0);
   } else if (command === "help" || !command) {
     await showHelp();
