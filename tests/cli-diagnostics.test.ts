@@ -34,6 +34,36 @@ describe("CLI Diagnostics Command", () => {
     expect(result.stdout).toContain('"summary":"no errors or warnings"');
   }, 30000);
 
+  test("Python file with no errors - shows 'no errors or warnings'", async () => {
+    // Create a simple Python file with no errors
+    const testFile = "/tmp/test_no_errors.py";
+    require("fs").writeFileSync(testFile, "def hello():\n    return 'Hello, World!'\n");
+    const result = await runCLI(["diagnostics", testFile]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+  }, 30000);
+
+  test("Go file with no errors - shows 'no errors or warnings'", async () => {
+    // Create a simple Go file with no errors
+    const testFile = "/tmp/test_no_errors.go";
+    require("fs").writeFileSync(testFile, "package main\n\nfunc main() {\n    println(\"Hello\")\n}\n");
+    const result = await runCLI(["diagnostics", testFile]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+  }, 30000);
+
+  test("JavaScript file with no errors - shows 'no errors or warnings'", async () => {
+    // Create a simple JS file with no errors
+    const testFile = "/tmp/test_no_errors.js";
+    require("fs").writeFileSync(testFile, "function add(a, b) {\n  return a + b;\n}\n");
+    const result = await runCLI(["diagnostics", testFile]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("[[system-message]]:");
+    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+  }, 30000);
+
   test("C++ with errors - shows diagnostic count", async () => {
     const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "cpp-project", "src", "main.cpp")]);
     expect(result.exitCode).toBe(0);
