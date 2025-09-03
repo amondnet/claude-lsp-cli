@@ -1,24 +1,23 @@
 import { describe, test, expect } from "bun:test";
-import { spawn } from "child_process";
+import { spawn } from "bun";
 import { join } from "path";
 
-const CLI_PATH = join(__dirname, "..", "bin", "claude-lsp-cli");
-const EXAMPLES_DIR = join(__dirname, "..", "examples");
+const CLI_PATH = join(import.meta.dir, "..", "bin", "claude-lsp-cli");
+const EXAMPLES_DIR = join(import.meta.dir, "..", "examples");
 
-// Helper to run CLI and capture output
+// Helper to run CLI and capture output using Bun's spawn
 async function runCLI(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    const proc = spawn(CLI_PATH, args);
-    let stdout = "";
-    let stderr = "";
-    
-    proc.stdout.on("data", (data) => { stdout += data.toString(); });
-    proc.stderr.on("data", (data) => { stderr += data.toString(); });
-    
-    proc.on("close", (exitCode) => {
-      resolve({ stdout, stderr, exitCode: exitCode || 0 });
-    });
+  const proc = spawn([CLI_PATH, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore"
   });
+
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+
+  return { stdout, stderr, exitCode };
 }
 
 describe("CLI Diagnostics Command", () => {
@@ -28,7 +27,7 @@ describe("CLI Diagnostics Command", () => {
   // - Shows summary even when no errors
   
   test("Bun/TypeScript with no errors - shows 'no errors or warnings'", async () => {
-    const result = await runCLI(["diagnostics", join(__dirname, "..", "src", "cli.ts")]);
+    const result = await runCLI(["diagnostics", join(import.meta.dir, "..", "src", "cli.ts")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"summary":"no errors or warnings"');
@@ -37,7 +36,7 @@ describe("CLI Diagnostics Command", () => {
   test("Python file with no errors - shows 'no errors or warnings'", async () => {
     // Create a simple Python file with no errors
     const testFile = "/tmp/test_no_errors.py";
-    require("fs").writeFileSync(testFile, "def hello():\n    return 'Hello, World!'\n");
+    await Bun.write(testFile, "def hello():\n    return 'Hello, World!'\n");
     const result = await runCLI(["diagnostics", testFile]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
@@ -47,7 +46,7 @@ describe("CLI Diagnostics Command", () => {
   test("Go file with no errors - shows 'no errors or warnings'", async () => {
     // Create a simple Go file with no errors
     const testFile = "/tmp/test_no_errors.go";
-    require("fs").writeFileSync(testFile, "package main\n\nfunc main() {\n    println(\"Hello\")\n}\n");
+    await Bun.write(testFile, "package main\n\nfunc main() {\n    println(\"Hello\")\n}\n");
     const result = await runCLI(["diagnostics", testFile]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
@@ -57,7 +56,7 @@ describe("CLI Diagnostics Command", () => {
   test("JavaScript file with no errors - shows 'no errors or warnings'", async () => {
     // Create a simple JS file with no errors
     const testFile = "/tmp/test_no_errors.js";
-    require("fs").writeFileSync(testFile, "function add(a, b) {\n  return a + b;\n}\n");
+    await Bun.write(testFile, "function add(a, b) {\n  return a + b;\n}\n");
     const result = await runCLI(["diagnostics", testFile]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
@@ -187,53 +186,47 @@ describe("CLI Hook Mode", () => {
       }
     });
     
-    const proc = spawn(CLI_PATH, ["hook", "PostToolUse"]);
+    const proc = spawn([CLI_PATH, "hook", "PostToolUse"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe"
+    });
+    
     proc.stdin.write(hookData);
     proc.stdin.end();
     
-    const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
-      let stdout = "";
-      let stderr = "";
-      
-      proc.stdout.on("data", (data) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data) => { stderr += data.toString(); });
-      
-      proc.on("close", (exitCode) => {
-        resolve({ stdout, stderr, exitCode: exitCode || 0 });
-      });
-    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
     
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("[[system-message]]:");
-    expect(result.stderr).toContain('"diagnostics":[');
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("[[system-message]]:");
+    expect(stderr).toContain('"diagnostics":[');
   }, 30000);
 
   test("Hook mode with no diagnostics returns exit code 0 and no output", async () => {
     const hookData = JSON.stringify({
       tool_name: "Edit",
       tool_input: {
-        file_path: join(__dirname, "..", "src", "cli.ts")
+        file_path: join(import.meta.dir, "..", "src", "cli.ts")
       }
     });
     
-    const proc = spawn(CLI_PATH, ["hook", "PostToolUse"]);
+    const proc = spawn([CLI_PATH, "hook", "PostToolUse"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe"
+    });
+    
     proc.stdin.write(hookData);
     proc.stdin.end();
     
-    const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
-      let stdout = "";
-      let stderr = "";
-      
-      proc.stdout.on("data", (data) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data) => { stderr += data.toString(); });
-      
-      proc.on("close", (exitCode) => {
-        resolve({ stdout, stderr, exitCode: exitCode || 0 });
-      });
-    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
     
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(""); // No output when no diagnostics
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe(""); // No output when no diagnostics
   }, 30000);
 
   test("Hook mode with non-code tool returns exit code 0", async () => {
@@ -244,22 +237,19 @@ describe("CLI Hook Mode", () => {
       }
     });
     
-    const proc = spawn(CLI_PATH, ["hook", "PostToolUse"]);
+    const proc = spawn([CLI_PATH, "hook", "PostToolUse"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe"
+    });
+    
     proc.stdin.write(hookData);
     proc.stdin.end();
     
-    const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
-      let stdout = "";
-      let stderr = "";
-      
-      proc.stdout.on("data", (data) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data) => { stderr += data.toString(); });
-      
-      proc.on("close", (exitCode) => {
-        resolve({ stdout, stderr, exitCode: exitCode || 0 });
-      });
-    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
     
-    expect(result.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
   }, 10000);
 });
