@@ -7,8 +7,31 @@
 
 import { spawn } from "bun";
 import { existsSync } from "fs";
-import { dirname, basename, extname } from "path";
-import { logger } from "./utils/logger";
+import { dirname, basename, extname, join, relative } from "path";
+
+// Project root detection
+function findProjectRoot(filePath: string): string {
+  let dir = dirname(filePath);
+  
+  while (dir !== "/" && dir.length > 1) {
+    // Check for common project markers
+    if (existsSync(join(dir, ".git")) ||
+        existsSync(join(dir, "package.json")) ||
+        existsSync(join(dir, "pyproject.toml")) ||
+        existsSync(join(dir, "go.mod")) ||
+        existsSync(join(dir, "Cargo.toml")) ||
+        existsSync(join(dir, "pom.xml")) ||
+        existsSync(join(dir, "build.gradle")) ||
+        existsSync(join(dir, "composer.json")) ||
+        existsSync(join(dir, "mix.exs")) ||
+        existsSync(join(dir, "main.tf"))) {
+      return dir;
+    }
+    dir = dirname(dir);
+  }
+  
+  return dirname(filePath); // fallback to file directory
+}
 
 // Configurable timeout (default 5 seconds)
 const CHECKER_TIMEOUT = parseInt(process.env.CLAUDE_LSP_TIMEOUT || "5000");
@@ -32,11 +55,13 @@ export interface FileCheckResult {
 async function runCommand(
   args: string[],
   timeout: number = CHECKER_TIMEOUT,
-  env?: Record<string, string>
+  env?: Record<string, string>,
+  cwd?: string
 ): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
   const proc = spawn(args, {
     stdio: ["ignore", "pipe", "pipe"],
-    env: env ? { ...process.env, ...env } : process.env
+    env: env ? { ...process.env, ...env } : process.env,
+    cwd: cwd || process.cwd()
   });
 
   const timeoutId = setTimeout(() => {
@@ -466,17 +491,39 @@ async function checkScala(file: string): Promise<FileCheckResult> {
     return result;
   }
 
-  // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:1:7")
+  // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:3:13")
   const lines = stderr.split("\n");
-  for (const line of lines) {
-    // Match Scala 3 error format: "-- [E006] Error Type: file:line:col"
-    const match = line.match(/-- \[E\d+\] (.+) Error: .+?:(\d+):\d+/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Remove ANSI color codes and match Scala 3 error format
+    const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+    const match = cleanLine.match(/-- \[E\d+\] (.+): .+?:(\d+):(\d+)/);
     if (match) {
+      // Get the detailed error message from the next few lines
+      let message = match[1]; // Start with error type
+      
+      // Look for the actual error description in subsequent lines
+      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+        const detailLine = lines[j].replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI codes
+        const detailMatch = detailLine.match(/\s*\|\s*(.+)$/);
+        if (detailMatch) {
+          const content = detailMatch[1].trim();
+          // Skip lines with just syntax highlighting (contains only code) or arrow indicators
+          if (content && !content.match(/^\^+$/) && !content.match(/^(import|class|def|val|var|if|else|for|while|try|catch)\s/)) {
+            // This looks like an actual error message
+            if (content.includes("not a member of") || content.includes("Not found:") || content.includes("cannot be applied")) {
+              message = content;
+              break;
+            }
+          }
+        }
+      }
+      
       result.diagnostics.push({
         line: parseInt(match[2]),
-        column: 1,
+        column: parseInt(match[3]),
         severity: "error",
-        message: match[1] + " Error"
+        message: message
       });
     }
   }
@@ -602,8 +649,8 @@ export function formatDiagnostics(result: FileCheckResult): string {
   
   // Build summary - only show non-zero counts
   const summaryParts = [];
-  if (errors.length > 0) summaryParts.push(`errors: ${errors.length}`);
-  if (warnings.length > 0) summaryParts.push(`warnings: ${warnings.length}`);
+  if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
+  if (warnings.length > 0) summaryParts.push(`${warnings.length} warnings`);
   
   const jsonResult = {
     diagnostics: result.diagnostics.slice(0, 5), // Show at most 5 items

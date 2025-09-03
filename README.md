@@ -11,38 +11,41 @@ This system integrates with Claude Code through a **PostToolUse hook** that auto
 Test the file-based diagnostics for each example file with intentional errors:
 
 ```bash
-# TypeScript - 30 errors
-claude-lsp-cli diagnostics examples/typescript-project/src/index.ts
-
-# Python - 19 errors, 1 warning  
-claude-lsp-cli diagnostics examples/python-project/main.py
-
-# Go - multiple errors
-claude-lsp-cli diagnostics examples/go-project/main.go
-
-# Rust - multiple errors
-claude-lsp-cli diagnostics examples/rust-project/src/main.rs
-
-# Java - multiple errors
-claude-lsp-cli diagnostics examples/java-project/src/main/java/com/example/Main.java
+# Bun - no errro
+claude-lsp-cli diagnostics src/cli.ts
 
 # C++ - multiple errors
 claude-lsp-cli diagnostics examples/cpp-project/src/main.cpp
 
-# PHP - parse errors
-claude-lsp-cli diagnostics examples/php-project/src/index.php
+# Elixir - multiple errors
+claude-lsp-cli diagnostics examples/elixir-project/lib/main.ex
 
-# Scala - 3 errors
+# Go - multiple errors
+claude-lsp-cli diagnostics examples/go-project/cmd/server/main.go
+
+# Java - multiple errors
+claude-lsp-cli diagnostics examples/java-project/src/main/java/com/example/Main.java
+
+# Lua - multiple errors
+claude-lsp-cli diagnostics examples/lua-project/main.lua
+
+# PHP - multiple errors
+claude-lsp-cli diagnostics examples/php-project/src/User.php
+
+# Python - multiple errors
+claude-lsp-cli diagnostics examples/python-project/main.py
+
+# Rust - multiple errors
+claude-lsp-cli diagnostics examples/rust-project/src/main.rs
+
+# Scala - multiple errors
 claude-lsp-cli diagnostics examples/scala-project/src/main/scala/Main.scala
 
 # Terraform - 1 warning
 claude-lsp-cli diagnostics examples/terraform-project/main.tf
 
-# Swift - multiple errors (requires swift)
-claude-lsp-cli diagnostics examples/swift-project/Sources/main.swift
-
-# Kotlin - multiple errors (requires kotlin)
-claude-lsp-cli diagnostics examples/kotlin-project/src/main/kotlin/Main.kt
+# TypeScript - multiple errors
+claude-lsp-cli diagnostics examples/typescript-project/src/index.ts
 ```
 
 ## 🔍 How File Processing Works
@@ -57,15 +60,18 @@ The file checker processes individual files using direct tool invocation:
 
 ### Supported Languages & Tools
 
-- **TypeScript**: `tsc --noEmit` for type checking
-- **Python**: `pylance` or `mypy` for static analysis  
-- **Go**: `go build` for compilation errors
-- **Rust**: `rustc --error-format json` for diagnostics
-- **Java**: `javac` for compilation checking
+- **Bun**: `tsc --noEmit` for type checking
 - **C++**: `g++` or `clang++` for compilation
+- **Elixir**: `elixir -c` for compilation checking
+- **Go**: `go build` for compilation errors
+- **Java**: `javac` for compilation checking
+- **Lua**: `lua -l` for syntax checking
 - **PHP**: `php -l` for syntax checking
+- **Python**: `pylance` or `mypy` for static analysis
+- **Rust**: `rustc --error-format json` for diagnostics
 - **Scala**: `scalac` for compilation
 - **Terraform**: `terraform validate` for configuration validation
+- **TypeScript**: `tsc --noEmit` for type checking
 
 ### Example Processing
 │   └── index.ts      # <- Edit this file
