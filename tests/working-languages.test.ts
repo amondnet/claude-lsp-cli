@@ -79,11 +79,11 @@ async function runDiagnostics(projectPath: string): Promise<{ summary: string; d
         } else if (response.diagnostics) {
           resolve({ summary: response.summary || `${response.diagnostics.length} diagnostics`, diagnostics: response.diagnostics });
         } else {
-          resolve({ summary: response.summary || "no warnings or errors", diagnostics: [] });
+          resolve({ summary: response.summary || "no errors or warnings", diagnostics: [] });
         }
       } catch (e) {
         // If parsing fails, treat as no diagnostics
-        resolve({ summary: "no warnings or errors", diagnostics: [] });
+        resolve({ summary: "no errors or warnings", diagnostics: [] });
       }
     });
   });
@@ -100,7 +100,7 @@ describe("Working Language Servers", () => {
         const result = await runDiagnostics(projectPath);
         
         // These languages are known to work
-        expect(result.summary).not.toBe("no warnings or errors");
+        expect(result.summary).not.toBe("no errors or warnings");
         expect(result.diagnostics.length).toBeGreaterThanOrEqual(expected.minErrors);
       }, 30000);
     });

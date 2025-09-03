@@ -654,7 +654,7 @@ export function formatDiagnostics(result: FileCheckResult): string {
   
   const jsonResult = {
     diagnostics: result.diagnostics.slice(0, 5), // Show at most 5 items
-    summary: summaryParts.length > 0 ? summaryParts.join(", ") : "no warnings or errors"
+    summary: summaryParts.length > 0 ? summaryParts.join(", ") : "no errors or warnings"
   };
   
   if (result.timedOut) {

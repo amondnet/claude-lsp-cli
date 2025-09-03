@@ -197,7 +197,7 @@ Features:
         console.log(formatted);
       }
     } else {
-      console.log('[[system-message]]:{"summary":"no warnings or errors"}');
+      console.log('[[system-message]]:{"summary":"no errors or warnings"}');
     }
     
     // CLI always exits 0 (success) - only program errors use non-zero

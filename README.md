@@ -14,22 +14,22 @@ Test the file-based diagnostics for each example file with intentional errors:
 # Bun - no errro
 claude-lsp-cli diagnostics src/cli.ts
 
-# C++ - multiple errors
+# C++ - multiple errors (WIP: needs header files)
 claude-lsp-cli diagnostics examples/cpp-project/src/main.cpp
 
-# Elixir - multiple errors
+# Elixir - multiple errors (WIP: needs project setup)
 claude-lsp-cli diagnostics examples/elixir-project/lib/main.ex
 
-# Go - multiple errors
+# Go - multiple errors (WIP: needs go.mod)
 claude-lsp-cli diagnostics examples/go-project/cmd/server/main.go
 
-# Java - multiple errors
+# Java - multiple errors (WIP: needs classpath setup)
 claude-lsp-cli diagnostics examples/java-project/src/main/java/com/example/Main.java
 
-# Lua - multiple errors
+# Lua - multiple errors (WIP: needs validation)
 claude-lsp-cli diagnostics examples/lua-project/main.lua
 
-# PHP - multiple errors
+# PHP - multiple errors (WIP: needs validation)
 claude-lsp-cli diagnostics examples/php-project/src/User.php
 
 # Python - multiple errors
@@ -481,12 +481,7 @@ The hook outputs specially formatted messages that Claude recognizes:
 // When diagnostics are found:
 console.error(`[[system-message]]: ${JSON.stringify({
   diagnostics: [...],
-  summary: "total: 5 diagnostics (typescript: 3, python: 2)"
-})}`);
-
-// When no issues found:
-console.error(`[[system-message]]: ${JSON.stringify({
-  summary: "no warnings or errors"
+  summary: "5 errros, 2 warnings"
 })}`);
 ```
 
@@ -519,19 +514,11 @@ When you see `[[system-message]]:` followed by JSON, this is an automated system
 }
 ```
 
-**When no errors:**
-```json
-{
-  "summary": "no warnings or errors"
-}
-```
-
 This teaches Claude to:
 1. **Recognize diagnostic reports** by the system message format
 2. **Prioritize fixing errors** when diagnostics array is present
 3. **Parse the diagnostic format** and fix issues at correct locations  
 4. **Understand summary information** showing total diagnostics by language
-5. **Handle "no warnings or errors" status** when no issues are found
 
 ## 🛠️ Standalone Usage (Without Claude)
 

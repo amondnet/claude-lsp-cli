@@ -70,7 +70,7 @@ describe("Diagnostic System Validation", () => {
       expect(result.summary).toBeDefined();
       expect(typeof result.summary).toBe('string');
       
-      // Should return structured response (even if "no warnings or errors")
+      // Should return structured response (even if "no errors or warnings")
       expect(result.diagnostics).toBeDefined();
       expect(Array.isArray(result.diagnostics)).toBe(true);
       

@@ -63,7 +63,7 @@ describe("CLI Diagnostics Command", () => {
       const jsonStr = stdout.replace("[[system-message]]:", "").trim();
       const result = JSON.parse(jsonStr);
       
-      expect(result.summary).toBe("no warnings or errors");
+      expect(result.summary).toBe("no errors or warnings");
     }, 10000);
 
     test("should detect TypeScript errors", async () => {
@@ -153,7 +153,7 @@ describe("CLI Diagnostics Command", () => {
       if (stdout && stdout.includes("[[system-message]]:")) {
         const jsonStr = stdout.replace("[[system-message]]:", "").trim();
         const result = JSON.parse(jsonStr);
-        expect(result.summary).toBe("no warnings or errors");
+        expect(result.summary).toBe("no errors or warnings");
       }
     });
 
@@ -166,7 +166,7 @@ describe("CLI Diagnostics Command", () => {
       const jsonStr = stdout.replace("[[system-message]]:", "").trim();
       const result = JSON.parse(jsonStr);
       
-      expect(result.summary).toBe("no warnings or errors");
+      expect(result.summary).toBe("no errors or warnings");
     });
   });
 
@@ -183,7 +183,7 @@ describe("CLI Diagnostics Command", () => {
       // Second run should indicate deduplication if there were errors
       if (firstResult.diagnostics && firstResult.diagnostics.length > 0) {
         // Either shows "(already reported)" or returns fewer/no diagnostics
-        expect(secondResult.summary).toMatch(/already reported|no warnings or errors/);
+        expect(secondResult.summary).toMatch(/already reported|no errors or warnings/);
       }
     }, 10000);
 

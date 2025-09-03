@@ -154,7 +154,7 @@ describe("Root Project Diagnostics", () => {
     const result = JSON.parse(jsonStr);
     
     // Check if summary includes language breakdown
-    if (result.summary && result.summary !== "no warnings or errors") {
+    if (result.summary && result.summary !== "no errors or warnings") {
       console.log(`Multi-language summary: ${result.summary}`);
       
       // Summary should mention different languages if multiple are found

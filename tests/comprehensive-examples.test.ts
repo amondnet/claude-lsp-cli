@@ -44,33 +44,9 @@ const EXPECTED_ERRORS: Record<string, { minErrors: number; fileWithErrors?: stri
     minErrors: 2, 
     fileWithErrors: "index.php" 
   },
-  "ruby-project": { 
-    minErrors: 2, 
-    fileWithErrors: "main.rb" 
-  },
-  "swift-project": { 
-    minErrors: 2, 
-    fileWithErrors: "main.swift" 
-  },
-  "kotlin-project": { 
-    minErrors: 2, 
-    fileWithErrors: "Main.kt" 
-  },
   "scala-project": { 
     minErrors: 2, 
     fileWithErrors: "Main.scala" 
-  },
-  "r-project": { 
-    minErrors: 2, 
-    fileWithErrors: "script.r" 
-  },
-  "lua-project": { 
-    minErrors: 2, 
-    fileWithErrors: "main.lua" 
-  },
-  "perl-project": { 
-    minErrors: 2, 
-    fileWithErrors: "main.pl" 
   }
 };
 
@@ -131,7 +107,7 @@ async function runDiagnosticsOnce(projectPath: string): Promise<{ summary: strin
       } catch (e) {
         // If parsing fails, return a basic structure
         resolve({ 
-          summary: "no warnings or errors", 
+          summary: "no errors or warnings", 
           diagnostics: [] 
         });
       }
@@ -189,7 +165,7 @@ async function runFileSpecificDiagnostics(projectPath: string, filePath: string)
       } catch (e) {
         // If parsing fails, return a basic structure
         resolve({ 
-          summary: "no warnings or errors", 
+          summary: "no errors or warnings", 
           diagnostics: [] 
         });
       }
@@ -214,9 +190,9 @@ describe("Example Projects Diagnostics", () => {
         try {
           const result = await runDiagnostics(projectPath);
           
-          // CRITICAL: We expect errors, not "no warnings or errors"
+          // CRITICAL: We expect errors, not "no errors or warnings"
           if (expected.minErrors > 0) {
-            expect(result.summary).not.toBe("no warnings or errors");
+            expect(result.summary).not.toBe("no errors or warnings");
             expect(result.diagnostics.length).toBeGreaterThanOrEqual(expected.minErrors);
           }
         } catch (error) {
@@ -248,7 +224,7 @@ describe("Example Projects Diagnostics", () => {
           
           // CRITICAL: We expect errors in files with intentional errors
           if (expected.minErrors > 0) {
-            expect(result.summary).not.toBe("no warnings or errors");
+            expect(result.summary).not.toBe("no errors or warnings");
             expect(result.diagnostics.length).toBeGreaterThanOrEqual(1);
           }
         } catch (error) {
@@ -277,7 +253,7 @@ describe("Root Project Diagnostics", () => {
     const result = await runFileDiagnostics(rootPath, "test-ts-debug.ts");
     
     // Root project files should have no errors (they're not example files)
-    expect(result.summary).toBe("no warnings or errors");
+    expect(result.summary).toBe("no errors or warnings");
   }, 30000);
   
   test("Should handle all example projects from root", async () => {

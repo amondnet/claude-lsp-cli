@@ -41,7 +41,7 @@ describe("CLI Hooks Integration", () => {
         { timeout: 30000 }
       );
       
-      // Should either return diagnostics or "no warnings or errors"
+      // Should either return diagnostics or "no errors or warnings"
       if (stdout.includes("[[system-message]]:")) {
         expect(stdout).toContain("[[system-message]]:");
       }
@@ -209,13 +209,13 @@ describe("CLI Hooks Integration", () => {
         `echo '${JSON.stringify(hookData)}' | ${CLI_PATH} hook PostToolUse`
       );
       
-      // Should handle gracefully - either return empty or "no warnings or errors"
+      // Should handle gracefully - either return empty or "no errors or warnings"
       if (stdout && stdout.includes("[[system-message]]:")) {
         const match = stdout.match(/\[\[system-message\]\]:(.+)/);
         if (match) {
           const jsonStr = match[1].trim();
           const result = JSON.parse(jsonStr);
-          expect(result.summary).toMatch(/no warnings or errors|no.*diagnostics/i);
+          expect(result.summary).toMatch(/no errors or warnings|no.*diagnostics/i);
         }
       }
       // It's OK if no output is produced for non-existent files

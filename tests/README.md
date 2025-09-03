@@ -36,11 +36,11 @@ Based on the new modular architecture with clear separation:
 
 ```json
 // Project diagnostics
-[[system-message]]:{"summary":"no warnings or errors"}
+[[system-message]]:{"summary":"no errors or warnings"}
 [[system-message]]:{"diagnostics":[...],"summary":"total: X diagnostics (typescript: Y)"}
 
 // File diagnostics
-[[system-message]]:{"summary":"no warnings or errors"}
+[[system-message]]:{"summary":"no errors or warnings"}
 [[system-message]]:{"diagnostics":[...],"summary":"X errors in file.ts"}
 ```
 
