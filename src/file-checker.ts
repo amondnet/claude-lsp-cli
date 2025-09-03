@@ -550,14 +550,30 @@ async function checkPhp(file: string): Promise<FileCheckResult> {
 }
 
 async function checkScala(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "scalac",
     diagnostics: []
   };
 
+  // Check if this is an sbt or gradle project
+  const hasBuildSbt = existsSync(join(projectRoot, "build.sbt"));
+  const hasBuildGradle = existsSync(join(projectRoot, "build.gradle"));
+  
+  // For Scala projects with build files, we can't effectively check single files
+  // because scalac needs the full classpath and dependencies
+  if (hasBuildSbt || hasBuildGradle) {
+    // Skip checking - return no diagnostics for now
+    // In a real setup, we'd need to use sbt/gradle or metals LSP
+    return result;
+  }
+
+  // Only run scalac for simple single-file Scala scripts
   const { stderr, timedOut } = await runCommand(
-    ["scalac", file],
+    ["scalac", "-explain", file],
     CHECKER_TIMEOUT * 2 // Scala can be slow
   );
 
