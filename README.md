@@ -14,16 +14,16 @@ Test the file-based diagnostics for each example file with intentional errors:
 # Bun - no errro
 claude-lsp-cli diagnostics src/cli.ts
 
-# C++ - multiple errors (WIP: needs header files)
+# C++ - 1 error (missing header files)
 claude-lsp-cli diagnostics examples/cpp-project/src/main.cpp
 
 # Elixir - multiple errors (WIP: needs project setup)
 claude-lsp-cli diagnostics examples/elixir-project/lib/main.ex
 
-# Go - multiple errors (WIP: needs go.mod)
+# Go - multiple errors
 claude-lsp-cli diagnostics examples/go-project/cmd/server/main.go
 
-# Java - multiple errors (WIP: needs classpath setup)
+# Java - multiple errors
 claude-lsp-cli diagnostics examples/java-project/src/main/java/com/example/Main.java
 
 # Lua - multiple errors (WIP: needs validation)

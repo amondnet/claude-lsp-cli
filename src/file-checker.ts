@@ -432,12 +432,13 @@ async function checkCpp(file: string): Promise<FileCheckResult> {
   // Parse GCC output
   const lines = stderr.split("\n");
   for (const line of lines) {
-    const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
+    // Match both regular errors/warnings and fatal errors
+    const match = line.match(/^.+?:(\d+):(\d+): (error|warning|fatal error): (.+)$/);
     if (match) {
       result.diagnostics.push({
         line: parseInt(match[1]),
         column: parseInt(match[2]),
-        severity: match[3] as "error" | "warning",
+        severity: match[3].includes("error") ? "error" : "warning",
         message: match[4]
       });
     }
