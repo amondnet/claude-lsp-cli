@@ -104,9 +104,12 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
     return null;
   }
 
+  const projectRoot = findProjectRoot(filePath);
+  const relativePath = relative(projectRoot, filePath);
+
   const ext = extname(filePath).toLowerCase();
   const result: FileCheckResult = {
-    file: filePath,
+    file: relativePath, // Use relative path from project root
     tool: "unknown",
     diagnostics: []
   };
@@ -162,16 +165,20 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
 // Language-specific checkers with timeout
 
 async function checkTypeScript(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "tsc",
     diagnostics: []
   };
 
   const { stdout, stderr, timedOut } = await runCommand(
-    ["tsc", "--noEmit", "--pretty", "false", "--allowJs", "--checkJs", file],
+    ["tsc", "--noEmit", "--pretty", "false", "--allowJs", "--checkJs", relativePath],
     CHECKER_TIMEOUT,
-    { NO_COLOR: "1" }
+    { NO_COLOR: "1" },
+    projectRoot
   );
 
   if (timedOut) {
@@ -192,11 +199,16 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
   for (const line of lines) {
     const match = line.match(/^(.+?)\((\d+),(\d+)\): (error|warning) TS\d+: (.+)$/);
     if (match && match[1].includes(basename(file))) {
+      let message = match[5];
+      // Clean up absolute paths in error messages
+      message = message.replace(new RegExp(projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '');
+      message = message.replace(/^\/+/, ''); // Remove leading slashes
+      
       result.diagnostics.push({
         line: parseInt(match[2]),
         column: parseInt(match[3]),
         severity: match[4] as "error" | "warning",
-        message: match[5]
+        message: message
       });
     }
   }
