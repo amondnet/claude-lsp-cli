@@ -52,12 +52,9 @@ remove_directory() {
     fi
 }
 
-# 1. Remove binaries
-echo "📦 Removing binaries..."
-remove_file "$INSTALL_DIR/claude-lsp-cli" "CLI binary"
-remove_file "$INSTALL_DIR/claude-lsp-file-hook" "Hook binary"
-remove_file "$INSTALL_DIR/claude-lsp-hook" "Hook binary"
-remove_file "$INSTALL_DIR/claude-lsp-diagnostics" "Diagnostics binary"
+# 1. Remove binary
+echo "📦 Removing binary..."
+remove_file "$INSTALL_DIR/claude-lsp-cli" "CLI binary (unified diagnostics + hooks)"
 
 # 2. Remove data directory
 echo ""
@@ -75,24 +72,8 @@ else
     echo -e "${YELLOW}⚠${NC} No state files found"
 fi
 
-# Remove Unix sockets
-SOCKET_COUNT=$(find /tmp -name "claude-lsp-*.sock" 2>/dev/null | wc -l)
-if [ "$SOCKET_COUNT" -gt 0 ]; then
-    rm -f /tmp/claude-lsp-*.sock
-    echo -e "${GREEN}✓${NC} Removed $SOCKET_COUNT Unix socket(s)"
-else
-    echo -e "${YELLOW}⚠${NC} No Unix sockets found"
-fi
-
-# Remove SQLite database
-CLAUDE_DATA_DIR="$HOME/.claude/data"
-if [ -f "$CLAUDE_DATA_DIR/claude-code-lsp.db" ]; then
-    rm -f "$CLAUDE_DATA_DIR/claude-code-lsp.db"
-    echo -e "${GREEN}✓${NC} Removed SQLite database"
-    REMOVED_ITEMS+=("SQLite database")
-else
-    echo -e "${YELLOW}⚠${NC} SQLite database not found"
-fi
+# No Unix sockets or SQLite databases in file-based architecture
+echo -e "${YELLOW}⚠${NC} No additional server files to clean (file-based architecture)"
 
 # 4. Hook removal instructions
 echo ""
@@ -151,8 +132,5 @@ else
 fi
 
 echo ""
-echo "To reinstall, run:"
-echo "  curl -fsSL https://raw.githubusercontent.com/teamchong/claude-code-lsp/master/install-binary.sh | bash"
-echo ""
-echo "Or from the local repository:"
-echo "  ./install-binary.sh"
+echo "To reinstall, run from the local repository:"
+echo "  ./install.sh"

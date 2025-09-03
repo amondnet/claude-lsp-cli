@@ -37,9 +37,7 @@ jobs:
     - name: Build binaries
       run: bun run build
       
-    - name: Verify binaries exist
+    - name: Verify binary exists
       run: |
         test -f bin/claude-lsp-cli
-        test -f bin/claude-lsp-server
-        test -f bin/claude-lsp-hook
-        test -f bin/claude-lsp-diagnostics
+        echo "✅ Single unified binary built successfully"
