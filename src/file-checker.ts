@@ -263,17 +263,36 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
 
 
 async function checkPython(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "pyright",
     diagnostics: []
   };
 
+  // Check for Python project configuration
+  const hasPyrightConfig = existsSync(join(projectRoot, "pyrightconfig.json"));
+  const hasPyprojectToml = existsSync(join(projectRoot, "pyproject.toml"));
+  const hasSetupCfg = existsSync(join(projectRoot, "setup.cfg"));
+  
+  // Build pyright arguments based on project configuration
+  const pyrightArgs = ["pyright", "--outputjson"];
+  
+  if (hasPyrightConfig || hasPyprojectToml) {
+    // Use project configuration
+    pyrightArgs.push("--project", projectRoot);
+  }
+  
+  pyrightArgs.push(relativePath);
+
   // Try pyright with longer timeout (it can be slow on first run)
   const { stdout, timedOut } = await runCommand(
-    ["pyright", "--outputjson", file],
+    pyrightArgs,
     CHECKER_TIMEOUT * 2, // 10 seconds for Python
-    { PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` }
+    { PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` },
+    projectRoot
   );
 
   if (timedOut) {
@@ -330,15 +349,28 @@ async function checkPython(file: string): Promise<FileCheckResult> {
 }
 
 async function checkGo(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "go",
     diagnostics: []
   };
 
-  const { stderr, timedOut } = await runCommand(
-    ["go", "run", file],
-    FAST_TIMEOUT // Go run will catch type errors
+  // Check if we're in a Go module
+  const hasGoMod = existsSync(join(projectRoot, "go.mod"));
+  
+  // Use go vet for better static analysis instead of go run
+  const goArgs = hasGoMod 
+    ? ["go", "vet", relativePath]  // Use module-aware mode
+    : ["go", "vet", file];         // Fallback to direct file
+
+  const { stderr, stdout, timedOut } = await runCommand(
+    goArgs,
+    FAST_TIMEOUT,
+    {},
+    hasGoMod ? projectRoot : undefined
   );
 
   if (timedOut) {
@@ -411,16 +443,47 @@ async function checkRust(file: string): Promise<FileCheckResult> {
 }
 
 async function checkJava(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "javac",
     diagnostics: []
   };
 
+  // Check for Java project files
+  const hasPom = existsSync(join(projectRoot, "pom.xml"));
+  const hasGradle = existsSync(join(projectRoot, "build.gradle")) || 
+                    existsSync(join(projectRoot, "build.gradle.kts"));
+  
+  // Build javac arguments
+  const javacArgs = ["javac", "-Xlint:all", "-d", "/tmp"];
+  
+  // Add classpath for common directories if in a project
+  if (hasPom || hasGradle) {
+    const srcDir = join(projectRoot, "src", "main", "java");
+    const targetDir = join(projectRoot, "target", "classes");
+    const buildDir = join(projectRoot, "build", "classes", "java", "main");
+    
+    const classpath = [];
+    if (existsSync(targetDir)) classpath.push(targetDir); // Maven
+    if (existsSync(buildDir)) classpath.push(buildDir);   // Gradle
+    if (existsSync(srcDir)) classpath.push(srcDir);
+    
+    if (classpath.length > 0) {
+      javacArgs.push("-cp", classpath.join(":"));
+    }
+  }
+  
+  javacArgs.push(file); // Use full path for javac
+
   // Java compilation can be slow
   const { stderr, timedOut } = await runCommand(
-    ["javac", "-Xlint:all", "-d", "/tmp", file],
-    CHECKER_TIMEOUT
+    javacArgs,
+    CHECKER_TIMEOUT,
+    {},
+    hasPom || hasGradle ? projectRoot : undefined
   );
 
   if (timedOut) {
