@@ -6,7 +6,7 @@
  */
 
 import { spawn } from "bun";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { dirname, basename, extname, join, relative } from "path";
 
 // Project root detection
@@ -106,6 +106,20 @@ function readLspConfig(projectRoot: string): any {
   return {};
 }
 
+// Helper function to check if a language is disabled
+function isLanguageDisabled(projectRoot: string, language: string): boolean {
+  const config = readLspConfig(projectRoot);
+  
+  // Check global disable
+  if (config.disable === true) {
+    return true;
+  }
+  
+  // Check language-specific disable
+  const langKey = `disable${language}`;
+  return config[langKey] === true;
+}
+
 export async function checkFile(filePath: string): Promise<FileCheckResult | null> {
   if (!existsSync(filePath)) {
     return null;
@@ -180,6 +194,12 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
     tool: "tsc",
     diagnostics: []
   };
+
+  // Check if TypeScript checking is disabled
+  if (isLanguageDisabled(projectRoot, "TypeScript")) {
+    result.tool = "tsc (disabled)";
+    return result; // Return empty diagnostics
+  }
 
   // Build tsc arguments dynamically
   const tscArgs = ["tsc", "--noEmit", "--pretty", "false"];
@@ -409,6 +429,12 @@ async function checkPython(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  // Check if Python checking is disabled
+  if (isLanguageDisabled(projectRoot, "Python")) {
+    result.tool = "pyright (disabled)";
+    return result; // Return empty diagnostics
+  }
+
   // Check for Python project configuration
   const hasPyrightConfig = existsSync(join(projectRoot, "pyrightconfig.json"));
   const hasPyprojectToml = existsSync(join(projectRoot, "pyproject.toml"));
@@ -494,6 +520,12 @@ async function checkGo(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  // Check if Go checking is disabled
+  if (isLanguageDisabled(projectRoot, "Go")) {
+    result.tool = "go (disabled)";
+    return result; // Return empty diagnostics
+  }
+
   // Check if we're in a Go module
   const hasGoMod = existsSync(join(projectRoot, "go.mod"));
   
@@ -539,6 +571,12 @@ async function checkRust(file: string): Promise<FileCheckResult> {
     tool: "rustc",
     diagnostics: []
   };
+
+  // Check if Rust checking is disabled
+  if (isLanguageDisabled(projectRoot, "Rust")) {
+    result.tool = "rustc (disabled)";
+    return result; // Return empty diagnostics
+  }
 
   // Rust can be slow to compile
   const { stderr, timedOut } = await runCommand(
@@ -590,6 +628,12 @@ async function checkJava(file: string): Promise<FileCheckResult> {
     tool: "javac",
     diagnostics: []
   };
+
+  // Check if Java checking is disabled
+  if (isLanguageDisabled(projectRoot, "Java")) {
+    result.tool = "javac (disabled)";
+    return result; // Return empty diagnostics
+  }
 
   // Check for Java project files
   const hasPom = existsSync(join(projectRoot, "pom.xml"));
@@ -662,6 +706,12 @@ async function checkCpp(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  // Check if C++ checking is disabled
+  if (isLanguageDisabled(projectRoot, "Cpp")) {
+    result.tool = "gcc (disabled)";
+    return result; // Return empty diagnostics
+  }
+
   const { stderr, timedOut } = await runCommand(
     ["gcc", "-fsyntax-only", "-Wall", relativePath],
     undefined,
@@ -707,6 +757,12 @@ async function checkPhp(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  // Check if PHP checking is disabled
+  if (isLanguageDisabled(projectRoot, "Php")) {
+    result.tool = "php (disabled)";
+    return result; // Return empty diagnostics
+  }
+
   const { stderr, timedOut } = await runCommand(
     ["php", "-l", relativePath],
     undefined,
@@ -745,53 +801,106 @@ async function checkScala(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
-  // Check if Scala checking is disabled via config file
-  const scalaConfig = readLspConfig(projectRoot);
-  const globalDisabled = scalaConfig.disable === true;
-  const scalaDisabled = scalaConfig.disableScala === true;
-  
-  if (globalDisabled || scalaDisabled) {
+  // Check if Scala checking is disabled
+  if (isLanguageDisabled(projectRoot, "Scala")) {
     result.tool = "scalac (disabled)";
     return result; // Return empty diagnostics
   }
 
-  let scalaArgs = ["scalac", "-explain"];
+  // For Scala projects, we need to compile files with their dependencies
+  // to avoid false positives about missing types
+  const fileDir = dirname(file);
+  const scalaFilesInDir = readdirSync(fileDir).filter((f: string) => f.endsWith('.scala'));
+  const isMultiFilePackage = scalaFilesInDir.length > 1;
+
+  let scalaArgs = ["scalac", "-explain", "-nowarn"];
   
   const hasBuildSbt = existsSync(join(projectRoot, "build.sbt"));
+  
+  // Build classpath including compiled classes and dependencies
+  const classpathParts: string[] = [];
+  
   if (hasBuildSbt) {
-    // Try to get classpath from sbt (this is fast if project is already compiled)
-    const { stdout: classpath } = await runCommand(
-      ["sbt", "-no-colors", "-batch", "export compile:dependencyClasspath"],
-      {},
-      projectRoot
-    );
-    
-    if (classpath && !classpath.includes("error")) {
-      // Extract the actual classpath from sbt output
-      const cpLine = classpath.split("\n").find(line => line.includes(".jar") || line.includes("/classes"));
-      if (cpLine) {
-        scalaArgs.push("-cp", cpLine.trim());
-      }
-    }
-    
-    // Also add common source directories to classpath
-    const srcDirs = [
+    // Add common target directories for compiled classes
+    const targetDirs = [
       join(projectRoot, "target", "scala-3.3.1", "classes"),
       join(projectRoot, "target", "scala-3.3.0", "classes"),
+      join(projectRoot, "target", "scala-3.4.3", "classes"),
       join(projectRoot, "target", "scala-2.13", "classes"),
       join(projectRoot, "target", "scala-2.12", "classes"),
+      // Multi-module project paths
       join(projectRoot, "core", "jvm", "target", "scala-3.3.1", "classes"),
       join(projectRoot, "core", "jvm", "target", "scala-3.3.0", "classes"),
-    ].filter(existsSync);
+      join(projectRoot, "core", "jvm", "target", "scala-3.4.3", "classes"),
+      join(projectRoot, "core", "shared", "jvm", "target", "scala-3.3.1", "classes"),
+      join(projectRoot, "modules", "*", "target", "scala-*", "classes"),
+    ];
     
-    if (srcDirs.length > 0) {
-      const existingCp = scalaArgs.includes("-cp") ? scalaArgs[scalaArgs.indexOf("-cp") + 1] : "";
-      const separator = existingCp ? ":" : "";
-      scalaArgs[scalaArgs.indexOf("-cp") + 1] = existingCp + separator + srcDirs.join(":");
+    for (const dir of targetDirs) {
+      if (dir.includes("*")) {
+        // Handle glob patterns
+        const parts = dir.split("/");
+        let currentPath = projectRoot;
+        for (const part of parts.slice(1)) {
+          if (part === "*") {
+            if (existsSync(currentPath)) {
+              const subdirs = readdirSync(currentPath).filter(d => {
+                const fullPath = join(currentPath, d);
+                return existsSync(fullPath) && statSync(fullPath).isDirectory();
+              });
+              for (const subdir of subdirs) {
+                const testPath = join(currentPath, subdir);
+                if (existsSync(testPath)) {
+                  classpathParts.push(testPath);
+                }
+              }
+            }
+            break;
+          } else if (part.includes("scala-")) {
+            if (existsSync(currentPath)) {
+              const scalaDirs = readdirSync(currentPath).filter(d => d.startsWith("scala-"));
+              for (const scalaDir of scalaDirs) {
+                const classesPath = join(currentPath, scalaDir, "classes");
+                if (existsSync(classesPath)) {
+                  classpathParts.push(classesPath);
+                }
+              }
+            }
+            break;
+          } else {
+            currentPath = join(currentPath, part);
+          }
+        }
+      } else if (existsSync(dir)) {
+        classpathParts.push(dir);
+      }
     }
   }
   
-  scalaArgs.push(file);
+  // Add classpath if we found any
+  if (classpathParts.length > 0) {
+    scalaArgs.push("-cp", classpathParts.join(":"));
+  }
+  
+  // Collect all Scala files that should be compiled together
+  const filesToCompile: string[] = [];
+  
+  if (isMultiFilePackage) {
+    // Include all Scala files in the same directory
+    scalaFilesInDir.forEach(f => {
+      filesToCompile.push(join(fileDir, f));
+    });
+    
+    if (process.env.DEBUG) {
+      console.error(`Compiling ${filesToCompile.length} Scala files together from ${fileDir}`);
+      console.error("Files:", filesToCompile.map(f => basename(f)).join(", "));
+    }
+  } else {
+    filesToCompile.push(file);
+  }
+  
+  // Add the files to compile
+  scalaArgs.push(...filesToCompile);
 
   // Run scalac with or without classpath
   const { stderr, timedOut } = await runCommand(
@@ -813,12 +922,21 @@ async function checkScala(file: string): Promise<FileCheckResult> {
 
   // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:3:13")
   const lines = stderr.split("\n");
+  const targetFileName = basename(file);
+  
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Remove ANSI color codes and match Scala 3 error format
     const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
-    const match = cleanLine.match(/-- \[E\d+\] (.+): .+?:(\d+):(\d+)/);
+    const match = cleanLine.match(/-- \[E\d+\] (.+): (.+?):(\d+):(\d+)/);
     if (match) {
+      // Check if this error is for the file we're checking
+      const errorFile = match[2];
+      if (!errorFile.endsWith(targetFileName)) {
+        // Skip errors from other files when we're compiling multiple files together
+        continue;
+      }
+      
       // Get the detailed error message from the next few lines
       let message = match[1]; // Start with error type
       
@@ -840,8 +958,8 @@ async function checkScala(file: string): Promise<FileCheckResult> {
       }
       
       result.diagnostics.push({
-        line: parseInt(match[2]),
-        column: parseInt(match[3]),
+        line: parseInt(match[3]),
+        column: parseInt(match[4]),
         severity: "error",
         message: message
       });
@@ -895,6 +1013,12 @@ async function checkLua(file: string): Promise<FileCheckResult> {
     diagnostics: []
   };
 
+  // Check if Lua checking is disabled
+  if (isLanguageDisabled(projectRoot, "Lua")) {
+    result.tool = "luac (disabled)";
+    return result; // Return empty diagnostics
+  }
+
   // Use luac -p for syntax checking (lua doesn't have a -c flag)
   const { stderr, timedOut } = await runCommand(
     ["luac", "-p", relativePath],
@@ -925,14 +1049,20 @@ async function checkLua(file: string): Promise<FileCheckResult> {
 }
 
 async function checkElixir(file: string): Promise<FileCheckResult> {
+  const projectRoot = findProjectRoot(file);
+  const relativePath = relative(projectRoot, file);
+  
   const result: FileCheckResult = {
-    file,
+    file: relativePath,
     tool: "elixir",
     diagnostics: []
   };
 
-  const projectRoot = findProjectRoot(file);
-  const relativePath = relative(projectRoot, file);
+  // Check if Elixir checking is disabled
+  if (isLanguageDisabled(projectRoot, "Elixir")) {
+    result.tool = "elixir (disabled)";
+    return result; // Return empty diagnostics
+  }
   
   const { stderr, timedOut } = await runCommand(
     ["elixir", relativePath],
@@ -998,6 +1128,12 @@ async function checkTerraform(file: string): Promise<FileCheckResult> {
     tool: "terraform",
     diagnostics: []
   };
+
+  // Check if Terraform checking is disabled
+  if (isLanguageDisabled(projectRoot, "Terraform")) {
+    result.tool = "terraform (disabled)";
+    return result; // Return empty diagnostics
+  }
 
   const { stdout, stderr, timedOut } = await runCommand(
     ["terraform", "fmt", "-check", "-diff", relativePath],
