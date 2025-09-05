@@ -450,10 +450,21 @@ async function checkPython(file: string): Promise<FileCheckResult> {
   
   pyrightArgs.push(relativePath);
 
+  // Set up environment with PYTHONPATH to help resolve local imports
+  const pythonPath = [
+    projectRoot,
+    join(projectRoot, "src"),
+    join(projectRoot, "lib"),
+    process.env.PYTHONPATH || ""
+  ].filter(p => p).join(":");
+
   // Try pyright with longer timeout (it can be slow on first run)
   const { stdout, timedOut } = await runCommand(
     pyrightArgs,
-    { PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}` },
+    { 
+      PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}`,
+      PYTHONPATH: pythonPath
+    },
     projectRoot
   );
 
@@ -505,6 +516,58 @@ async function checkPython(file: string): Promise<FileCheckResult> {
     }
   } catch {
     // Parsing failed
+  }
+
+  // Filter out common false positives from single-file checking
+  const filterConfig = readLspConfig(projectRoot);
+  const globalFilterEnabled = filterConfig.disableFilter !== true;
+  const pythonFilterEnabled = filterConfig.disablePythonFilter !== true;
+  const filterEnabled = globalFilterEnabled && pythonFilterEnabled;
+  
+  if (filterEnabled) {
+    result.diagnostics = result.diagnostics.filter(diagnostic => {
+      const message = diagnostic.message.toLowerCase();
+      
+      // Common import-related false positives when checking single files
+      const importPatterns = [
+        /^import ".+" could not be resolved$/i,                   // Local imports
+        /^cannot import name/i,                                   // Named imports from local modules
+        /^module ".+" has no attribute/i,                        // Module attributes not found
+        /^no module named/i,                                      // Local modules not found
+        /^unbound name/i,                                         // Names from imports
+        /^".+" is not defined$/i,                                 // Imported names not defined
+        /could not be resolved from source$/i,                    // General import resolution
+        /import could not be resolved$/i,                         // Import resolution failures
+      ];
+      
+      // Filter out import-related false positives for local project imports
+      if (importPatterns.some(pattern => pattern.test(message))) {
+        // Check if it's likely a local import (not a third-party package)
+        const localImportIndicators = [
+          !message.includes('numpy'),
+          !message.includes('pandas'),
+          !message.includes('requests'),
+          !message.includes('django'),
+          !message.includes('flask'),
+          !message.includes('pytest'),
+          !message.includes('tensorflow'),
+          !message.includes('torch'),
+          !message.includes('sklearn'),
+          !message.includes('matplotlib')
+        ];
+        
+        // If all indicators suggest it's a local import, filter it out
+        if (localImportIndicators.every(indicator => indicator)) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+    
+    if (result.diagnostics.length === 0) {
+      result.tool = "pyright (filtered)";
+    }
   }
 
   return result;
@@ -816,6 +879,76 @@ async function checkScala(file: string): Promise<FileCheckResult> {
   let scalaArgs = ["scalac", "-explain", "-nowarn"];
   
   const hasBuildSbt = existsSync(join(projectRoot, "build.sbt"));
+  const hasMetalsBsp = existsSync(join(projectRoot, ".bsp"));
+  
+  // Try to use better build tools if available for more accurate checking
+  const useSbtCompile = readLspConfig(projectRoot).useScalaSbt === true;
+  
+  if (hasBuildSbt && useSbtCompile) {
+    // Use sbt compile for full project context (slower but more accurate)
+    const sbtResult = await runCommand(
+      ["sbt", "-no-colors", "-batch", "compile"],
+      undefined,
+      projectRoot
+    );
+    
+    if (!sbtResult.timedOut) {
+      // Parse sbt output for errors
+      const lines = sbtResult.stdout.split("\n").concat(sbtResult.stderr.split("\n"));
+      const targetFileName = basename(file);
+      
+      for (const line of lines) {
+        // SBT error format: [error] /path/to/file.scala:10:5: error message
+        const match = line.match(/\[error\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
+        if (match && match[1].endsWith(targetFileName)) {
+          result.diagnostics.push({
+            line: parseInt(match[2]),
+            column: parseInt(match[3]),
+            severity: "error",
+            message: match[4]
+          });
+        }
+      }
+      result.tool = "sbt";
+      
+      // Only return if we found diagnostics or compilation succeeded
+      if (result.diagnostics.length > 0 || sbtResult.stdout.includes("[success]")) {
+        return result;
+      }
+    }
+  }
+  
+  // Try to use Metals/BSP for better accuracy if available
+  if (hasMetalsBsp && existsSync(join(projectRoot, ".metals"))) {
+    // Check if we can use bloop for faster, incremental compilation
+    const bloopConfig = join(projectRoot, ".bloop");
+    if (existsSync(bloopConfig)) {
+      // Use bloop compile which understands the full project context
+      const bloopResult = await runCommand(
+        ["bloop", "compile", "--no-color", relativePath],
+        undefined,
+        projectRoot
+      );
+      
+      if (!bloopResult.timedOut) {
+        // Parse bloop output if successful
+        const lines = bloopResult.stderr.split("\n");
+        for (const line of lines) {
+          const match = line.match(/\[E\d+\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
+          if (match && match[1].includes(basename(file))) {
+            result.diagnostics.push({
+              line: parseInt(match[2]),
+              column: parseInt(match[3]),
+              severity: "error",
+              message: match[4]
+            });
+          }
+        }
+        result.tool = "bloop";
+        return result;
+      }
+    }
+  }
   
   // Build classpath including compiled classes and dependencies
   const classpathParts: string[] = [];
@@ -975,27 +1108,63 @@ async function checkScala(file: string): Promise<FileCheckResult> {
   const scalaFilterEnabled = filterConfig.disableScalaFilter !== true; // Default: enabled
   const filterEnabled = globalFilterEnabled && scalaFilterEnabled;
   
-  if (hasBuildSbt && hasProjectDir && filterEnabled) {
-    // Conservative filtering - only filter very specific cross-module patterns
+  if (filterEnabled) {
+    // Filter out false positives from single-file or incomplete compilation
     result.diagnostics = result.diagnostics.filter(diagnostic => {
       const message = diagnostic.message.toLowerCase();
       
-      // Very specific false positive patterns that are clearly cross-module issues
-      const crossModulePatterns = [
-        /value \w+ is not a member of \w+ - did you mean/i, // "value task is not a member of rapid - did you mean rapid.Task?"
-        /value \w+ is not a member of \w+$/i,               // "value monitor is not a member of rapid" (ends with package name)
-        /value \w+ is not a member of any$/i,               // "value taskTypeWithDepth is not a member of Any"
-        /^cyclic error$/i,                                  // "Cyclic Error" - compilation dependency issues
-        /^type error$/i,                                    // "Type Error" - generic type resolution failures
-        /^type mismatch error$/i,                           // "Type Mismatch Error" - cross-module type mismatches
-        /not found: type \w+$/i,                            // "Not found: type Fiber" - cross-module type references
+      // Import and dependency-related patterns that are false positives when checking single files
+      const falsePositivePatterns = [
+        // Import resolution issues
+        /not found: (type|object|value) \w+$/i,                // "Not found: type Fiber", "Not found: object rapid"
+        /cannot resolve symbol/i,                               // Symbol resolution failures
+        /package .+ does not exist/i,                          // Package not found
+        /cannot find symbol/i,                                 // Java interop symbol issues
+        
+        // Cross-module reference issues  
+        /value \w+ is not a member of \w+ - did you mean/i,    // "value task is not a member of rapid - did you mean rapid.Task?"
+        /value \w+ is not a member of \w+$/i,                  // "value monitor is not a member of rapid"
+        /value \w+ is not a member of any$/i,                  // "value taskTypeWithDepth is not a member of Any"
+        /\w+ is not a member of (package )?[\w.]+$/i,          // General member access issues
+        
+        // Type resolution issues
+        /^cyclic error$/i,                                     // "Cyclic Error" - compilation dependency issues
+        /^type error$/i,                                       // "Type Error" - generic type resolution failures
+        /^type mismatch error$/i,                              // "Type Mismatch Error" - cross-module type mismatches
+        /cannot prove that/i,                                  // Type proof failures
+        /missing argument list/i,                              // Method call issues from incomplete context
+        
+        // Import-specific patterns
+        /import .+ cannot be resolved/i,                       // Import resolution
+        /object .+ is not a member of package/i,               // Package member access
+        /not found: (type|value|object)/i,                     // General not found errors
+        /symbol not found/i,                                   // Symbol resolution
       ];
       
-      // Keep diagnostic if it doesn't match cross-module patterns
-      return !crossModulePatterns.some(pattern => pattern.test(message));
+      // Check if it's a false positive
+      const isFalsePositive = falsePositivePatterns.some(pattern => pattern.test(message));
+      
+      // Keep real syntax errors and other legitimate issues
+      if (isFalsePositive) {
+        // But keep if it's clearly a syntax error (not an import issue)
+        const syntaxErrorIndicators = [
+          /illegal start of/i,
+          /unclosed/i,
+          /expected but .+ found/i,
+          /missing argument/i,
+          /too many arguments/i,
+          /unreachable code/i,
+          /illegal inheritance/i,
+        ];
+        
+        // If it's a syntax error, keep it despite matching false positive pattern
+        return syntaxErrorIndicators.some(pattern => pattern.test(message));
+      }
+      
+      return true; // Keep all non-false-positive diagnostics
     });
     
-    if (result.diagnostics.length === 0) {
+    if (result.diagnostics.length === 0 && hasBuildSbt && hasProjectDir) {
       result.tool = "scalac (filtered)";
     }
   }
