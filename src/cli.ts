@@ -233,6 +233,7 @@ Commands:
   diagnostics <file>       Check individual file for errors/warnings
   disable <language>       Disable language checking globally (e.g. disable scala)
   enable <language>        Enable language checking globally (e.g. enable scala)
+  status                   Show current enabled/disabled languages
   help                     Show this help message
 
 Global Config Location: ~/.claude/lsp-config.json
@@ -343,6 +344,43 @@ Features:
   • Standardized JSON output format`);
 }
 
+// Function to show current status
+function showStatus(): void {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const configPath = join(homeDir, ".claude", "lsp-config.json");
+  let config: any = {};
+  try {
+    if (existsSync(configPath)) {
+      config = JSON.parse(readFileSync(configPath, "utf8"));
+    }
+  } catch (e) {}
+  
+  console.log(`\nCurrent Status:`);
+  
+  if (config.disable === true) {
+    console.log(`  🚫 ALL languages are DISABLED globally`);
+  } else {
+    const languages = [
+      { name: 'TypeScript', key: 'disableTypeScript' },
+      { name: 'Python', key: 'disablePython' },
+      { name: 'Go', key: 'disableGo' },
+      { name: 'Rust', key: 'disableRust' },
+      { name: 'Java', key: 'disableJava' },
+      { name: 'C/C++', key: 'disableCpp' },
+      { name: 'PHP', key: 'disablePhp' },
+      { name: 'Scala', key: 'disableScala' },
+      { name: 'Lua', key: 'disableLua' },
+      { name: 'Elixir', key: 'disableElixir' },
+      { name: 'Terraform', key: 'disableTerraform' }
+    ];
+    
+    for (const lang of languages) {
+      const status = config[lang.key] === true ? '🚫 DISABLED' : '✅ Enabled';
+      console.log(`  ${lang.name}: ${status}`);
+    }
+  }
+}
+
 // Config management functions
 function updateConfig(configPath: string, updates: Record<string, any>): void {
   let config: any = {};
@@ -401,6 +439,9 @@ async function disableLanguage(language: string): Promise<void> {
     updateConfig(configPath, { [langKey]: true });
     console.log(`✅ Disabled ${language} checking globally`);
   }
+  
+  // Show current status after the operation
+  showStatus();
 }
 
 async function enableLanguage(language: string): Promise<void> {
@@ -465,6 +506,9 @@ async function enableLanguage(language: string): Promise<void> {
     writeFileSync(configPath, JSON.stringify(config, null, 2));
     console.log(`✅ Enabled ${language} checking globally`);
   }
+  
+  // Show current status after the operation
+  showStatus();
 }
 
 // Main execution
@@ -504,8 +548,44 @@ async function enableLanguage(language: string): Promise<void> {
     if (args[1]) {
       await disableLanguage(args[1]);
     } else {
+      // Read current config to show status
+      const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+      const configPath = join(homeDir, ".claude", "lsp-config.json");
+      let config: any = {};
+      try {
+        if (existsSync(configPath)) {
+          config = JSON.parse(readFileSync(configPath, "utf8"));
+        }
+      } catch (e) {}
+      
       console.log(`Usage: claude-lsp-cli disable <language>
 
+Current Status:`);
+      
+      if (config.disable === true) {
+        console.log(`  🚫 ALL languages are DISABLED globally`);
+      } else {
+        const languages = [
+          { name: 'typescript', display: 'TypeScript', key: 'disableTypeScript' },
+          { name: 'python', display: 'Python', key: 'disablePython' },
+          { name: 'go', display: 'Go', key: 'disableGo' },
+          { name: 'rust', display: 'Rust', key: 'disableRust' },
+          { name: 'java', display: 'Java', key: 'disableJava' },
+          { name: 'cpp', display: 'C/C++', key: 'disableCpp' },
+          { name: 'php', display: 'PHP', key: 'disablePhp' },
+          { name: 'scala', display: 'Scala', key: 'disableScala' },
+          { name: 'lua', display: 'Lua', key: 'disableLua' },
+          { name: 'elixir', display: 'Elixir', key: 'disableElixir' },
+          { name: 'terraform', display: 'Terraform', key: 'disableTerraform' }
+        ];
+        
+        for (const lang of languages) {
+          const status = config[lang.key] === true ? '🚫 DISABLED' : '✅ Enabled';
+          console.log(`  ${lang.display}: ${status}`);
+        }
+      }
+      
+      console.log(`
 Available languages:
   all         - Disable ALL language checking
   typescript  - TypeScript (.ts, .tsx)
@@ -545,6 +625,9 @@ Available languages:
 
 Example: claude-lsp-cli enable typescript`);
     }
+    process.exit(0);
+  } else if (command === "status") {
+    showStatus();
     process.exit(0);
   } else if (command === "help" || !command) {
     await showHelp();
