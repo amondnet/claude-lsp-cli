@@ -216,7 +216,47 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
     console.error("Tsconfig root:", tsconfigRoot);
   }
   
+  let tempTsconfigPath: string | null = null;
+  
   if (tsconfigRoot) {
+    const tsconfigPath = join(tsconfigRoot, "tsconfig.json");
+    
+    // Create a temporary tsconfig that extends the original but only includes our target file
+    // This gives us path mapping support while only checking one file
+    try {
+      // Use absolute path for the file since temp tsconfig is in /tmp
+      const tempConfig = {
+        extends: tsconfigPath,
+        include: [file],  // Use absolute path
+        compilerOptions: {
+          noEmit: true,
+          incremental: false  // Don't create .tsbuildinfo for temp configs
+        }
+      };
+      
+      // Create temp tsconfig in /tmp with unique name
+      tempTsconfigPath = `/tmp/tsconfig-check-${Date.now()}-${Math.random().toString(36).substring(7)}.json`;
+      await Bun.write(tempTsconfigPath, JSON.stringify(tempConfig, null, 2));
+      
+      // Use the temp tsconfig with --project
+      tscArgs.push("--project", tempTsconfigPath);
+      
+      if (process.env.DEBUG) {
+        console.error("Created temp tsconfig:", tempTsconfigPath);
+        console.error("Temp config:", JSON.stringify(tempConfig, null, 2));
+      }
+      
+      result.tool = "tsc (with path mappings)";
+    } catch (e) {
+      if (process.env.DEBUG) {
+        console.error("Failed to create temp tsconfig, falling back to manual parsing:", e);
+      }
+      tempTsconfigPath = null;
+    }
+  }
+  
+  // Only do manual parsing if temp tsconfig creation failed
+  if (tsconfigRoot && !tempTsconfigPath) {
     const tsconfigPath = join(tsconfigRoot, "tsconfig.json");
     if (process.env.DEBUG) {
       console.error("Attempting to read tsconfig from:", tsconfigPath);
@@ -355,15 +395,18 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
     }
   }
   
-  // Determine working directory and file argument
+  // Determine working directory
   const workingDir = tsconfigRoot || projectRoot;
   
-  // When we have a tsconfig, use a relative path from that directory
-  // This helps tsc properly resolve module paths
-  const fileArg = tsconfigRoot ? relative(tsconfigRoot, file) : file;
-  
-  // Add the file to check
-  tscArgs.push(fileArg);
+  // Only add file argument if we're not using --project with temp tsconfig
+  if (!tempTsconfigPath) {
+    // When we have a tsconfig, use a relative path from that directory
+    // This helps tsc properly resolve module paths
+    const fileArg = tsconfigRoot ? relative(tsconfigRoot, file) : file;
+    
+    // Add the file to check
+    tscArgs.push(fileArg);
+  }
   
   // Debug: Log the command being run
   if (process.env.DEBUG) {
@@ -377,6 +420,21 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
     { NO_COLOR: "1" },
     workingDir
   );
+
+  // Clean up temp tsconfig if we created one
+  if (tempTsconfigPath) {
+    try {
+      await Bun.spawn(["rm", "-f", tempTsconfigPath]).exited;
+      if (process.env.DEBUG) {
+        console.error("Cleaned up temp tsconfig:", tempTsconfigPath);
+      }
+    } catch (e) {
+      // Ignore cleanup errors
+      if (process.env.DEBUG) {
+        console.error("Failed to cleanup temp tsconfig:", e);
+      }
+    }
+  }
 
   if (timedOut) {
     result.timedOut = true;
