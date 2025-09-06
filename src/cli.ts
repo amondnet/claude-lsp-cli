@@ -231,9 +231,11 @@ async function showHelp(): Promise<void> {
 Commands:
   hook <event>             Handle Claude Code hook events
   diagnostics <file>       Check individual file for errors/warnings
-  disable <language>       Disable language checking (e.g. disable scala)
-  enable <language>        Enable language checking (e.g. enable scala)
+  disable <language>       Disable language checking globally (e.g. disable scala)
+  enable <language>        Enable language checking globally (e.g. enable scala)
   help                     Show this help message
+
+Global Config Location: ~/.claude/lsp-config.json
 
 Examples:
   claude-lsp-cli diagnostics src/index.ts
@@ -368,16 +370,62 @@ function updateConfig(configPath: string, updates: Record<string, any>): void {
 }
 
 async function disableLanguage(language: string): Promise<void> {
-  const configPath = join(process.cwd(), ".claude", "lsp-config.json");
-  const langKey = `disable${language.charAt(0).toUpperCase() + language.slice(1).toLowerCase()}`;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const configPath = join(homeDir, ".claude", "lsp-config.json");
   
-  updateConfig(configPath, { [langKey]: true });
-  console.log(`✅ Disabled ${language} checking`);
+  // Normalize language names to match what the checker expects
+  const langMap: Record<string, string> = {
+    'typescript': 'TypeScript',
+    'python': 'Python',
+    'go': 'Go',
+    'rust': 'Rust',
+    'java': 'Java',
+    'cpp': 'Cpp',
+    'c++': 'Cpp',
+    'c': 'Cpp',
+    'php': 'Php',
+    'scala': 'Scala',
+    'lua': 'Lua',
+    'elixir': 'Elixir',
+    'terraform': 'Terraform',
+    'all': 'all'
+  };
+  
+  const normalizedLang = langMap[language.toLowerCase()] || language;
+  
+  if (normalizedLang === 'all') {
+    updateConfig(configPath, { disable: true });
+    console.log(`✅ Disabled ALL language checking globally`);
+  } else {
+    const langKey = `disable${normalizedLang}`;
+    updateConfig(configPath, { [langKey]: true });
+    console.log(`✅ Disabled ${language} checking globally`);
+  }
 }
 
 async function enableLanguage(language: string): Promise<void> {
-  const configPath = join(process.cwd(), ".claude", "lsp-config.json");
-  const langKey = `disable${language.charAt(0).toUpperCase() + language.slice(1).toLowerCase()}`;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const configPath = join(homeDir, ".claude", "lsp-config.json");
+  
+  // Normalize language names to match what the checker expects
+  const langMap: Record<string, string> = {
+    'typescript': 'TypeScript',
+    'python': 'Python',
+    'go': 'Go',
+    'rust': 'Rust',
+    'java': 'Java',
+    'cpp': 'Cpp',
+    'c++': 'Cpp',
+    'c': 'Cpp',
+    'php': 'Php',
+    'scala': 'Scala',
+    'lua': 'Lua',
+    'elixir': 'Elixir',
+    'terraform': 'Terraform',
+    'all': 'all'
+  };
+  
+  const normalizedLang = langMap[language.toLowerCase()] || language;
   
   // Read current config
   let config: any = {};
@@ -390,19 +438,32 @@ async function enableLanguage(language: string): Promise<void> {
   }
   
   // Remove the disable key
-  delete config[langKey];
+  if (normalizedLang === 'all') {
+    delete config.disable;
+  } else {
+    const langKey = `disable${normalizedLang}`;
+    delete config[langKey];
+  }
+  
+  // Ensure directory exists
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) {
+    const fs = require("fs");
+    fs.mkdirSync(dir, { recursive: true });
+  }
   
   // Write updated config (or remove file if empty)
   if (Object.keys(config).length === 0) {
     if (existsSync(configPath)) {
-      require("fs").unlinkSync(configPath);
-      console.log(`✅ Enabled ${language} checking (removed config)`);
+      const fs = require("fs");
+      fs.unlinkSync(configPath);
+      console.log(`✅ Enabled ${language} checking globally (removed config)`);
     } else {
-      console.log(`✅ ${language} checking is already enabled`);
+      console.log(`✅ ${language} checking is already enabled globally`);
     }
   } else {
     writeFileSync(configPath, JSON.stringify(config, null, 2));
-    console.log(`✅ Enabled ${language} checking`);
+    console.log(`✅ Enabled ${language} checking globally`);
   }
 }
 
@@ -439,11 +500,51 @@ async function enableLanguage(language: string): Promise<void> {
     
     // CLI always exits 0 (success) - only program errors use non-zero
     process.exit(0);
-  } else if (command === "disable" && args[1]) {
-    await disableLanguage(args[1]);
+  } else if (command === "disable") {
+    if (args[1]) {
+      await disableLanguage(args[1]);
+    } else {
+      console.log(`Usage: claude-lsp-cli disable <language>
+
+Available languages:
+  all         - Disable ALL language checking
+  typescript  - TypeScript (.ts, .tsx)
+  python      - Python (.py)
+  go          - Go (.go)
+  rust        - Rust (.rs)
+  java        - Java (.java)
+  cpp         - C/C++ (.c, .cpp, .cc)
+  php         - PHP (.php)
+  scala       - Scala (.scala)
+  lua         - Lua (.lua)
+  elixir      - Elixir (.ex, .exs)
+  terraform   - Terraform (.tf)
+
+Example: claude-lsp-cli disable typescript`);
+    }
     process.exit(0);
-  } else if (command === "enable" && args[1]) {
-    await enableLanguage(args[1]);
+  } else if (command === "enable") {
+    if (args[1]) {
+      await enableLanguage(args[1]);
+    } else {
+      console.log(`Usage: claude-lsp-cli enable <language>
+
+Available languages:
+  all         - Enable ALL language checking
+  typescript  - TypeScript (.ts, .tsx)
+  python      - Python (.py)
+  go          - Go (.go)
+  rust        - Rust (.rs)
+  java        - Java (.java)
+  cpp         - C/C++ (.c, .cpp, .cc)
+  php         - PHP (.php)
+  scala       - Scala (.scala)
+  lua         - Lua (.lua)
+  elixir      - Elixir (.ex, .exs)
+  terraform   - Terraform (.tf)
+
+Example: claude-lsp-cli enable typescript`);
+    }
     process.exit(0);
   } else if (command === "help" || !command) {
     await showHelp();

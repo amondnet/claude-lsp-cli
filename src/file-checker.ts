@@ -93,16 +93,20 @@ async function runCommand(
 /**
  * Check a single file with timeout protection
  */
-// Helper function to read LSP config
-function readLspConfig(projectRoot: string): any {
-  const configPath = join(projectRoot, ".claude", "lsp-config.json");
+// Helper function to read global LSP config
+function readLspConfig(projectRoot?: string): any {
+  // Only use global config
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const globalConfigPath = join(homeDir, ".claude", "lsp-config.json");
+  
   try {
-    if (existsSync(configPath)) {
-      return JSON.parse(readFileSync(configPath, "utf8"));
+    if (existsSync(globalConfigPath)) {
+      return JSON.parse(readFileSync(globalConfigPath, "utf8"));
     }
   } catch (e) {
     // Ignore config parsing errors
   }
+  
   return {};
 }
 
