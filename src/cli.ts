@@ -170,7 +170,12 @@ async function handleHookEvent(eventType: string): Promise<void> {
         const result = results[i];
         const absolutePath = absolutePaths[i];
         
-        if (result && result.diagnostics.length > 0) {
+        // Skip if checking was disabled (result is null) or file type not supported
+        if (!result) {
+          continue;
+        }
+        
+        if (result.diagnostics.length > 0) {
           const importantIssues = result.diagnostics.filter(
             d => d.severity === "error" || d.severity === "warning"
           );
@@ -414,13 +419,22 @@ async function enableLanguage(language: string): Promise<void> {
     }
     
     const result = await checkFile(filePath);
-    if (result && result.diagnostics.length > 0) {
-      const formatted = formatDiagnostics(result);
-      if (formatted) {
-        console.log(formatted);
+    if (result === null) {
+      // Checking was disabled - exit silently with no output
+      process.exit(0);
+    } else if (result) {
+      if (result.diagnostics.length > 0) {
+        const formatted = formatDiagnostics(result);
+        if (formatted) {
+          console.log(formatted);
+        }
+      } else {
+        // Only say "no errors or warnings" if we actually checked the file
+        console.log('[[system-message]]:{"summary":"no errors or warnings"}');
       }
     } else {
-      console.log('[[system-message]]:{"summary":"no errors or warnings"}');
+      // File type not supported - also exit silently
+      process.exit(0);
     }
     
     // CLI always exits 0 (success) - only program errors use non-zero

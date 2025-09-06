@@ -185,8 +185,14 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
 
 // Language-specific checkers with timeout
 
-async function checkTypeScript(file: string): Promise<FileCheckResult> {
+async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if TypeScript checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "TypeScript")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
@@ -194,12 +200,6 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
     tool: "tsc",
     diagnostics: []
   };
-
-  // Check if TypeScript checking is disabled
-  if (isLanguageDisabled(projectRoot, "TypeScript")) {
-    result.tool = "tsc (disabled)";
-    return result; // Return empty diagnostics
-  }
 
   // Build tsc arguments dynamically
   const tscArgs = ["tsc", "--noEmit", "--pretty", "false"];
@@ -419,8 +419,14 @@ async function checkTypeScript(file: string): Promise<FileCheckResult> {
 }
 
 
-async function checkPython(file: string): Promise<FileCheckResult> {
+async function checkPython(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Python checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Python")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
@@ -428,12 +434,6 @@ async function checkPython(file: string): Promise<FileCheckResult> {
     tool: "pyright",
     diagnostics: []
   };
-
-  // Check if Python checking is disabled
-  if (isLanguageDisabled(projectRoot, "Python")) {
-    result.tool = "pyright (disabled)";
-    return result; // Return empty diagnostics
-  }
 
   // Check for Python project configuration
   const hasPyrightConfig = existsSync(join(projectRoot, "pyrightconfig.json"));
@@ -573,20 +573,20 @@ async function checkPython(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkGo(file: string): Promise<FileCheckResult> {
+async function checkGo(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Go checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Go")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "go",
     diagnostics: []
-  };
-
-  // Check if Go checking is disabled
-  if (isLanguageDisabled(projectRoot, "Go")) {
-    result.tool = "go (disabled)";
-    return result; // Return empty diagnostics
   }
 
   // Check if we're in a Go module
@@ -625,20 +625,20 @@ async function checkGo(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkRust(file: string): Promise<FileCheckResult> {
+async function checkRust(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Rust checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Rust")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "rustc",
     diagnostics: []
-  };
-
-  // Check if Rust checking is disabled
-  if (isLanguageDisabled(projectRoot, "Rust")) {
-    result.tool = "rustc (disabled)";
-    return result; // Return empty diagnostics
   }
 
   // Rust can be slow to compile
@@ -682,20 +682,20 @@ async function checkRust(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkJava(file: string): Promise<FileCheckResult> {
+async function checkJava(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Java checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Java")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "javac",
     diagnostics: []
-  };
-
-  // Check if Java checking is disabled
-  if (isLanguageDisabled(projectRoot, "Java")) {
-    result.tool = "javac (disabled)";
-    return result; // Return empty diagnostics
   }
 
   // Check for Java project files
@@ -759,20 +759,20 @@ async function checkJava(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkCpp(file: string): Promise<FileCheckResult> {
+async function checkCpp(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if C++ checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Cpp")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "gcc",
     diagnostics: []
-  };
-
-  // Check if C++ checking is disabled
-  if (isLanguageDisabled(projectRoot, "Cpp")) {
-    result.tool = "gcc (disabled)";
-    return result; // Return empty diagnostics
   }
 
   const { stderr, timedOut } = await runCommand(
@@ -810,20 +810,20 @@ async function checkCpp(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkPhp(file: string): Promise<FileCheckResult> {
+async function checkPhp(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if PHP checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Php")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "php",
     diagnostics: []
-  };
-
-  // Check if PHP checking is disabled
-  if (isLanguageDisabled(projectRoot, "Php")) {
-    result.tool = "php (disabled)";
-    return result; // Return empty diagnostics
   }
 
   const { stderr, timedOut } = await runCommand(
@@ -854,20 +854,20 @@ async function checkPhp(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkScala(file: string): Promise<FileCheckResult> {
+async function checkScala(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Scala checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Scala")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "scalac",
     diagnostics: []
-  };
-
-  // Check if Scala checking is disabled
-  if (isLanguageDisabled(projectRoot, "Scala")) {
-    result.tool = "scalac (disabled)";
-    return result; // Return empty diagnostics
   }
 
   // For Scala projects, we need to compile files with their dependencies
@@ -923,14 +923,15 @@ async function checkScala(file: string): Promise<FileCheckResult> {
     // Check if we can use bloop for faster, incremental compilation
     const bloopConfig = join(projectRoot, ".bloop");
     if (existsSync(bloopConfig)) {
-      // Use bloop compile which understands the full project context
+      // Try to use bloop compile which understands the full project context
       const bloopResult = await runCommand(
         ["bloop", "compile", "--no-color", relativePath],
         undefined,
         projectRoot
       );
       
-      if (!bloopResult.timedOut) {
+      // Check if bloop was found and executed successfully
+      if (!bloopResult.timedOut && !bloopResult.stderr.includes("Executable not found")) {
         // Parse bloop output if successful
         const lines = bloopResult.stderr.split("\n");
         for (const line of lines) {
@@ -947,6 +948,7 @@ async function checkScala(file: string): Promise<FileCheckResult> {
         result.tool = "bloop";
         return result;
       }
+      // If bloop is not available or failed, fall through to use scalac
     }
   }
   
@@ -1172,20 +1174,20 @@ async function checkScala(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkLua(file: string): Promise<FileCheckResult> {
+async function checkLua(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Lua checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Lua")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "luac",
     diagnostics: []
-  };
-
-  // Check if Lua checking is disabled
-  if (isLanguageDisabled(projectRoot, "Lua")) {
-    result.tool = "luac (disabled)";
-    return result; // Return empty diagnostics
   }
 
   // Use luac -p for syntax checking (lua doesn't have a -c flag)
@@ -1217,20 +1219,20 @@ async function checkLua(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkElixir(file: string): Promise<FileCheckResult> {
+async function checkElixir(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Elixir checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Elixir")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "elixir",
     diagnostics: []
-  };
-
-  // Check if Elixir checking is disabled
-  if (isLanguageDisabled(projectRoot, "Elixir")) {
-    result.tool = "elixir (disabled)";
-    return result; // Return empty diagnostics
   }
   
   const { stderr, timedOut } = await runCommand(
@@ -1288,20 +1290,20 @@ async function checkElixir(file: string): Promise<FileCheckResult> {
   return result;
 }
 
-async function checkTerraform(file: string): Promise<FileCheckResult> {
+async function checkTerraform(file: string): Promise<FileCheckResult | null> {
   const projectRoot = findProjectRoot(file);
+  
+  // Check if Terraform checking is disabled FIRST before doing any work
+  if (isLanguageDisabled(projectRoot, "Terraform")) {
+    return null; // No checking performed - return null
+  }
+  
   const relativePath = relative(projectRoot, file);
   
   const result: FileCheckResult = {
     file: relativePath,
     tool: "terraform",
     diagnostics: []
-  };
-
-  // Check if Terraform checking is disabled
-  if (isLanguageDisabled(projectRoot, "Terraform")) {
-    result.tool = "terraform (disabled)";
-    return result; // Return empty diagnostics
   }
 
   const { stdout, stderr, timedOut } = await runCommand(
