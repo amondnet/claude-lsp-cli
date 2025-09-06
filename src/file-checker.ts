@@ -501,6 +501,10 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   const hasPyrightConfig = existsSync(join(projectRoot, "pyrightconfig.json"));
   const hasPyprojectToml = existsSync(join(projectRoot, "pyproject.toml"));
   const hasSetupCfg = existsSync(join(projectRoot, "setup.cfg"));
+  const hasRequirements = existsSync(join(projectRoot, "requirements.txt"));
+  const hasPipfile = existsSync(join(projectRoot, "Pipfile"));
+  const hasVenv = existsSync(join(projectRoot, ".venv")) || existsSync(join(projectRoot, "venv"));
+  const hasPoetryLock = existsSync(join(projectRoot, "poetry.lock"));
   
   // Build pyright arguments based on project configuration
   const pyrightArgs = ["pyright", "--outputjson"];
@@ -580,6 +584,38 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
     // Parsing failed
   }
 
+  // Load installed packages list if available
+  let installedPackages: Set<string> = new Set();
+  
+  // Try to read requirements.txt for installed packages
+  if (hasRequirements) {
+    try {
+      const requirements = readFileSync(join(projectRoot, "requirements.txt"), "utf8");
+      requirements.split("\n").forEach(line => {
+        const pkgMatch = line.match(/^([a-zA-Z0-9_-]+)/);
+        if (pkgMatch) {
+          installedPackages.add(pkgMatch[1].toLowerCase());
+        }
+      });
+    } catch {}
+  }
+  
+  // Try to read Pipfile for packages
+  if (hasPipfile) {
+    try {
+      const pipfile = readFileSync(join(projectRoot, "Pipfile"), "utf8");
+      const packageSection = pipfile.match(/\[packages\]([\s\S]*?)(?:\[|$)/);
+      if (packageSection) {
+        packageSection[1].split("\n").forEach(line => {
+          const pkgMatch = line.match(/^([a-zA-Z0-9_-]+)\s*=/);
+          if (pkgMatch) {
+            installedPackages.add(pkgMatch[1].toLowerCase());
+          }
+        });
+      }
+    } catch {}
+  }
+  
   // Filter out common false positives from single-file checking
   const filterConfig = readLspConfig(projectRoot);
   const globalFilterEnabled = filterConfig.disableFilter !== true;
@@ -604,24 +640,29 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
       
       // Filter out import-related false positives for local project imports
       if (importPatterns.some(pattern => pattern.test(message))) {
-        // Check if it's likely a local import (not a third-party package)
-        const localImportIndicators = [
-          !message.includes('numpy'),
-          !message.includes('pandas'),
-          !message.includes('requests'),
-          !message.includes('django'),
-          !message.includes('flask'),
-          !message.includes('pytest'),
-          !message.includes('tensorflow'),
-          !message.includes('torch'),
-          !message.includes('sklearn'),
-          !message.includes('matplotlib')
-        ];
-        
-        // If all indicators suggest it's a local import, filter it out
-        if (localImportIndicators.every(indicator => indicator)) {
-          return false;
+        // Extract the package name from the error message
+        const packageMatch = message.match(/["']([^"']+)["']/);
+        if (packageMatch) {
+          const packageName = packageMatch[1].split('.')[0].toLowerCase();
+          
+          // If we have a requirements file and this package is listed, keep the error
+          if (installedPackages.size > 0 && installedPackages.has(packageName)) {
+            return true; // This is a real error - package should be installed
+          }
         }
+        
+        // Check if it's likely a local import (not a third-party package)
+        const commonPackages = ['numpy', 'pandas', 'requests', 'django', 'flask', 
+                                'pytest', 'tensorflow', 'torch', 'sklearn', 'matplotlib',
+                                'scipy', 'pillow', 'beautifulsoup4', 'selenium', 'sqlalchemy'];
+        
+        // If it's a known package, keep the error
+        if (commonPackages.some(pkg => message.includes(pkg))) {
+          return true;
+        }
+        
+        // Otherwise, it's likely a local import - filter it out
+        return false;
       }
       
       return true;
