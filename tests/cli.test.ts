@@ -7,6 +7,7 @@ import { describe, test, expect } from "bun:test";
 import { exec as execCallback } from "child_process";
 import { promisify } from "util";
 import { join } from "path";
+import { existsSync, unlinkSync } from "fs";
 
 const exec = promisify(execCallback);
 const CLI_PATH = join(import.meta.dir, "..", "bin", "claude-lsp-cli");
@@ -39,11 +40,14 @@ describe("CLI - Main Entry Point", () => {
 
   describe("Critical Command: hook PostToolUse", () => {
     test("should handle file edit hooks without crashing", async () => {
+      // Create a temporary TypeScript file with errors
+      const tempFile = "/tmp/hook-test.ts";
+      await Bun.write(tempFile, "let x: string = 123; // Type error\nundefinedFunction(); // Reference error");
+      
       const hookData = {
-        tool: "Edit",
-        output: {
-          file_path: "/tmp/test.ts",
-          message: "File edited"
+        tool: "Edit", 
+        tool_input: {
+          file_path: tempFile
         }
       };
       
@@ -55,6 +59,11 @@ describe("CLI - Main Entry Point", () => {
       // The test file has TypeScript errors so we expect diagnostic output
       expect(result.stderr || "").toContain("[[system-message]]:");
       expect(result.code).toBe(2); // Exit code 2 when diagnostics found
+      
+      // Cleanup
+      if (existsSync(tempFile)) {
+        unlinkSync(tempFile);
+      }
     }, 10000);
   });
 

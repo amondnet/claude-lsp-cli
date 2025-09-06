@@ -1125,7 +1125,12 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     const line = lines[i];
     // Remove ANSI color codes and match Scala 3 error format
     const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
-    const match = cleanLine.match(/-- \[E\d+\] (.+): (.+?):(\d+):(\d+)/);
+    
+    // Match various Scala 3 error formats:
+    // -- [E006] Not Found Error: src/main/scala/Main.scala:17:28
+    // -- [E007] Type Mismatch Error: src/main/scala/Main.scala:14:28
+    // -- Error: src/main/scala/Main.scala:8:34
+    const match = cleanLine.match(/-- (?:\[E\d+\] )?(.+): (.+?):(\d+):(\d+)/);
     if (match) {
       // Check if this error is for the file we're checking
       const errorFile = match[2];
@@ -1138,8 +1143,20 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
       let message = match[1]; // Start with error type
       
       // Look for the actual error description in subsequent lines
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
         const detailLine = lines[j].replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI codes
+        
+        // Look for direct error messages (patterns that commonly appear in Scala errors)
+        if (detailLine.includes("too many arguments") || 
+            detailLine.includes("not a member of") || 
+            detailLine.includes("Not found:") ||
+            detailLine.includes("no pattern match extractor") ||
+            detailLine.includes("Found:") && detailLine.includes("Required:")) {
+          message = detailLine.replace(/^\s*\|\s*/, '').trim();
+          break;
+        }
+        
+        // Look for pipe-formatted messages
         const detailMatch = detailLine.match(/\s*\|\s*(.+)$/);
         if (detailMatch) {
           const content = detailMatch[1].trim();
@@ -1391,6 +1408,7 @@ async function checkTerraform(file: string): Promise<FileCheckResult | null> {
 
   return result;
 }
+
 
 // Format diagnostics for output
 export function formatDiagnostics(result: FileCheckResult): string {

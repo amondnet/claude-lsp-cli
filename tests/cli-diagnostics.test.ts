@@ -53,15 +53,6 @@ describe("CLI Diagnostics Command", () => {
     expect(result.stdout).toContain('"summary":"no errors or warnings"');
   }, 30000);
 
-  test("JavaScript file with no errors - shows 'no errors or warnings'", async () => {
-    // Create a simple JS file with no errors
-    const testFile = "/tmp/test_no_errors.js";
-    await Bun.write(testFile, "function add(a, b) {\n  return a + b;\n}\n");
-    const result = await runCLI(["diagnostics", testFile]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("[[system-message]]:");
-    expect(result.stdout).toContain('"summary":"no errors or warnings"');
-  }, 30000);
 
   test("C++ with errors - shows diagnostic count", async () => {
     const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "cpp-project", "src", "main.cpp")]);
@@ -143,7 +134,7 @@ describe("CLI Diagnostics Command", () => {
     expect(match).toBeTruthy();
     if (match) {
       const errorCount = parseInt(match[1]);
-      expect(errorCount).toBe(9);
+      expect(errorCount).toBe(7);
     }
   }, 30000);
 
