@@ -25,6 +25,24 @@ jobs:
     - name: Install dependencies
       run: bun install
     
+    - name: Install language tools for testing
+      run: |
+        # Install TypeScript
+        npm install -g typescript
+        
+        # Install Python type checker
+        npm install -g pyright
+        
+        # Install Scala (needed for Scala tests)
+        sudo apt-get update
+        sudo apt-get install -y scala
+        
+        # Show installed tools
+        echo "Installed language tools:"
+        which tsc && tsc --version || echo "TypeScript not found"
+        which pyright && pyright --version || echo "Pyright not found"
+        which scalac && scalac -version || echo "Scala not found"
+    
     - name: Run tests
       run: bun test --timeout 30000
       
