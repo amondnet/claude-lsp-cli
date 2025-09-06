@@ -740,16 +740,39 @@ async function checkRust(file: string): Promise<FileCheckResult | null> {
   
   const result: FileCheckResult = {
     file: relativePath,
-    tool: "rustc",
+    tool: "cargo",
     diagnostics: []
   }
 
-  // Rust can be slow to compile
-  const { stderr, timedOut } = await runCommand(
-    ["rustc", "--error-format=json", "--edition", "2021", relativePath],
-    undefined,
-    projectRoot
-  );
+  // Check if this is a Cargo project
+  const hasCargoToml = existsSync(join(projectRoot, "Cargo.toml"));
+  
+  let stderr: string;
+  let timedOut: boolean;
+  
+  if (hasCargoToml) {
+    // Use cargo check for better dependency resolution
+    const cargoResult = await runCommand(
+      ["cargo", "check", "--message-format=json"],
+      undefined,
+      projectRoot
+    );
+    
+    stderr = cargoResult.stderr;
+    timedOut = cargoResult.timedOut;
+    result.tool = "cargo check";
+  } else {
+    // Fall back to rustc for single files
+    const rustcResult = await runCommand(
+      ["rustc", "--error-format=json", "--edition", "2021", relativePath],
+      undefined,
+      projectRoot
+    );
+    
+    stderr = rustcResult.stderr;
+    timedOut = rustcResult.timedOut;
+    result.tool = "rustc";
+  }
 
   if (timedOut) {
     result.timedOut = true;
@@ -762,20 +785,28 @@ async function checkRust(file: string): Promise<FileCheckResult | null> {
     return result;
   }
 
-  // Parse JSON output
+  // Parse JSON output (both cargo and rustc use similar JSON format)
   const lines = stderr.split("\n");
+  const targetFileName = basename(file);
+  
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
       const msg = JSON.parse(line);
+      
+      // Filter to only show errors for the file we're checking
       if (msg.message && msg.spans?.[0]) {
         const span = msg.spans[0];
-        result.diagnostics.push({
-          line: span.line_start || 1,
-          column: span.column_start || 1,
-          severity: msg.level === "error" ? "error" : "warning",
-          message: msg.message
-        });
+        
+        // Check if this error is for our file
+        if (span.file_name && span.file_name.endsWith(targetFileName)) {
+          result.diagnostics.push({
+            line: span.line_start || 1,
+            column: span.column_start || 1,
+            severity: msg.level === "error" ? "error" : "warning",
+            message: msg.message
+          });
+        }
       }
     } catch {
       // Not JSON
@@ -806,7 +837,76 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
   const hasGradle = existsSync(join(projectRoot, "build.gradle")) || 
                     existsSync(join(projectRoot, "build.gradle.kts"));
   
-  // Build javac arguments
+  const targetFileName = basename(file);
+  
+  // Try to use build tools first for better accuracy
+  if (hasPom) {
+    // Try Maven compile for full project context
+    const mvnResult = await runCommand(
+      ["mvn", "compile", "-q"],
+      undefined,
+      projectRoot
+    );
+    
+    if (!mvnResult.timedOut && !mvnResult.stderr.includes("command not found")) {
+      // Parse Maven output for errors
+      const lines = mvnResult.stdout.split("\n").concat(mvnResult.stderr.split("\n"));
+      
+      for (const line of lines) {
+        // Maven error format: [ERROR] /path/to/File.java:[10,5] error message
+        const match = line.match(/\[ERROR\]\s+(.+?):\[(\d+),(\d+)\]\s+(.+)/);
+        if (match && match[1].endsWith(targetFileName)) {
+          result.diagnostics.push({
+            line: parseInt(match[2]),
+            column: parseInt(match[3]),
+            severity: "error",
+            message: match[4]
+          });
+        }
+      }
+      
+      result.tool = "maven";
+      // If Maven succeeded, return the result
+      if (!mvnResult.stderr.includes("[ERROR]") || result.diagnostics.length > 0) {
+        return result;
+      }
+    }
+  }
+  
+  if (hasGradle) {
+    // Try Gradle compile for full project context
+    const gradleResult = await runCommand(
+      ["gradle", "compileJava", "-q"],
+      undefined,
+      projectRoot
+    );
+    
+    if (!gradleResult.timedOut && !gradleResult.stderr.includes("command not found")) {
+      // Parse Gradle output for errors
+      const lines = gradleResult.stderr.split("\n");
+      
+      for (const line of lines) {
+        // Gradle error format: /path/to/File.java:10: error: message
+        const match = line.match(/(.+?):(\d+):\s+(error|warning):\s+(.+)/);
+        if (match && match[1].endsWith(targetFileName)) {
+          result.diagnostics.push({
+            line: parseInt(match[2]),
+            column: 1,
+            severity: match[3] as "error" | "warning",
+            message: match[4]
+          });
+        }
+      }
+      
+      result.tool = "gradle";
+      // If Gradle succeeded, return the result
+      if (gradleResult.exitCode === 0 || result.diagnostics.length > 0) {
+        return result;
+      }
+    }
+  }
+  
+  // Fall back to javac with classpath
   const javacArgs = ["javac", "-Xlint:all", "-d", "/tmp"];
   
   // Add classpath for common directories if in a project
@@ -819,6 +919,20 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
     if (existsSync(targetDir)) classpath.push(targetDir); // Maven
     if (existsSync(buildDir)) classpath.push(buildDir);   // Gradle
     if (existsSync(srcDir)) classpath.push(srcDir);
+    
+    // Add common dependency directories
+    const m2Repo = join(process.env.HOME || "", ".m2", "repository");
+    const gradleCache = join(process.env.HOME || "", ".gradle", "caches", "modules-2", "files-2.1");
+    
+    if (hasPom && existsSync(m2Repo)) {
+      // Could parse pom.xml here to get exact dependencies, but that's complex
+      // For now, just add the repository root
+      classpath.push(m2Repo + "/*");
+    }
+    
+    if (hasGradle && existsSync(gradleCache)) {
+      classpath.push(gradleCache + "/*");
+    }
     
     if (classpath.length > 0) {
       javacArgs.push("-cp", classpath.join(":"));
@@ -929,8 +1043,24 @@ async function checkPhp(file: string): Promise<FileCheckResult | null> {
     diagnostics: []
   }
 
-  const { stderr, timedOut } = await runCommand(
-    ["php", "-l", relativePath],
+  // Check for Composer configuration
+  const hasComposerJson = existsSync(join(projectRoot, "composer.json"));
+  const hasVendorAutoload = existsSync(join(projectRoot, "vendor", "autoload.php"));
+  
+  // Build PHP arguments with autoload if available
+  const phpArgs = ["php"];
+  
+  if (hasComposerJson && hasVendorAutoload) {
+    // Include Composer autoloader for better class resolution
+    // Use -d to set include_path to include vendor autoload
+    phpArgs.push("-d", `auto_prepend_file=${join(projectRoot, "vendor", "autoload.php")}`);
+  }
+  
+  // Add lint flag and file
+  phpArgs.push("-l", relativePath);
+
+  const { stderr, stdout, timedOut } = await runCommand(
+    phpArgs,
     undefined,
     projectRoot
   );
@@ -940,17 +1070,78 @@ async function checkPhp(file: string): Promise<FileCheckResult | null> {
     return result;
   }
 
-  // Parse PHP lint output
-  const lines = stderr.split("\n");
+  // Parse PHP lint output (can be in stderr or stdout)
+  const output = stderr + stdout;
+  const lines = output.split("\n");
+  
   for (const line of lines) {
-    const match = line.match(/Parse error: (.+) in .+ on line (\d+)/);
-    if (match) {
+    // Parse error format: "Parse error: message in file on line X"
+    const parseMatch = line.match(/Parse error: (.+) in .+ on line (\d+)/);
+    if (parseMatch) {
       result.diagnostics.push({
-        line: parseInt(match[2]),
+        line: parseInt(parseMatch[2]),
         column: 1,
         severity: "error",
-        message: match[1]
+        message: parseMatch[1]
       });
+    }
+    
+    // Fatal error format: "Fatal error: message in file on line X"
+    const fatalMatch = line.match(/Fatal error: (.+) in .+ on line (\d+)/);
+    if (fatalMatch) {
+      result.diagnostics.push({
+        line: parseInt(fatalMatch[2]),
+        column: 1,
+        severity: "error",
+        message: fatalMatch[1]
+      });
+    }
+    
+    // Warning format: "Warning: message in file on line X"
+    const warningMatch = line.match(/Warning: (.+) in .+ on line (\d+)/);
+    if (warningMatch) {
+      result.diagnostics.push({
+        line: parseInt(warningMatch[2]),
+        column: 1,
+        severity: "warning",
+        message: warningMatch[1]
+      });
+    }
+  }
+  
+  // If Composer is available but no basic errors found, we could try PHPStan or Psalm
+  // for more advanced static analysis (future enhancement)
+  if (hasComposerJson && result.diagnostics.length === 0) {
+    // Check if PHPStan is available
+    const hasPhpStan = existsSync(join(projectRoot, "vendor", "bin", "phpstan")) ||
+                       existsSync(join(projectRoot, "phpstan.neon"));
+    
+    if (hasPhpStan) {
+      // Try PHPStan for deeper analysis
+      const phpstanResult = await runCommand(
+        [join(projectRoot, "vendor", "bin", "phpstan"), "analyze", "--error-format=json", "--no-progress", file],
+        undefined,
+        projectRoot
+      );
+      
+      if (!phpstanResult.timedOut && phpstanResult.stdout) {
+        try {
+          const phpstanOutput = JSON.parse(phpstanResult.stdout);
+          if (phpstanOutput.files && phpstanOutput.files[file]) {
+            for (const error of phpstanOutput.files[file].messages) {
+              result.diagnostics.push({
+                line: error.line || 1,
+                column: 1,
+                severity: "error",
+                message: error.message
+              });
+            }
+            result.tool = "phpstan";
+          }
+        } catch {
+          // Failed to parse PHPStan output
+        }
+      }
     }
   }
 
