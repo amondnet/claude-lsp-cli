@@ -43,6 +43,14 @@ jobs:
         which pyright && pyright --version || echo "Pyright not found"
         which scalac && scalac -version || echo "Scala not found"
     
+    - name: Build binaries
+      run: bun run build
+      
+    - name: Verify binary exists
+      run: |
+        test -f bin/claude-lsp-cli
+        echo "✅ Single unified binary built successfully"
+    
     - name: Run tests
       run: bun test --timeout 30000
       
@@ -51,11 +59,3 @@ jobs:
         echo "Test files: $(ls tests/*.test.ts | wc -l)"
         echo "Source files: $(ls src/*.ts | wc -l)"
         echo "Coverage: $(($(ls tests/*.test.ts | wc -l) * 100 / $(ls src/*.ts | wc -l)))%"
-    
-    - name: Build binaries
-      run: bun run build
-      
-    - name: Verify binary exists
-      run: |
-        test -f bin/claude-lsp-cli
-        echo "✅ Single unified binary built successfully"
