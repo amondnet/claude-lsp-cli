@@ -65,10 +65,10 @@ jobs:
           bun test
       
       - name: Test CLI source
-        run: bun run src/cli.ts --help
+        run: bun run src/cli.ts help
       
       - name: Test CLI binary
-        run: ./bin/claude-lsp-cli --help
+        run: ./bin/claude-lsp-cli help
       
       - name: Upload binaries
         uses: actions/upload-artifact@v4
