@@ -1443,12 +1443,6 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     return result;
   }
   
-  // Debug logging for CI issues
-  if (process.env.CI || process.env.DEBUG) {
-    console.error("Scala stderr length:", stderr.length);
-    console.error("Scala stderr first 200 chars:", stderr.substring(0, 200));
-  }
-  
   // Check if scalac is not available or failed to run
   if (stderr.includes("command not found") || 
       stderr.includes("scalac: not found") ||
@@ -1466,6 +1460,37 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
   const lines = stderr.split("\n");
   const targetFileName = basename(file);
   
+  // Check for Scala 2.x format (used in old CI versions)
+  // Format: "Main.scala:8: error: too many arguments for method apply"
+  let isScala2Format = false;
+  for (const line of lines) {
+    if (line.match(/^\S+\.scala:\d+: (error|warning):/)) {
+      isScala2Format = true;
+      break;
+    }
+  }
+  
+  if (isScala2Format) {
+    // Parse Scala 2.x format
+    for (const line of lines) {
+      const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+      const scala2Match = cleanLine.match(/^(.+?):(\d+): (error|warning): (.+)$/);
+      if (scala2Match) {
+        const errorFile = basename(scala2Match[1]);
+        if (errorFile === targetFileName) {
+          result.diagnostics.push({
+            line: parseInt(scala2Match[2]),
+            column: 1,
+            severity: scala2Match[3] as "error" | "warning",
+            message: scala2Match[4]
+          });
+        }
+      }
+    }
+    return result;
+  }
+  
+  // Parse Scala 3 format
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Remove ANSI color codes and match Scala 3 error format
