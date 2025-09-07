@@ -206,11 +206,19 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
   };
 
   // Build tsc arguments dynamically
-  // Try local installation first
+  // Try local installation first - check multiple possible locations
   let tscCommand = "tsc";
-  const localTsc = join(projectRoot, "node_modules", ".bin", "tsc");
-  if (existsSync(localTsc)) {
-    tscCommand = localTsc;
+  
+  // Check in the project being analyzed
+  const projectLocalTsc = join(projectRoot, "node_modules", ".bin", "tsc");
+  
+  // Check relative to current working directory (where the binary is run from)
+  const cwdLocalTsc = join(process.cwd(), "node_modules", ".bin", "tsc");
+  
+  if (existsSync(projectLocalTsc)) {
+    tscCommand = projectLocalTsc;
+  } else if (existsSync(cwdLocalTsc)) {
+    tscCommand = cwdLocalTsc;
   }
   
   const tscArgs = [tscCommand, "--noEmit", "--pretty", "false"];
@@ -514,11 +522,19 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   const hasPoetryLock = existsSync(join(projectRoot, "poetry.lock"));
   
   // Build pyright arguments based on project configuration
-  // Try local installation first
+  // Try local installation first - check multiple possible locations
   let pyrightCommand = "pyright";
-  const localPyright = join(projectRoot, "node_modules", ".bin", "pyright");
-  if (existsSync(localPyright)) {
-    pyrightCommand = localPyright;
+  
+  // Check in the project being analyzed
+  const projectLocalPyright = join(projectRoot, "node_modules", ".bin", "pyright");
+  
+  // Check relative to current working directory (where the binary is run from)
+  const cwdLocalPyright = join(process.cwd(), "node_modules", ".bin", "pyright");
+  
+  if (existsSync(projectLocalPyright)) {
+    pyrightCommand = projectLocalPyright;
+  } else if (existsSync(cwdLocalPyright)) {
+    pyrightCommand = cwdLocalPyright;
   }
   
   const pyrightArgs = [pyrightCommand, "--outputjson"];
