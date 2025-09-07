@@ -551,9 +551,6 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
     projectRoot,
     join(projectRoot, "src"),
     join(projectRoot, "lib"),
-    join(projectRoot, "backend"),  // Common in web projects
-    join(projectRoot, "app"),       // Flask/FastAPI projects
-    join(projectRoot, "api"),       // API projects
     dirname(file),                  // Include the file's directory
     process.env.PYTHONPATH || ""
   ].filter(p => p).join(":");
@@ -562,7 +559,7 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   const { stdout, timedOut } = await runCommand(
     pyrightArgs,
     { 
-      PATH: `/Users/steven_chong/.bun/bin:${process.env.PATH}`,
+      PATH: `${process.env.HOME}/.bun/bin:${process.env.PATH}`,
       PYTHONPATH: pythonPath
     },
     projectRoot
@@ -672,16 +669,11 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
         /import could not be resolved$/i,                         // Import resolution failures
       ];
       
-      // Additional patterns for attribute access false positives
+      // Additional patterns for common false positives in single-file checking
+      // These occur when pyright can't see the full project context
       const attributePatterns = [
-        /^cannot access attribute/i,                              // Dynamic attributes
-        /attribute ".+" is unknown/i,                            // Runtime-resolved attributes
-        /has no attribute ".+"/i,                                // Dynamic object attributes
-        /^attribute ".+" is not defined/i,                       // Pydantic model attributes
-        /for class "coroutinetype/i,                            // Async/await confusion
-        /^member ".+" is unknown/i,                              // Class member access
-        /^cannot access member/i,                                // Member access issues
-        /is not a known attribute of/i,                          // Object attribute access
+        /^cannot access member/i,                                // Member access without full type info
+        /^member ".+" is unknown/i,                              // Unknown members in incomplete context
       ];
       
       // Filter out import-related false positives for local project imports
@@ -753,7 +745,7 @@ async function checkGo(file: string): Promise<FileCheckResult | null> {
     ? ["go", "vet", relativePath]  // Use module-aware mode
     : ["go", "vet", file];         // Fallback to direct file
 
-  const { stderr, stdout, timedOut } = await runCommand(
+  const { stderr, timedOut } = await runCommand(
     goArgs,
     {},
     hasGoMod ? projectRoot : undefined
@@ -1834,15 +1826,17 @@ if (import.meta.main) {
   const file = process.argv[2];
   
   if (!file) {
-    console.error("Usage: file-checker-v2.ts <file>");
-    console.error("Usage: file-checker-v2.ts <file>");
+    console.error("Usage: file-checker.ts <file>");
     process.exit(1);
   }
   
-  console.log(`Checking ${file}...`);
+  // Resolve relative paths to absolute
+  const absolutePath = file.startsWith('/') ? file : join(process.cwd(), file);
+  
+  console.log(`Checking ${absolutePath}...`);
   const start = Date.now();
   
-  const result = await checkFile(file);
+  const result = await checkFile(absolutePath);
   const elapsed = Date.now() - start;
   
   if (result) {
@@ -1856,6 +1850,6 @@ if (import.meta.main) {
       console.log(`✅ No issues found (${elapsed}ms)`);
     }
   } else {
-    console.log(`Cannot check ${file} (unsupported type or file not found)`);
+    console.log(`Cannot check ${absolutePath} (unsupported type or disabled)`);
   }
 }
