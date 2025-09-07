@@ -40,7 +40,9 @@
     "build": "bun run build:cli"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node": "^20.0.0",
+    "pyright": "^1.1.389"
   },
   "peerDependencies": {
     "typescript": "^5.9.2"

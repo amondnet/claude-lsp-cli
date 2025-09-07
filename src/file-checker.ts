@@ -206,7 +206,14 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
   };
 
   // Build tsc arguments dynamically
-  const tscArgs = ["tsc", "--noEmit", "--pretty", "false"];
+  // Try local installation first
+  let tscCommand = "tsc";
+  const localTsc = join(projectRoot, "node_modules", ".bin", "tsc");
+  if (existsSync(localTsc)) {
+    tscCommand = localTsc;
+  }
+  
+  const tscArgs = [tscCommand, "--noEmit", "--pretty", "false"];
   
   // Find the nearest tsconfig.json
   const tsconfigRoot = findTsconfigRoot(file);
@@ -507,7 +514,14 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   const hasPoetryLock = existsSync(join(projectRoot, "poetry.lock"));
   
   // Build pyright arguments based on project configuration
-  const pyrightArgs = ["pyright", "--outputjson"];
+  // Try local installation first
+  let pyrightCommand = "pyright";
+  const localPyright = join(projectRoot, "node_modules", ".bin", "pyright");
+  if (existsSync(localPyright)) {
+    pyrightCommand = localPyright;
+  }
+  
+  const pyrightArgs = [pyrightCommand, "--outputjson"];
   
   if (hasPyrightConfig || hasPyprojectToml) {
     // Use project configuration

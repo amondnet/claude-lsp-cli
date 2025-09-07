@@ -25,23 +25,25 @@ jobs:
     - name: Install dependencies
       run: bun install
     
-    - name: Install language tools for testing
+    - name: Install system packages for testing
       run: |
-        # Install TypeScript
-        npm install -g typescript
-        
-        # Install Python type checker
-        npm install -g pyright
-        
         # Install Scala (needed for Scala tests)
         sudo apt-get update
         sudo apt-get install -y scala
         
         # Show installed tools
-        echo "Installed language tools:"
-        which tsc && tsc --version || echo "TypeScript not found"
-        which pyright && pyright --version || echo "Pyright not found"
+        echo "Checking available tools:"
         which scalac && scalac -version || echo "Scala not found"
+        
+        # TypeScript and pyright will be installed locally via package.json
+        echo "Local tools will be installed via 'bun install'"
+    
+    - name: Verify local tools installed
+      run: |
+        echo "Verifying local tools:"
+        test -f node_modules/.bin/tsc && echo "✅ TypeScript found locally" || echo "❌ TypeScript not found locally"
+        test -f node_modules/.bin/pyright && echo "✅ Pyright found locally" || echo "❌ Pyright not found locally"
+        ls -la node_modules/.bin/ | head -20 || echo "node_modules/.bin not found"
     
     - name: Build binaries
       run: bun run build
