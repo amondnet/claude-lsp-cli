@@ -1443,6 +1443,12 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     return result;
   }
   
+  // Debug logging for CI issues
+  if (process.env.CI || process.env.DEBUG) {
+    console.error("Scala stderr length:", stderr.length);
+    console.error("Scala stderr first 200 chars:", stderr.substring(0, 200));
+  }
+  
   // Check if scalac is not available or failed to run
   if (stderr.includes("command not found") || 
       stderr.includes("scalac: not found") ||
