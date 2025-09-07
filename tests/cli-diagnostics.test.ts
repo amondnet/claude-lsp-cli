@@ -1,9 +1,19 @@
 import { describe, test, expect } from "bun:test";
 import { spawn } from "bun";
 import { join } from "path";
+import { existsSync } from "fs";
 
 const CLI_PATH = join(import.meta.dir, "..", "bin", "claude-lsp-cli");
 const EXAMPLES_DIR = join(import.meta.dir, "..", "examples");
+
+// Check if CLI binary exists before running tests
+if (!existsSync(CLI_PATH)) {
+  console.error(`❌ CLI binary not found at: ${CLI_PATH}`);
+  console.error(`   Current directory: ${process.cwd()}`);
+  console.error(`   Test directory: ${import.meta.dir}`);
+  console.error(`   Please run 'bun run build' first`);
+  throw new Error("CLI binary must be built before running tests");
+}
 
 // Helper to run CLI and capture output using Bun's spawn
 async function runCLI(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
