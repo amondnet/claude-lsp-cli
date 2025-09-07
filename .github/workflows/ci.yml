@@ -23,25 +23,37 @@ jobs:
       
       - name: Install system packages for testing
         run: |
-          # Install Scala (needed for Scala tests)
+          # Update package list
           sudo apt-get update
-          sudo apt-get install -y scala
           
-          # Show installed tools
-          echo "Checking available tools:"
-          which tsc && tsc --version || echo "TypeScript not found globally"
-          which pyright && pyright --version || echo "Pyright not found globally"
+          # Install commonly available language tools
+          sudo apt-get install -y scala default-jdk
+          
+          # Install Rust via rustup (official way)
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source ~/.cargo/env
+          
+          # Show what's available
+          echo "Checking installed system tools:"
+          which javac && javac -version || echo "Java not found"
+          which rustc && rustc --version || echo "Rust not found" 
           which scalac && scalac -version || echo "Scala not found"
           
-          # Check local tools
+          # Check local tools (installed via bun install)
+          echo "Checking local tools:"
           test -f node_modules/.bin/tsc && echo "✅ TypeScript found locally" || echo "❌ TypeScript not found locally"
           test -f node_modules/.bin/pyright && echo "✅ Pyright found locally" || echo "❌ Pyright not found locally"
+          
+          # Note: Lua, Elixir, Terraform not installed - their tests will fail but that's expected
       
       - name: Build binaries
         run: bun run build
       
       - name: Run tests
-        run: bun test
+        run: |
+          # Ensure Rust is available in PATH
+          source ~/.cargo/env
+          bun test
       
       - name: Test CLI source
         run: bun run src/cli.ts --help

@@ -27,12 +27,20 @@ jobs:
     
     - name: Install system packages for testing
       run: |
-        # Install Scala (needed for Scala tests)
+        # Update package list
         sudo apt-get update
-        sudo apt-get install -y scala
         
-        # Show installed tools
-        echo "Checking available tools:"
+        # Install commonly available language tools
+        sudo apt-get install -y scala default-jdk
+        
+        # Install Rust via rustup (official way)
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source ~/.cargo/env
+        
+        # Show what's available
+        echo "Checking installed system tools:"
+        which javac && javac -version || echo "Java not found"
+        which rustc && rustc --version || echo "Rust not found" 
         which scalac && scalac -version || echo "Scala not found"
         
         # TypeScript and pyright will be installed locally via package.json
@@ -54,7 +62,10 @@ jobs:
         echo "✅ Single unified binary built successfully"
     
     - name: Run tests
-      run: bun test --timeout 30000
+      run: |
+        # Ensure Rust is available in PATH
+        source ~/.cargo/env
+        bun test --timeout 30000
       
     - name: Check test coverage
       run: |
