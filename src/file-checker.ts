@@ -1001,7 +1001,14 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
     }
   }
   
-  javacArgs.push(file); // Use full path for javac
+  // For Java files, compile all files in the same package to avoid "cannot find symbol" errors
+  const fileDir = dirname(file);
+  const javaFilesInPackage = readdirSync(fileDir)
+    .filter((f: string) => f.endsWith('.java'))
+    .map((f: string) => join(fileDir, f));
+  
+  // Add all Java files in the package
+  javacArgs.push(...javaFilesInPackage);
 
   // Java compilation can be slow
   const { stderr, timedOut } = await runCommand(
@@ -1021,17 +1028,23 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
     return result;
   }
 
-  // Parse javac output
+  // Parse javac output - only show errors for the target file
   const lines = stderr.split("\n");
+  
   for (const line of lines) {
-    const match = line.match(/^.+?:(\d+): (error|warning): (.+)$/);
+    // javac format: filename.java:line: error: message
+    const match = line.match(/^(.+?):(\d+): (error|warning): (.+)$/);
     if (match) {
-      result.diagnostics.push({
-        line: parseInt(match[1]),
-        column: 1,
-        severity: match[2] as "error" | "warning",
-        message: match[3]
-      });
+      // Only include errors for the target file we're checking
+      const errorFile = basename(match[1]);
+      if (errorFile === targetFileName) {
+        result.diagnostics.push({
+          line: parseInt(match[2]),
+          column: 1,
+          severity: match[3] as "error" | "warning",
+          message: match[4]
+        });
+      }
     }
   }
 
