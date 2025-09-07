@@ -788,7 +788,8 @@ async function checkRust(file: string): Promise<FileCheckResult | null> {
       projectRoot
     );
     
-    stderr = cargoResult.stderr;
+    // Cargo outputs JSON to stdout, not stderr!
+    stderr = cargoResult.stdout || cargoResult.stderr;
     timedOut = cargoResult.timedOut;
     result.tool = "cargo check";
   } else {
@@ -824,8 +825,25 @@ async function checkRust(file: string): Promise<FileCheckResult | null> {
     try {
       const msg = JSON.parse(line);
       
-      // Filter to only show errors for the file we're checking
-      if (msg.message && msg.spans?.[0]) {
+      // Handle cargo's JSON format (nested message structure)
+      if (msg.reason === "compiler-message" && msg.message) {
+        const message = msg.message;
+        if (message.spans?.[0]) {
+          const span = message.spans[0];
+          
+          // Check if this error is for our file
+          if (span.file_name && span.file_name.endsWith(targetFileName)) {
+            result.diagnostics.push({
+              line: span.line_start || 1,
+              column: span.column_start || 1,
+              severity: message.level === "error" ? "error" : "warning",
+              message: message.message
+            });
+          }
+        }
+      }
+      // Also handle rustc's simpler format
+      else if (msg.message && msg.spans?.[0]) {
         const span = msg.spans[0];
         
         // Check if this error is for our file
