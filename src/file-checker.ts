@@ -1027,6 +1027,11 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
     });
     return result;
   }
+  
+  // Check if javac is not available
+  if (stderr.includes("command not found") || stderr.includes("javac: not found")) {
+    return null; // Java compiler not available
+  }
 
   // Parse javac output - only show errors for the target file
   const lines = stderr.split("\n");
@@ -1436,6 +1441,11 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
       message: "Scala check timed out"
     });
     return result;
+  }
+  
+  // Check if scalac is not available
+  if (stderr.includes("command not found") || stderr.includes("scalac: not found")) {
+    return null; // Scala compiler not available
   }
 
   // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:3:13")
