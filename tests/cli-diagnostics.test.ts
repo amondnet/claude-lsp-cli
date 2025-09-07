@@ -135,7 +135,7 @@ describe("CLI Diagnostics Command", () => {
     expect(result.stdout).toContain('error');
   }, 30000);
 
-  test("Scala with 9 errors", async () => {
+  test("Scala with 7 errors", async () => {
     const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "scala-project", "src", "main", "scala", "Main.scala")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
