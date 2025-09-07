@@ -14,12 +14,12 @@ public class User {
     // Error: Missing constructor parameter
     public User(String name) {
         this.name = name;
-        // Error: Using undefined variable
-        this.age = defaultAge;
+        // Fixed: Using a default value instead of undefined variable
+        this.age = 0;
     }
     
-    // Error: Missing return type should be String
-    public getName() {
+    // This method is intentionally correct to allow Main.java errors to be detected
+    public String getName() {
         return name;
     }
     
