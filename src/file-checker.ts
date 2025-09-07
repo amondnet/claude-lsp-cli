@@ -890,11 +890,12 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
   // Try to use build tools first for better accuracy
   if (hasPom) {
     // Try Maven compile for full project context
-    const mvnResult = await runCommand(
-      ["mvn", "compile", "-q"],
-      undefined,
-      projectRoot
-    );
+    try {
+      const mvnResult = await runCommand(
+        ["mvn", "compile", "-q"],
+        undefined,
+        projectRoot
+      );
     
     if (!mvnResult.timedOut && !mvnResult.stderr.includes("command not found")) {
       // Parse Maven output for errors
@@ -919,17 +920,24 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
         return result;
       }
     }
+    } catch (e) {
+      // Maven not available or failed to run, fall back to javac
+      if (process.env.DEBUG) {
+        console.error("Maven failed:", e);
+      }
+    }
   }
   
   if (hasGradle) {
     // Try Gradle compile for full project context
-    const gradleResult = await runCommand(
-      ["gradle", "compileJava", "-q"],
-      undefined,
-      projectRoot
-    );
-    
-    if (!gradleResult.timedOut && !gradleResult.stderr.includes("command not found")) {
+    try {
+      const gradleResult = await runCommand(
+        ["gradle", "compileJava", "-q"],
+        undefined,
+        projectRoot
+      );
+      
+      if (!gradleResult.timedOut && !gradleResult.stderr.includes("command not found")) {
       // Parse Gradle output for errors
       const lines = gradleResult.stderr.split("\n");
       
@@ -947,9 +955,15 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
       }
       
       result.tool = "gradle";
-      // If Gradle succeeded, return the result
-      if (gradleResult.exitCode === 0 || result.diagnostics.length > 0) {
+      // If Gradle found errors, return the result
+      if (result.diagnostics.length > 0) {
         return result;
+      }
+    }
+    } catch (e) {
+      // Gradle not available or failed to run, fall back to javac
+      if (process.env.DEBUG) {
+        console.error("Gradle failed:", e);
       }
     }
   }
@@ -1228,13 +1242,14 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
   
   if (hasBuildSbt && useSbtCompile) {
     // Use sbt compile for full project context (slower but more accurate)
-    const sbtResult = await runCommand(
-      ["sbt", "-no-colors", "-batch", "compile"],
-      undefined,
-      projectRoot
-    );
-    
-    if (!sbtResult.timedOut) {
+    try {
+      const sbtResult = await runCommand(
+        ["sbt", "-no-colors", "-batch", "compile"],
+        undefined,
+        projectRoot
+      );
+      
+      if (!sbtResult.timedOut) {
       // Parse sbt output for errors
       const lines = sbtResult.stdout.split("\n").concat(sbtResult.stderr.split("\n"));
       const targetFileName = basename(file);
@@ -1258,6 +1273,12 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
         return result;
       }
     }
+    } catch (e) {
+      // sbt not available or failed to run, fall back to scalac
+      if (process.env.DEBUG) {
+        console.error("sbt failed:", e);
+      }
+    }
   }
   
   // Try to use Metals/BSP for better accuracy if available
@@ -1266,14 +1287,15 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     const bloopConfig = join(projectRoot, ".bloop");
     if (existsSync(bloopConfig)) {
       // Try to use bloop compile which understands the full project context
-      const bloopResult = await runCommand(
-        ["bloop", "compile", "--no-color", relativePath],
-        undefined,
-        projectRoot
-      );
-      
-      // Check if bloop was found and executed successfully
-      if (!bloopResult.timedOut && !bloopResult.stderr.includes("Executable not found")) {
+      try {
+        const bloopResult = await runCommand(
+          ["bloop", "compile", "--no-color", relativePath],
+          undefined,
+          projectRoot
+        );
+        
+        // Check if bloop was found and executed successfully
+        if (!bloopResult.timedOut && !bloopResult.stderr.includes("Executable not found")) {
         // Parse bloop output if successful
         const lines = bloopResult.stderr.split("\n");
         for (const line of lines) {
@@ -1291,6 +1313,12 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
         return result;
       }
       // If bloop is not available or failed, fall through to use scalac
+      } catch (e) {
+        // bloop not available or failed to run, fall back to scalac
+        if (process.env.DEBUG) {
+          console.error("bloop failed:", e);
+        }
+      }
     }
   }
   
