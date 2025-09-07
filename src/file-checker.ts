@@ -1443,9 +1443,17 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     return result;
   }
   
-  // Check if scalac is not available
-  if (stderr.includes("command not found") || stderr.includes("scalac: not found")) {
+  // Check if scalac is not available or failed to run
+  if (stderr.includes("command not found") || 
+      stderr.includes("scalac: not found") ||
+      stderr.includes("not found: scalac") ||
+      stderr.includes("No such file or directory")) {
     return null; // Scala compiler not available
+  }
+  
+  // If scalac ran but produced no output at all, it might be a version issue
+  if (!stderr || stderr.trim() === "") {
+    return null; // Scala compiler didn't produce any output
   }
 
   // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:3:13")
