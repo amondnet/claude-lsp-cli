@@ -551,6 +551,10 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
     projectRoot,
     join(projectRoot, "src"),
     join(projectRoot, "lib"),
+    join(projectRoot, "backend"),  // Common in web projects
+    join(projectRoot, "app"),       // Flask/FastAPI projects
+    join(projectRoot, "api"),       // API projects
+    dirname(file),                  // Include the file's directory
     process.env.PYTHONPATH || ""
   ].filter(p => p).join(":");
 
@@ -668,6 +672,18 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
         /import could not be resolved$/i,                         // Import resolution failures
       ];
       
+      // Additional patterns for attribute access false positives
+      const attributePatterns = [
+        /^cannot access attribute/i,                              // Dynamic attributes
+        /attribute ".+" is unknown/i,                            // Runtime-resolved attributes
+        /has no attribute ".+"/i,                                // Dynamic object attributes
+        /^attribute ".+" is not defined/i,                       // Pydantic model attributes
+        /for class "coroutinetype/i,                            // Async/await confusion
+        /^member ".+" is unknown/i,                              // Class member access
+        /^cannot access member/i,                                // Member access issues
+        /is not a known attribute of/i,                          // Object attribute access
+      ];
+      
       // Filter out import-related false positives for local project imports
       if (importPatterns.some(pattern => pattern.test(message))) {
         // Extract the package name from the error message
@@ -692,6 +708,13 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
         }
         
         // Otherwise, it's likely a local import - filter it out
+        return false;
+      }
+      
+      // Filter out attribute access false positives
+      if (attributePatterns.some(pattern => pattern.test(message))) {
+        // These are typically false positives from incomplete type information
+        // when analyzing single files without full project context
         return false;
       }
       
