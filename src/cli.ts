@@ -5,7 +5,7 @@
  * 
  * Usage:
  *   claude-lsp-cli hook <event-type>     - Handle Claude Code hook events
- *   claude-lsp-cli diagnostics <file>    - Check file for errors
+ *   claude-lsp-cli check <file>          - Check file for errors
  *   claude-lsp-cli disable <language>    - Disable language checking
  *   claude-lsp-cli enable <language>     - Enable language checking
  *   claude-lsp-cli                       - Show help
@@ -40,12 +40,8 @@ function loadConfig(): any {
   const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   const configPath = join(homeDir, ".claude", "lsp-config.json");
   let config: any = {};
-  try {
-    if (existsSync(configPath)) {
-      config = JSON.parse(readFileSync(configPath, "utf8"));
-    }
-  } catch (error) {
-    // Return empty config if parsing fails
+  if (existsSync(configPath)) {
+    config = JSON.parse(readFileSync(configPath, "utf8"));
   }
   return config;
 }
@@ -171,17 +167,11 @@ async function handleHookEvent(eventType: string): Promise<void> {
         
         // Handle >lsp: commands - display result and cancel the prompt
         if (command === 'enable') {
-          if (args[0]) {
-            await enableLanguage(args[0], console.error);
-          } else {
-            await showStatus(console.error);
-          }
+          await enableLanguage(args[0], console.error);
         } else if (command === 'disable') {
-          if (args[0]) {
-            await disableLanguage(args[0], console.error);
-          } else {
-            await showStatus(console.error);
-          }
+          await disableLanguage(args[0], console.error);
+        } else if (command === 'check') {
+          await runCheck(args[0], console.error);
         } else {
           await showHelp(console.error);
         }
@@ -299,7 +289,7 @@ async function showHelp(log: (...args: any) => any = console.log): Promise<void>
 
 Commands:
   hook <event>             Handle Claude Code hook events
-  diagnostics <file>       Check individual file for errors/warnings
+  check <file>             Check individual file for errors/warnings
   disable <language>       Disable language checking globally (e.g. disable scala)
   enable <language>        Enable language checking globally (e.g. enable scala)
   help                     Show this help message
@@ -307,30 +297,58 @@ Commands:
     await showStatus(log);
 }
 
+// Reusable diagnostics function
+async function runCheck(filePath: string, log: (...args: any) => any = console.log): Promise<void> {
+  if (!filePath) {
+    return;
+  }
+
+  const absolutePath = resolve(filePath);
+  
+  if (!existsSync(absolutePath)) {
+    return;
+  }
+  
+  const result = await checkFile(absolutePath);
+  if (result === null) {
+    // Checking was disabled - exit silently with no output
+    return;
+  } else if (result) {
+    if (result.diagnostics.length > 0) {
+      const formatted = formatDiagnostics(result);
+      if (formatted) {
+        log(formatted);
+      }
+    } else {
+      // Only say "no errors or warnings" if we actually checked the file
+      log('[[system-message]]:{"summary":"no errors or warnings"}');
+    }
+  } else {
+    // File type not supported - also exit silently
+    return;
+  }
+}
+
 // Function to show current status
 async function showStatus(log: (...args: any) => any = console.log): Promise<void> {
   // Check if there's a config file and read disabled languages
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  const configPath = join(homeDir, ".claude", "lsp-config.json");
   let disabledLanguages = new Set<string>();
   let globalDisabled = false;
   
   try {
-    if (existsSync(configPath)) {
-      const config = JSON.parse(readFileSync(configPath, "utf8"));
-      globalDisabled = config.disable === true;
-      if (config.disableScala === true) disabledLanguages.add("Scala");
-      if (config.disableTypeScript === true) disabledLanguages.add("TypeScript");
-      if (config.disablePython === true) disabledLanguages.add("Python");
-      if (config.disableGo === true) disabledLanguages.add("Go");
-      if (config.disableRust === true) disabledLanguages.add("Rust");
-      if (config.disableJava === true) disabledLanguages.add("Java");
-      if (config.disableCpp === true) disabledLanguages.add("C/C++");
-      if (config.disablePhp === true) disabledLanguages.add("PHP");
-      if (config.disableLua === true) disabledLanguages.add("Lua");
-      if (config.disableElixir === true) disabledLanguages.add("Elixir");
-      if (config.disableTerraform === true) disabledLanguages.add("Terraform");
-    }
+    const config = loadConfig();
+    globalDisabled = config.disable === true;
+    if (config.disableScala === true) disabledLanguages.add("Scala");
+    if (config.disableTypeScript === true) disabledLanguages.add("TypeScript");
+    if (config.disablePython === true) disabledLanguages.add("Python");
+    if (config.disableGo === true) disabledLanguages.add("Go");
+    if (config.disableRust === true) disabledLanguages.add("Rust");
+    if (config.disableJava === true) disabledLanguages.add("Java");
+    if (config.disableCpp === true) disabledLanguages.add("C/C++");
+    if (config.disablePhp === true) disabledLanguages.add("PHP");
+    if (config.disableLua === true) disabledLanguages.add("Lua");
+    if (config.disableElixir === true) disabledLanguages.add("Elixir");
+    if (config.disableTerraform === true) disabledLanguages.add("Terraform");
   } catch (e) {
     // Ignore config parsing errors
   }
@@ -447,7 +465,7 @@ async function disableLanguage(language: string, log: (...args: any) => any = co
   if (normalizedLang === 'all') {
     updateConfig({ disable: true });
     log(`🚫 Disabled ALL language checking globally`);
-  } else {
+  } else if (language.toLowerCase() in langMap) {
     const langKey = `disable${normalizedLang}`;
     updateConfig({ [langKey]: true });
     log(`🚫 Disabled ${language} checking globally`);
@@ -481,7 +499,7 @@ async function enableLanguage(language: string, log: (...args: any) => any = con
   if (normalizedLang === 'all') {
     updateConfig({ disable: false });
     log(`✅ Enabled ALL language checking globally`);
-  } else {
+  } else if (language.toLowerCase() in langMap) {
     const langKey = `disable${normalizedLang}`;
     updateConfig({ [langKey]: false });
     log(`✅ Enabled ${language} checking globally`);
@@ -493,53 +511,17 @@ async function enableLanguage(language: string, log: (...args: any) => any = con
 
 // Main execution
 (async () => {
-  if (command === "hook" && args[1]) {
+  if (command === "hook") {
     await handleHookEvent(args[1]);
-  } else if (command === "diagnostics" && args[1]) {
-    const filePath = resolve(args[1]);
-    
-    if (!existsSync(filePath)) {
-      console.error(`File not found: ${filePath}`);
-      process.exit(1);
-    }
-    
-    const result = await checkFile(filePath);
-    if (result === null) {
-      // Checking was disabled - exit silently with no output
-      process.exit(0);
-    } else if (result) {
-      if (result.diagnostics.length > 0) {
-        const formatted = formatDiagnostics(result);
-        if (formatted) {
-          console.log(formatted);
-        }
-      } else {
-        // Only say "no errors or warnings" if we actually checked the file
-        console.log('[[system-message]]:{"summary":"no errors or warnings"}');
-      }
-    } else {
-      // File type not supported - also exit silently
-      process.exit(0);
-    }
-    
-    // CLI always exits 0 (success) - only program errors use non-zero
-    process.exit(0);
+  } else if (command === "check") {
+    await runCheck(args[1]);
   } else if (command === "disable") {
-    if (args[1]) {
-      await disableLanguage(args[1]);
-    } else {
-      await showStatus();
-    }
-    process.exit(0);
+    await disableLanguage(args[1]);
   } else if (command === "enable") {
-    if (args[1]) {
-      await enableLanguage(args[1]);
-    } else {
-      await showStatus();
-    }
-    process.exit(0);
+    await enableLanguage(args[1]);
   } else {
     await showHelp();
-    process.exit(0);
   }
+  // CLI always exits 0 (success) - only program errors use non-zero
+  process.exit(0);
 })();

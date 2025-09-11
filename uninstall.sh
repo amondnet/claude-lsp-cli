@@ -16,7 +16,7 @@ echo "================================"
 echo ""
 
 # Define paths using HOME variable
-INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="/usr/local/bin"
 DATA_DIR="$HOME/.local/share/claude-lsp"
 CLAUDE_CONFIG="$HOME/.claude/settings.json"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"

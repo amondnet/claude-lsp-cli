@@ -24,11 +24,13 @@ cd claude-code-lsp
 ./install.sh
 ```
 
-The installer will:
-1. Build the CLI binary
-2. Install to `~/.local/bin/claude-lsp-cli`
-3. Add hooks to `~/.claude/settings.json`
-4. Update `~/.claude/CLAUDE.md` with instructions
+The `install.sh` script automatically:
+1. Installs Bun runtime if not present
+2. Builds the CLI binary with `bun run build`
+3. Installs binary to `/usr/local/bin/claude-lsp-cli` (requires sudo)
+4. Adds PostToolUse and UserPromptSubmit hooks to `~/.claude/settings.json`
+5. Updates `~/.claude/CLAUDE.md` with usage instructions
+6. Cleans up old socket and state files
 
 ### From NPM (Coming Soon)
 
@@ -173,11 +175,12 @@ The hooks use Claude Code's nested format:
 ./uninstall.sh
 ```
 
-This will:
-1. Remove the CLI binary
-2. Remove hooks from `~/.claude/settings.json`
-3. Clean up CLAUDE.md section
-4. Remove temporary state files
+The `uninstall.sh` script removes:
+1. CLI binary from `/usr/local/bin/claude-lsp-cli` (requires sudo)
+2. PostToolUse and UserPromptSubmit hooks from `~/.claude/settings.json`
+3. LSP section from `~/.claude/CLAUDE.md`
+4. LSP data directory from `~/.local/share/claude-lsp`
+5. Temporary diagnostic state files in `/tmp/claude-lsp-last-*.json`
 
 ## 🏗️ Development
 

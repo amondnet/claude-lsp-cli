@@ -99,12 +99,12 @@ describe("Language Comprehensive Testing", () => {
   for (const lang of LANGUAGES) {
     describe(lang.name, () => {
       
-      // Test 1: diagnostics command with errors
-      test(`diagnostics command - should detect errors in ${lang.ext} files`, async () => {
+      // Test 1: check command with errors
+      test(`check command - should detect errors in ${lang.ext} files`, async () => {
         const testFile = join(TEST_DIR, `test${lang.ext}`);
         writeFileSync(testFile, lang.errorCode);
         
-        const proc = spawn([CLI_PATH, "diagnostics", testFile], {
+        const proc = spawn([CLI_PATH, "check", testFile], {
           stdout: "pipe",
           stderr: "pipe"
         });
@@ -131,12 +131,12 @@ describe("Language Comprehensive Testing", () => {
         }
       });
 
-      // Test 2: diagnostics command without errors  
-      test(`diagnostics command - should show no errors for clean ${lang.ext} files`, async () => {
+      // Test 2: check command without errors  
+      test(`check command - should show no errors for clean ${lang.ext} files`, async () => {
         const testFile = join(TEST_DIR, `clean${lang.ext}`);
         writeFileSync(testFile, lang.cleanCode);
         
-        const proc = spawn([CLI_PATH, "diagnostics", testFile], {
+        const proc = spawn([CLI_PATH, "check", testFile], {
           stdout: "pipe",
           stderr: "pipe"
         });

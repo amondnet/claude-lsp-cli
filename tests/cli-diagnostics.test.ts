@@ -30,14 +30,14 @@ async function runCLI(args: string[]): Promise<{ stdout: string; stderr: string;
   return { stdout, stderr, exitCode };
 }
 
-describe("CLI Diagnostics Command", () => {
+describe("CLI check Command", () => {
   // Test diagnostics mode behavior:
   // - Exit code 0 (success) regardless of diagnostics found
   // - Outputs "[[system-message]]:" prefix
   // - Shows summary even when no errors
   
   test("Bun/TypeScript with no errors - shows 'no errors or warnings'", async () => {
-    const result = await runCLI(["diagnostics", join(import.meta.dir, "..", "src", "cli.ts")]);
+    const result = await runCLI(["check", join(import.meta.dir, "..", "src", "cli.ts")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"summary":"no errors or warnings"');
@@ -47,7 +47,7 @@ describe("CLI Diagnostics Command", () => {
     // Create a simple Python file with no errors
     const testFile = "/tmp/test_no_errors.py";
     await Bun.write(testFile, "def hello():\n    return 'Hello, World!'\n");
-    const result = await runCLI(["diagnostics", testFile]);
+    const result = await runCLI(["check", testFile]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"summary":"no errors or warnings"');
@@ -57,7 +57,7 @@ describe("CLI Diagnostics Command", () => {
     // Create a simple Go file with no errors
     const testFile = "/tmp/test_no_errors.go";
     await Bun.write(testFile, "package main\n\nfunc main() {\n    println(\"Hello\")\n}\n");
-    const result = await runCLI(["diagnostics", testFile]);
+    const result = await runCLI(["check", testFile]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"summary":"no errors or warnings"');
@@ -65,7 +65,7 @@ describe("CLI Diagnostics Command", () => {
 
 
   test("C++ with errors - shows diagnostic count", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "cpp-project", "src", "main.cpp")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "cpp-project", "src", "main.cpp")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -73,7 +73,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Elixir with compilation errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "elixir-project", "lib", "main.ex")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "elixir-project", "lib", "main.ex")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -86,7 +86,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Go with multiple errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "go-project", "cmd", "server", "main.go")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "go-project", "cmd", "server", "main.go")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -94,7 +94,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Java with multiple errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "java-project", "src", "main", "java", "com", "example", "Main.java")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "java-project", "src", "main", "java", "com", "example", "Main.java")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -102,7 +102,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Lua with syntax errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "lua-project", "main.lua")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "lua-project", "main.lua")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -110,7 +110,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("PHP with syntax errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "php-project", "src", "User.php")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "php-project", "src", "User.php")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -118,7 +118,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Python with type errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "python-project", "main.py")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "python-project", "main.py")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -128,7 +128,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Rust with compilation errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "rust-project", "src", "main.rs")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "rust-project", "src", "main.rs")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
@@ -136,7 +136,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Scala with 7 errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "scala-project", "src", "main", "scala", "Main.scala")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "scala-project", "src", "main", "scala", "Main.scala")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     
@@ -156,7 +156,7 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("Terraform with warnings", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "terraform-project", "main.tf")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "terraform-project", "main.tf")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     // Terraform might have warnings but not necessarily errors
@@ -165,17 +165,16 @@ describe("CLI Diagnostics Command", () => {
   }, 30000);
 
   test("TypeScript with multiple errors", async () => {
-    const result = await runCLI(["diagnostics", join(EXAMPLES_DIR, "typescript-project", "src", "index.ts")]);
+    const result = await runCLI(["check", join(EXAMPLES_DIR, "typescript-project", "src", "index.ts")]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("[[system-message]]:");
     expect(result.stdout).toContain('"diagnostics":[');
     expect(result.stdout).toContain('error');
   }, 30000);
 
-  test("Non-existent file returns exit code 1", async () => {
-    const result = await runCLI(["diagnostics", "/tmp/non-existent-file.ts"]);
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("File not found");
+  test("Non-existent file returns exit code 0", async () => {
+    const result = await runCLI(["check", "/tmp/non-existent-file.ts"]);
+    expect(result.exitCode).toBe(0);
   }, 10000);
 });
 
@@ -263,23 +262,6 @@ describe("CLI Hook Mode", () => {
 
   // Error handling tests
   describe("Error Handling", () => {
-    test("diagnostics command should return non-zero exit with full error on runtime errors", async () => {
-      // Test with a file that will cause a runtime error (e.g., permission denied)
-      const proc = spawn([CLI_PATH, "diagnostics", "/root/nonexistent.ts"], {
-        stdout: "pipe",
-        stderr: "pipe"
-      });
-
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
-
-      // Should return non-zero exit code
-      expect(exitCode).not.toBe(0);
-      // Should show the full error message
-      expect(stderr).toContain("File not found");
-    });
-
     test("hook command should return exit 1 with no output on runtime errors", async () => {
       // Simulate hook with invalid JSON to cause a runtime error
       const proc = spawn([CLI_PATH, "hook", "PostToolUse"], {
