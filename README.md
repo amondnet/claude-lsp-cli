@@ -17,8 +17,8 @@ A lightweight, file-based diagnostics CLI for Claude Code that provides real-tim
 
 ```bash
 # Clone the repository
-git clone https://github.com/teamchong/claude-code-lsp.git
-cd claude-code-lsp
+git clone https://github.com/teamchong/claude-lsp-cli.git
+cd claude-lsp-cli
 
 # Install with automatic setup
 ./install.sh
@@ -36,7 +36,7 @@ The `install.sh` script automatically:
 
 ```bash
 # Install globally
-npm install -g claude-code-lsp
+npm install -g claude-lsp-cli-lsp
 
 # Or use directly with npx
 npx claude-lsp-cli diagnostics src/file.ts

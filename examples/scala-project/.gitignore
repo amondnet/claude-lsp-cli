@@ -1,0 +1,25 @@
+# Scala
+*.class
+*.log
+
+# SBT
+**/target/
+.history
+.cache
+.lib/
+dist/*
+
+# Metals
+.metals/
+.bloop/
+project/metals.sbt
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.bsp/
+
+# OS
+.DS_Store
+Thumbs.db

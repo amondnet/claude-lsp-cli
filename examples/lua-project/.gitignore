@@ -1,6 +1,5 @@
-# PHP
-vendor/
-composer.lock
+# Lua
+*.luac
 
 # IDE
 .idea/
@@ -12,6 +11,3 @@ composer.lock
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log

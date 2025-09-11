@@ -1,0 +1,53 @@
+import { join, dirname } from "path";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+
+export function getProjectRoot(filePath: string): string {
+  let dir = dirname(filePath);
+  while (dir !== "/" && dir.length > 1) {
+    if (existsSync(join(dir, "package.json")) || 
+        existsSync(join(dir, "pyproject.toml")) ||
+        existsSync(join(dir, "go.mod")) ||
+        existsSync(join(dir, "Cargo.toml")) ||
+        existsSync(join(dir, ".git"))) {
+      return dir;
+    }
+    dir = join(dir, "..");
+  }
+  return "/tmp";
+}
+
+export function getStateFile(projectRoot: string): string {
+  const projectHash = projectRoot.replace(/[^a-zA-Z0-9]/g, "_");
+  return `/tmp/claude-lsp-last-${projectHash}.json`;
+}
+
+export function shouldShowResult(filePath: string, diagnosticsCount: number): boolean {
+  const projectRoot = getProjectRoot(filePath);
+  const stateFile = getStateFile(projectRoot);
+  
+  try {
+    if (existsSync(stateFile)) {
+      const lastResult = JSON.parse(readFileSync(stateFile, "utf-8"));
+      if (lastResult.file === filePath && 
+          lastResult.diagnosticsCount === diagnosticsCount &&
+          Date.now() - lastResult.timestamp < 2000) {
+        return false;
+      }
+    }
+  } catch {}
+  
+  return true;
+}
+
+export function markResultShown(filePath: string, diagnosticsCount: number): void {
+  const projectRoot = getProjectRoot(filePath);
+  const stateFile = getStateFile(projectRoot);
+  
+  try {
+    writeFileSync(stateFile, JSON.stringify({
+      file: filePath,
+      diagnosticsCount,
+      timestamp: Date.now()
+    }));
+  } catch {}
+}

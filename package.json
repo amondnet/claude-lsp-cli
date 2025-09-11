@@ -1,5 +1,5 @@
 {
-  "name": "claude-code-lsp",
+  "name": "claude-lsp-cli",
   "version": "4.0.0",
   "description": "File-based type checker for Claude Code - supports 11+ programming languages with direct tool invocation",
   "module": "src/file-checker.ts",
@@ -14,7 +14,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/teamchong/claude-code-lsp.git"
+    "url": "https://github.com/teamchong/claude-lsp-cli.git"
   },
   "keywords": [
     "lsp",
@@ -35,9 +35,9 @@
   "author": "Steven Chong",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/teamchong/claude-code-lsp/issues"
+    "url": "https://github.com/teamchong/claude-lsp-cli/issues"
   },
-  "homepage": "https://github.com/teamchong/claude-code-lsp#readme",
+  "homepage": "https://github.com/teamchong/claude-lsp-cli#readme",
   "scripts": {
     "test": "bun test",
     "build:cli": "mkdir -p bin && bun build src/cli.ts --compile --outfile bin/claude-lsp-cli",
@@ -53,6 +53,8 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "@types/minimist": "^1.2.5",
+    "minimist": "^1.2.8",
     "typescript": "^5.9.2"
   },
   "engines": {

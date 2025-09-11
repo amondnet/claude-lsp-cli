@@ -1,23 +1,29 @@
-# Go build artifacts
+# Go
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-*.test
-*.out
 
-# Go workspace
-go.work
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
 
 # Dependency directories
 vendor/
+
+# Go workspace
+go.work
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+Thumbs.db

@@ -1,0 +1,135 @@
+import { spawn } from "bun";
+import { loadConfig } from "./config";
+import { globalSettings } from "../utils/global-settings";
+
+export async function showHelp(log: (...args: any) => any = console.log): Promise<string> {
+  const helpText = `Claude LSP CLI - File-based diagnostics for Claude Code
+
+Usage: claude-lsp-cli [options] <command> [args]
+
+Commands:
+  hook <event>             Handle Claude Code hook events
+  check <file>             Check individual file for errors/warnings
+  disable <language>       Disable language checking globally (e.g. disable scala)
+  enable <language>        Enable language checking globally (e.g. enable scala)
+  help                     Show this help message
+
+Global Options:
+  --port, -p <port>        Set port for language servers
+  --browser, -b <name>     Set browser for web-based tools
+
+Environment Variables:
+  PORT                     Default port for language servers
+  BROWSER                  Default browser for web-based tools
+`;
+  const status = await showStatus(null);
+  const fullMessage = helpText + status;
+  
+  if (log) {
+    log(fullMessage);
+  }
+  return fullMessage;
+}
+
+export async function showStatus(log: (...args: any) => any = console.log): Promise<string> {
+  // Check if there's a config file and read disabled languages
+  let disabledLanguages = new Set<string>();
+  let globalDisabled = false;
+  
+  try {
+    const config = loadConfig();
+    globalDisabled = config.disable === true;
+    if (config.disableScala === true) disabledLanguages.add("Scala");
+    if (config.disableTypeScript === true) disabledLanguages.add("TypeScript");
+    if (config.disablePython === true) disabledLanguages.add("Python");
+    if (config.disableGo === true) disabledLanguages.add("Go");
+    if (config.disableRust === true) disabledLanguages.add("Rust");
+    if (config.disableJava === true) disabledLanguages.add("Java");
+    if (config.disableCpp === true) disabledLanguages.add("C/C++");
+    if (config.disablePhp === true) disabledLanguages.add("PHP");
+    if (config.disableLua === true) disabledLanguages.add("Lua");
+    if (config.disableElixir === true) disabledLanguages.add("Elixir");
+    if (config.disableTerraform === true) disabledLanguages.add("Terraform");
+  } catch (e) {
+    // Ignore config parsing errors
+  }
+
+  let messages: string[] = [];
+  messages.push(`
+Current Status:
+`);
+  
+  // Show global settings if configured
+  const settings = globalSettings.getAll();
+  if (settings.port || settings.browser) {
+    messages.push("Global Settings:");
+    if (settings.port) {
+      messages.push(`  Port: ${settings.port}`);
+    }
+    if (settings.browser) {
+      messages.push(`  Browser: ${settings.browser}`);
+    }
+    messages.push("");
+  }
+
+  if (globalDisabled) {
+    messages.push("  🚫 All language checking is DISABLED via config");
+  }
+
+  // Check which language tools are available (matching actual file checker commands)
+  const languages = [
+    { name: "TypeScript", code: "typescript", command: "tsc", versionArg: "--version", install: "npm install -g typescript" },
+    { name: "Python", code: "python", command: "pyright", versionArg: "--version", install: "npm install -g pyright" },
+    { name: "Go", code: "go", command: "go", versionArg: "version", install: "Install Go from https://golang.org" },
+    { name: "Rust", code: "rust", command: "rustc", versionArg: "--version", install: "Install Rust from https://rustup.rs" },
+    { name: "Java", code: "java", command: "javac", versionArg: "-version", install: "Install Java JDK" },
+    { name: "C/C++", code: "cpp", command: "gcc", versionArg: "--version", install: "Install GCC or Clang" },
+    { name: "PHP", code: "php", command: "php", versionArg: "--version", install: "Install PHP" },
+    { name: "Scala", code: "scala", command: "scalac", versionArg: "-version", install: "Install Scala" },
+    { name: "Lua", code: "lua", command: "luac", versionArg: "-v", install: "Install Lua" },
+    { name: "Elixir", code: "elixir", command: "elixir", versionArg: "--version", install: "Install Elixir" },
+    { name: "Terraform", code: "terraform", command: "terraform", versionArg: "version", install: "Install Terraform" },
+  ];
+
+  // Check all languages in parallel, then display in order
+  const checks = languages.map(async (lang) => {
+    try {
+      const proc = spawn([lang.command, lang.versionArg], { stdout: "ignore", stderr: "ignore" });
+      await proc.exited;
+      return {
+        name: lang.name,
+        code: lang.code,
+        available: proc.exitCode === 0,
+        install: lang.install
+      };
+    } catch {
+      return {
+        name: lang.name,
+        code: lang.code,
+        available: false,
+        install: lang.install
+      };
+    }
+  });
+
+  const results = await Promise.all(checks);
+  
+  // Display results in original order
+  for (const result of results) {
+    const isDisabled = globalDisabled || disabledLanguages.has(result.name);
+    
+    if (isDisabled) {
+      messages.push(`  🚫 ${result.name} (${result.code}): DISABLED via config`);
+    } else if (result.available) {
+      messages.push(`  ✅ ${result.name} (${result.code}): Available`);
+    } else {
+      messages.push(`  ❌ ${result.name} (${result.code}): Not found - ${result.install}`);
+    }
+  }
+  
+  const fullMessage = messages.join('\n');
+  if (log) {
+    log(fullMessage);
+  }
+  return fullMessage;
+}
