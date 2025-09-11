@@ -1,1 +1,0 @@
-Testing hook timing - this should trigger both the LSP hook and the 10-second delay test hook

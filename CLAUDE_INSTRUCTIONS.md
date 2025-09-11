@@ -1,3 +1,4 @@
+<!-- BEGIN CLAUDE-LSP-CLI -->
 # LSP Diagnostic Protocol
 
 `[[system-message]]:` + JSON = automated diagnostic report from LSP analysis.
@@ -6,4 +7,4 @@
 
 Format: `{"diagnostics":[...],"summary":"..."}` 
 - Summary shows total count(e.g. "25 errors, 1 warnings")
-
+<!-- END CLAUDE-LSP-CLI -->

@@ -1,0 +1,8 @@
+# Exclude everything
+*
+
+# But include what we need
+!bin/
+!README.md
+!LICENSE
+!package.json

@@ -8,13 +8,7 @@
  *   claude-lsp-cli diagnostics <file>    - Check file for errors
  *   claude-lsp-cli disable <language>    - Disable language checking
  *   claude-lsp-cli enable <language>     - Enable language checking
- *   claude-lsp-cli help                  - Show help
- * 
- * Environment Variables:
- *   CLAUDE_LSP_DISABLE=true             - Disable all language checking
- *   CLAUDE_LSP_DISABLE_SCALA=true       - Disable Scala checking only
- *   CLAUDE_LSP_FILTER=false             - Disable all false positive filtering
- *   CLAUDE_LSP_FILTER_SCALA=false       - Disable Scala-specific filtering only
+ *   claude-lsp-cli                       - Show help
  */
 
 import { resolve, join, dirname } from "path";
@@ -23,8 +17,38 @@ import { spawn } from "bun";
 import { checkFile, formatDiagnostics } from "./file-checker";
 
 // Parse command line arguments
-const args = process.argv.slice(2);
-const command = args[0];
+// In Bun compiled binary: argv[0]="bun", argv[1]="/$bunfs/root/claude-lsp-cli", argv[2]=actual command or binary name
+// When no args: argv[2] = "claude-lsp-cli" or "./bin/claude-lsp-cli"
+// When args: argv[2] = the actual command like "help", "status", etc.
+
+// When no args: Bun puts the invocation path in argv[2]
+// When args exist: argv[2] is the first real argument
+// We need to check if we have real args or not
+
+const args = Bun.argv.slice(2);
+let command: string | undefined = args[0];
+
+// Check if this looks like the binary invocation path (no real args provided)
+// This happens when argv[2] contains a path to claude-lsp-cli
+if (args.join(' ') === 'claude-lsp-cli') {
+  // No real command was provided, Bun filled argv[2] with the invocation path
+  command = undefined;
+}
+
+// Config loading function
+function loadConfig(): any {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const configPath = join(homeDir, ".claude", "lsp-config.json");
+  let config: any = {};
+  try {
+    if (existsSync(configPath)) {
+      config = JSON.parse(readFileSync(configPath, "utf8"));
+    }
+  } catch (error) {
+    // Return empty config if parsing fails
+  }
+  return config;
+}
 
 // Hook deduplication functions
 function getProjectRoot(filePath: string): string {
@@ -121,13 +145,58 @@ function extractFilePaths(hookData: any): string[] {
   return Array.from(new Set(files));
 }
 
-function extractFilePath(hookData: any): string | null {
-  const files = extractFilePaths(hookData);
-  return files.length > 0 ? files[0] : null;
-}
-
 async function handleHookEvent(eventType: string): Promise<void> {
-  if (eventType === "PostToolUse") {
+  if (eventType === "UserPromptSubmit") {
+    // Handle /lsp commands
+    try {
+      const input = await Bun.stdin.text();
+      if (!input.trim()) {
+        process.exit(0);
+      }
+      
+      let hookData: any;
+      try {
+        hookData = JSON.parse(input);
+      } catch {
+        process.exit(0);
+      }
+      
+      const prompt = hookData.prompt || "";
+      
+      // Check if prompt starts with >lsp: (case insensitive) and is a single line
+      if (prompt.toLowerCase().startsWith('>lsp:') && !prompt.includes('\n')) {
+        const parts = prompt.slice(5).trim().split(/\s+/);
+        const command = parts[0];
+        const args = parts.slice(1);
+        
+        // Handle >lsp: commands - display result and cancel the prompt
+        if (command === 'enable') {
+          if (args[0]) {
+            await enableLanguage(args[0], console.error);
+          } else {
+            await showStatus(console.error);
+          }
+        } else if (command === 'disable') {
+          if (args[0]) {
+            await disableLanguage(args[0], console.error);
+          } else {
+            await showStatus(console.error);
+          }
+        } else {
+          await showHelp(console.error);
+        }
+        
+        // Cancel the prompt by not outputting anything and exiting
+        process.exit(2);
+      }
+      
+      // If no >lsp command, pass through unchanged
+      console.log(JSON.stringify(hookData));
+      process.exit(0);
+    } catch (error) {
+      process.exit(1);
+    }
+  } else if (eventType === "PostToolUse") {
     try {
       const input = await Bun.stdin.text();
       if (!input.trim()) {
@@ -225,27 +294,24 @@ async function handleHookEvent(eventType: string): Promise<void> {
   }
 }
 
-async function showHelp(): Promise<void> {
-  console.log(`Claude LSP CLI - File-based diagnostics for Claude Code
+async function showHelp(log: (...args: any) => any = console.log): Promise<void> {
+  log(`Claude LSP CLI - File-based diagnostics for Claude Code
 
 Commands:
   hook <event>             Handle Claude Code hook events
   diagnostics <file>       Check individual file for errors/warnings
   disable <language>       Disable language checking globally (e.g. disable scala)
   enable <language>        Enable language checking globally (e.g. enable scala)
-  status                   Show current enabled/disabled languages
   help                     Show this help message
+`);
+    await showStatus(log);
+}
 
-Global Config Location: ~/.claude/lsp-config.json
-
-Examples:
-  claude-lsp-cli diagnostics src/index.ts
-  claude-lsp-cli hook PostToolUse
-
-Language Support Status:`);
-
+// Function to show current status
+async function showStatus(log: (...args: any) => any = console.log): Promise<void> {
   // Check if there's a config file and read disabled languages
-  const configPath = join(process.cwd(), ".claude", "lsp-config.json");
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const configPath = join(homeDir, ".claude", "lsp-config.json");
   let disabledLanguages = new Set<string>();
   let globalDisabled = false;
   
@@ -269,8 +335,12 @@ Language Support Status:`);
     // Ignore config parsing errors
   }
 
+  log(`
+Current Status:
+`);
+
   if (globalDisabled) {
-    console.log("  🚫 All language checking is DISABLED via config");
+    log("  🚫 All language checking is DISABLED via config");
   }
 
   // Check which language tools are available (matching actual file checker commands)
@@ -316,73 +386,19 @@ Language Support Status:`);
     const isDisabled = globalDisabled || disabledLanguages.has(result.name);
     
     if (isDisabled) {
-      console.log(`  🚫 ${result.name} (${result.code}): DISABLED via config`);
+      log(`  🚫 ${result.name} (${result.code}): DISABLED via config`);
     } else if (result.available) {
-      console.log(`  ✅ ${result.name} (${result.code}): Available`);
+      log(`  ✅ ${result.name} (${result.code}): Available`);
     } else {
-      console.log(`  ❌ ${result.name} (${result.code}): Not found - ${result.install}`);
-    }
-  }
-  
-  // Show config instructions only if there are disabled languages
-  if (globalDisabled || disabledLanguages.size > 0) {
-    console.log(`
-To enable/disable languages use:
-  claude-lsp-cli enable <language>     # Enable specific language
-  claude-lsp-cli disable <language>    # Disable specific language
-  
-Examples:
-  claude-lsp-cli enable scala
-  claude-lsp-cli disable python`);
-  }
-
-  console.log(`
-Features:
-  • Direct tool invocation (no LSP servers)
-  • Built-in deduplication  
-  • Fast single-file checking
-  • Standardized JSON output format`);
-}
-
-// Function to show current status
-function showStatus(): void {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  const configPath = join(homeDir, ".claude", "lsp-config.json");
-  let config: any = {};
-  try {
-    if (existsSync(configPath)) {
-      config = JSON.parse(readFileSync(configPath, "utf8"));
-    }
-  } catch (e) {}
-  
-  console.log(`\nCurrent Status:`);
-  
-  if (config.disable === true) {
-    console.log(`  🚫 ALL languages are DISABLED globally`);
-  } else {
-    const languages = [
-      { name: 'TypeScript', key: 'disableTypeScript' },
-      { name: 'Python', key: 'disablePython' },
-      { name: 'Go', key: 'disableGo' },
-      { name: 'Rust', key: 'disableRust' },
-      { name: 'Java', key: 'disableJava' },
-      { name: 'C/C++', key: 'disableCpp' },
-      { name: 'PHP', key: 'disablePhp' },
-      { name: 'Scala', key: 'disableScala' },
-      { name: 'Lua', key: 'disableLua' },
-      { name: 'Elixir', key: 'disableElixir' },
-      { name: 'Terraform', key: 'disableTerraform' }
-    ];
-    
-    for (const lang of languages) {
-      const status = config[lang.key] === true ? '🚫 DISABLED' : '✅ Enabled';
-      console.log(`  ${lang.name}: ${status}`);
+      log(`  ❌ ${result.name} (${result.code}): Not found - ${result.install}`);
     }
   }
 }
 
 // Config management functions
-function updateConfig(configPath: string, updates: Record<string, any>): void {
+function updateConfig(updates: Record<string, any>): void {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const configPath = join(homeDir, ".claude", "lsp-config.json");
   let config: any = {};
   
   // Read existing config
@@ -407,10 +423,7 @@ function updateConfig(configPath: string, updates: Record<string, any>): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
-async function disableLanguage(language: string): Promise<void> {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  const configPath = join(homeDir, ".claude", "lsp-config.json");
-  
+async function disableLanguage(language: string, log: (...args: any) => any = console.log): Promise<void> {
   // Normalize language names to match what the checker expects
   const langMap: Record<string, string> = {
     'typescript': 'TypeScript',
@@ -432,22 +445,19 @@ async function disableLanguage(language: string): Promise<void> {
   const normalizedLang = langMap[language.toLowerCase()] || language;
   
   if (normalizedLang === 'all') {
-    updateConfig(configPath, { disable: true });
-    console.log(`✅ Disabled ALL language checking globally`);
+    updateConfig({ disable: true });
+    log(`🚫 Disabled ALL language checking globally`);
   } else {
     const langKey = `disable${normalizedLang}`;
-    updateConfig(configPath, { [langKey]: true });
-    console.log(`✅ Disabled ${language} checking globally`);
+    updateConfig({ [langKey]: true });
+    log(`🚫 Disabled ${language} checking globally`);
   }
   
   // Show current status after the operation
-  showStatus();
+  await showStatus(log);
 }
 
-async function enableLanguage(language: string): Promise<void> {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  const configPath = join(homeDir, ".claude", "lsp-config.json");
-  
+async function enableLanguage(language: string, log: (...args: any) => any = console.log): Promise<void> {
   // Normalize language names to match what the checker expects
   const langMap: Record<string, string> = {
     'typescript': 'TypeScript',
@@ -468,47 +478,17 @@ async function enableLanguage(language: string): Promise<void> {
   
   const normalizedLang = langMap[language.toLowerCase()] || language;
   
-  // Read current config
-  let config: any = {};
-  try {
-    if (existsSync(configPath)) {
-      config = JSON.parse(readFileSync(configPath, "utf8"));
-    }
-  } catch (e) {
-    // Empty config is fine
-  }
-  
-  // Remove the disable key
   if (normalizedLang === 'all') {
-    delete config.disable;
+    updateConfig({ disable: false });
+    log(`✅ Enabled ALL language checking globally`);
   } else {
     const langKey = `disable${normalizedLang}`;
-    delete config[langKey];
-  }
-  
-  // Ensure directory exists
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) {
-    const fs = require("fs");
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  
-  // Write updated config (or remove file if empty)
-  if (Object.keys(config).length === 0) {
-    if (existsSync(configPath)) {
-      const fs = require("fs");
-      fs.unlinkSync(configPath);
-      console.log(`✅ Enabled ${language} checking globally (removed config)`);
-    } else {
-      console.log(`✅ ${language} checking is already enabled globally`);
-    }
-  } else {
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
-    console.log(`✅ Enabled ${language} checking globally`);
+    updateConfig({ [langKey]: false });
+    log(`✅ Enabled ${language} checking globally`);
   }
   
   // Show current status after the operation
-  showStatus();
+  await showStatus(log);
 }
 
 // Main execution
@@ -548,93 +528,18 @@ async function enableLanguage(language: string): Promise<void> {
     if (args[1]) {
       await disableLanguage(args[1]);
     } else {
-      // Read current config to show status
-      const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-      const configPath = join(homeDir, ".claude", "lsp-config.json");
-      let config: any = {};
-      try {
-        if (existsSync(configPath)) {
-          config = JSON.parse(readFileSync(configPath, "utf8"));
-        }
-      } catch (e) {}
-      
-      console.log(`Usage: claude-lsp-cli disable <language>
-
-Current Status:`);
-      
-      if (config.disable === true) {
-        console.log(`  🚫 ALL languages are DISABLED globally`);
-      } else {
-        const languages = [
-          { name: 'typescript', display: 'TypeScript', key: 'disableTypeScript' },
-          { name: 'python', display: 'Python', key: 'disablePython' },
-          { name: 'go', display: 'Go', key: 'disableGo' },
-          { name: 'rust', display: 'Rust', key: 'disableRust' },
-          { name: 'java', display: 'Java', key: 'disableJava' },
-          { name: 'cpp', display: 'C/C++', key: 'disableCpp' },
-          { name: 'php', display: 'PHP', key: 'disablePhp' },
-          { name: 'scala', display: 'Scala', key: 'disableScala' },
-          { name: 'lua', display: 'Lua', key: 'disableLua' },
-          { name: 'elixir', display: 'Elixir', key: 'disableElixir' },
-          { name: 'terraform', display: 'Terraform', key: 'disableTerraform' }
-        ];
-        
-        for (const lang of languages) {
-          const status = config[lang.key] === true ? '🚫 DISABLED' : '✅ Enabled';
-          console.log(`  ${lang.display}: ${status}`);
-        }
-      }
-      
-      console.log(`
-Available languages:
-  all         - Disable ALL language checking
-  typescript  - TypeScript (.ts, .tsx)
-  python      - Python (.py)
-  go          - Go (.go)
-  rust        - Rust (.rs)
-  java        - Java (.java)
-  cpp         - C/C++ (.c, .cpp, .cc)
-  php         - PHP (.php)
-  scala       - Scala (.scala)
-  lua         - Lua (.lua)
-  elixir      - Elixir (.ex, .exs)
-  terraform   - Terraform (.tf)
-
-Example: claude-lsp-cli disable typescript`);
+      await showStatus();
     }
     process.exit(0);
   } else if (command === "enable") {
     if (args[1]) {
       await enableLanguage(args[1]);
     } else {
-      console.log(`Usage: claude-lsp-cli enable <language>
-
-Available languages:
-  all         - Enable ALL language checking
-  typescript  - TypeScript (.ts, .tsx)
-  python      - Python (.py)
-  go          - Go (.go)
-  rust        - Rust (.rs)
-  java        - Java (.java)
-  cpp         - C/C++ (.c, .cpp, .cc)
-  php         - PHP (.php)
-  scala       - Scala (.scala)
-  lua         - Lua (.lua)
-  elixir      - Elixir (.ex, .exs)
-  terraform   - Terraform (.tf)
-
-Example: claude-lsp-cli enable typescript`);
+      await showStatus();
     }
     process.exit(0);
-  } else if (command === "status") {
-    showStatus();
-    process.exit(0);
-  } else if (command === "help" || !command) {
+  } else {
     await showHelp();
     process.exit(0);
-  } else {
-    console.error(`Unknown command: ${command}`);
-    console.error("Run 'claude-lsp-cli help' for usage information");
-    process.exit(1);
   }
 })();

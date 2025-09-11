@@ -75,49 +75,63 @@ fi
 # No Unix sockets or SQLite databases in file-based architecture
 echo -e "${YELLOW}⚠${NC} No additional server files to clean (file-based architecture)"
 
-# 4. Hook removal instructions
+# 4. Remove hooks from settings.json
 echo ""
-echo "🔧 Claude Code Hook Removal"
-echo ""
+echo "🔧 Removing Claude Code hooks..."
 if [ -f "$CLAUDE_CONFIG" ]; then
-    echo -e "${YELLOW}⚠${NC} IMPORTANT: You need to remove the LSP hooks from Claude Code"
-    echo ""
-    echo "  Please use Claude Code to remove the hooks:"
-    echo ""
-    echo -e "  ${GREEN}claude --add-dir ~/.claude${NC}"
-    echo ""
-    echo "  Then ask: \"Please remove the Claude Code LSP diagnostics system:"
-    echo ""
-    echo "  1. Remove all claude-lsp-cli hooks from ~/.claude/settings.json"
-    echo "     (PostToolUse, and any others)"
-    echo ""
-    echo "  2. Remove the 'Diagnostics & Self-Correction Protocol' section"
-    echo "     from ~/.claude/CLAUDE.md that handles [[system-message]] reports\""
-    echo ""
-    echo "  This ensures complete removal without breaking other configurations."
+    # Create backup
+    cp "$CLAUDE_CONFIG" "$CLAUDE_CONFIG.backup"
+    
+    # Remove claude-lsp-cli hooks using jq if available
+    if command -v jq &> /dev/null; then
+        # Remove claude-lsp-cli from ALL hook types
+        # Format: PostToolUse: [{hooks: [{type: "command", command: "..."}]}]
+        jq 'if .hooks then
+            .hooks |= with_entries(
+                .value |= map(select(
+                    if .hooks then
+                        (.hooks | map(.command) | any(contains("claude-lsp-cli")) | not)
+                    else
+                        true
+                    end
+                ))
+            ) |
+            if .hooks == {} then del(.hooks) else . end
+        else . end' "$CLAUDE_CONFIG.backup" > "$CLAUDE_CONFIG.tmp"
+        
+        mv "$CLAUDE_CONFIG.tmp" "$CLAUDE_CONFIG"
+        echo -e "${GREEN}✓${NC} Removed claude-lsp-cli hooks from settings.json"
+        REMOVED_ITEMS+=("Claude Code hooks")
+    else
+        # Fallback to manual instructions if jq not available
+        echo -e "${YELLOW}⚠${NC} jq not found - please manually remove hooks from settings.json"
+        echo "  Remove any hooks containing 'claude-lsp-cli' from:"
+        echo "  $CLAUDE_CONFIG"
+    fi
 else
     echo -e "${YELLOW}⚠${NC} Claude settings.json not found"
 fi
 
-# 5. Remind user about CLAUDE.md cleanup
+# 5. Remove CLAUDE-LSP-CLI section from CLAUDE.md
 echo ""
-echo "📝 CLAUDE.md cleanup reminder..."
+echo "📝 Cleaning up CLAUDE.md..."
 if [ -f "$CLAUDE_MD" ]; then
-    echo -e "${YELLOW}⚠${NC} IMPORTANT: Your ~/.claude/CLAUDE.md may contain LSP diagnostics configuration"
-    echo ""
-    echo "  To safely remove the diagnostics section, please use Claude Code:"
-    echo ""
-    echo -e "  ${GREEN}claude --add-dir ~/.claude${NC}"
-    echo -e "  Then ask: \"Please remove the 'Diagnostics & Self-Correction Protocol' section"
-    echo -e "            and any [[system-message]] references from my CLAUDE.md file\""
-    echo ""
-    echo "  This ensures Claude can safely identify and remove only the LSP-related content"
-    echo "  without accidentally deleting other important configurations."
+    # Create backup
+    cp "$CLAUDE_MD" "$CLAUDE_MD.backup"
+    
+    # Remove CLAUDE-LSP-CLI section with any surrounding newlines
+    # This replaces \n*<!-- BEGIN CLAUDE-LSP-CLI -->...<!-- END CLAUDE-LSP-CLI -->\n* with \n
+    perl -0pe 's/\n*<!-- BEGIN CLAUDE-LSP-CLI -->.*?<!-- END CLAUDE-LSP-CLI -->\n*/\n/gs' "$CLAUDE_MD.backup" > "$CLAUDE_MD.tmp"
+    
+    # Replace the original file
+    mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
+    echo -e "${GREEN}✓${NC} Removed CLAUDE-LSP-CLI section from CLAUDE.md"
+    REMOVED_ITEMS+=("CLAUDE.md LSP instructions")
 else
     echo -e "${YELLOW}⚠${NC} CLAUDE.md not found (nothing to clean up)"
 fi
 
-# 7. Summary
+# 6. Summary
 echo ""
 echo "================================"
 if [ ${#REMOVED_ITEMS[@]} -gt 0 ]; then

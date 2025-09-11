@@ -4,10 +4,14 @@
   "description": "File-based type checker for Claude Code - supports 11+ programming languages with direct tool invocation",
   "module": "src/file-checker.ts",
   "type": "module",
-  "main": "src/file-checker.ts",
-  "exports": {
-    ".": "./src/file-checker.ts"
+  "bin": {
+    "claude-lsp-cli": "./bin/claude-lsp-cli"
   },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/teamchong/claude-code-lsp.git"
@@ -37,7 +41,8 @@
   "scripts": {
     "test": "bun test",
     "build:cli": "mkdir -p bin && bun build src/cli.ts --compile --outfile bin/claude-lsp-cli",
-    "build": "bun run build:cli"
+    "build": "bun run build:cli",
+    "prepublishOnly": "bun run build"
   },
   "devDependencies": {
     "@types/bun": "latest",

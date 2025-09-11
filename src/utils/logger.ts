@@ -53,9 +53,6 @@ export class Logger {
       ...(context && { context })
     };
     
-    // Skip ALL console output when running as a hook (to avoid polluting Claude's output)
-    const isHookMode = process.env.CLAUDE_LSP_HOOK_MODE === 'true';
-    
     // File output
     try {
       let logString: string;

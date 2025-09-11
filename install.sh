@@ -5,7 +5,7 @@
 
 set -e
 
-INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="/usr/local/bin"
 DATA_DIR="$HOME/.local/share/claude-lsp"
 CLAUDE_CONFIG="$HOME/.claude/settings.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -75,71 +75,29 @@ if pgrep -f "claude-lsp-cli" > /dev/null 2>&1; then
     sleep 0.5  # Give it time to terminate
 fi
 
+# Create install directory if needed
+sudo mkdir -p "$INSTALL_DIR"
+
 # Use install command which handles busy files better, or force copy
 if command -v install &> /dev/null; then
-    install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    sudo install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
 else
     # Fallback: remove existing file first if it exists
-    [ -f "$INSTALL_DIR/claude-lsp-cli" ] && rm -f "$INSTALL_DIR/claude-lsp-cli"
+    [ -f "$INSTALL_DIR/claude-lsp-cli" ] && sudo rm -f "$INSTALL_DIR/claude-lsp-cli"
     
-    cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/claude-lsp-cli"
+    sudo cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    sudo chmod +x "$INSTALL_DIR/claude-lsp-cli"
 fi
 
 echo "✅ Installed binary from $SCRIPT_DIR/bin/ to $INSTALL_DIR/"
 echo "   CLI: $INSTALL_DIR/claude-lsp-cli"
 
-# Add to PATH if needed
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    echo "🔗 Adding $INSTALL_DIR to PATH..."
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc" 2>/dev/null || true
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc" 2>/dev/null || true
-    echo "   Please restart your terminal or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+# Verify installation is accessible
+if command -v claude-lsp-cli &> /dev/null; then
+    echo "✅ claude-lsp-cli is now available in PATH"
+else
+    echo "⚠️  claude-lsp-cli not found in PATH - you may need to restart your terminal"
 fi
-
-# Hook Configuration Instructions
-echo ""
-echo "🔧 Claude Code Configuration Setup"
-echo "==================================="
-echo ""
-echo "The binaries are installed. Now you need to configure Claude Code to use them."
-echo ""
-echo "Please run Claude Code with access to your configuration:"
-echo ""
-echo "  ${GREEN}claude --add-dir ~/.claude --add-dir ~/.local/bin${NC}"
-echo ""
-echo "Then ask Claude to set up BOTH the hooks AND the diagnostic handling:"
-echo ""
-echo "  \"Please help me set up the Claude Code LSP diagnostics system by checking"
-echo "  existing configurations and updating them intelligently:"
-echo ""
-echo "  1. First, read my existing ~/.claude/settings.json file. Then intelligently"
-echo "     merge or replace the hooks section to include these LSP hooks:"
-echo '     {
-       "hooks": {
-         "PostToolUse": [
-           {
-             "type": "command",
-             "command": "claude-lsp-cli hook PostToolUse"
-           }
-         ]
-       }
-     }'
-echo "     If claude-lsp-cli hooks already exist, replace them. If other hooks exist,"
-echo "     preserve them and add the LSP hooks alongside them."
-echo ""
-echo "  2. Then, read my existing ~/.claude/CLAUDE.md file. If a 'Diagnostics &"
-echo "     Self-Correction Protocol' section already exists, update it. If not,"
-echo "     add this exact content:"
-echo ""
-echo "===== START OF DIAGNOSTICS PROTOCOL ====="
-cat "$SCRIPT_DIR/templates/CLAUDE_DIAGNOSTICS_PROTOCOL.md"
-echo "===== END OF DIAGNOSTICS PROTOCOL ====="
-echo ""
-echo "  Please read existing configurations first, then intelligently update both"
-echo "  files without creating duplicates or breaking existing settings.\""
-echo ""
-echo "This ensures both hook configuration and diagnostic handling instructions."
 
 # Test installation
 echo ""
@@ -151,6 +109,114 @@ else
     echo "⚠️  CLI binary may have issues"
 fi
 
+
+# Update CLAUDE.md with LSP instructions
+echo ""
+echo "📝 Updating CLAUDE.md with LSP instructions..."
+CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+if [ -f "$CLAUDE_MD" ]; then
+    # Existing file - update it
+    cp "$CLAUDE_MD" "$CLAUDE_MD.backup"
+    
+    # Remove existing CLAUDE-LSP-CLI section if it exists
+    awk '
+        /<!-- BEGIN CLAUDE-LSP-CLI -->/ { in_section = 1; next }
+        /<!-- END CLAUDE-LSP-CLI -->/ { in_section = 0; next }
+        !in_section { print }
+    ' "$CLAUDE_MD.backup" > "$CLAUDE_MD.tmp"
+    
+    # Trim all trailing newlines from the file
+    # Use perl for more reliable cross-platform behavior
+    perl -pi -e 'chomp if eof' "$CLAUDE_MD.tmp"
+    
+    # Append with 2 newlines before the section
+    echo "" >> "$CLAUDE_MD.tmp"
+    echo "" >> "$CLAUDE_MD.tmp"
+    echo "<!-- BEGIN CLAUDE-LSP-CLI -->" >> "$CLAUDE_MD.tmp"
+    cat "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" >> "$CLAUDE_MD.tmp"
+    echo "<!-- END CLAUDE-LSP-CLI -->" >> "$CLAUDE_MD.tmp"
+    
+    # Replace the original file
+    mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
+    rm -f "$CLAUDE_MD.backup"
+    echo "✅ Updated CLAUDE.md with LSP instructions"
+else
+    # New file - create with section and trailing newline
+    mkdir -p "$HOME/.claude"
+    echo "<!-- BEGIN CLAUDE-LSP-CLI -->" > "$CLAUDE_MD"
+    cat "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" >> "$CLAUDE_MD"
+    echo "<!-- END CLAUDE-LSP-CLI -->" >> "$CLAUDE_MD"
+    echo "✅ Created CLAUDE.md with LSP instructions"
+fi
+
+# Install hooks to settings.json
+echo ""
+echo "🔧 Installing Claude Code hooks..."
+CLAUDE_CONFIG="$HOME/.claude/settings.json"
+
+if [ -f "$CLAUDE_CONFIG" ]; then
+    # Create backup
+    cp "$CLAUDE_CONFIG" "$CLAUDE_CONFIG.backup"
+    
+    if command -v jq &> /dev/null; then
+        # Remove any existing claude-lsp-cli hooks first, then add fresh ones
+        # The correct format is: PostToolUse: [{hooks: [{type: "command", command: "..."}]}]
+        jq '.hooks.PostToolUse = ((.hooks.PostToolUse // []) | 
+            map(select(.hooks | map(.command) | any(contains("claude-lsp-cli")) | not))) + [{
+            "hooks": [{
+                "type": "command",
+                "command": "claude-lsp-cli hook PostToolUse"
+            }]
+        }] |
+        .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | 
+            map(select(.hooks | map(.command) | any(contains("claude-lsp-cli")) | not))) + [{
+            "hooks": [{
+                "type": "command",
+                "command": "claude-lsp-cli hook UserPromptSubmit"
+            }]
+        }]' "$CLAUDE_CONFIG.backup" > "$CLAUDE_CONFIG"
+        
+        rm -f "$CLAUDE_CONFIG.tmp"
+        rm -f "$CLAUDE_CONFIG.backup"
+        echo "✅ Installed hooks to settings.json"
+    else
+        echo "⚠️  jq not found - please manually add hooks to settings.json:"
+        echo '  "hooks": {'
+        echo '    "PostToolUse": [{"hooks": [{"type": "command", "command": "claude-lsp-cli hook PostToolUse"}]}],'
+        echo '    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "claude-lsp-cli hook UserPromptSubmit"}]}]'
+        echo '  }'
+    fi
+else
+    # Create new settings.json with hooks
+    mkdir -p "$HOME/.claude"
+    cat > "$CLAUDE_CONFIG" << 'EOF'
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "claude-lsp-cli hook PostToolUse"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command", 
+            "command": "claude-lsp-cli hook UserPromptSubmit"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+    echo "✅ Created settings.json with hooks"
+fi
 
 echo ""
 echo "✅ Installation complete!"
