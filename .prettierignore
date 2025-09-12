@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Build outputs
+bin/
+dist/
+build/
+out/
+*.log
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Example projects (contain intentional errors)
+examples/
+
+# Generated files
+*.min.js
+*.map
+
+# IDE
+.vscode/
+.idea/
+
+# CI/CD
+.github/
+
+# Lock files
+bun.lockb
+package-lock.json
+yarn.lock
+
+# Temporary files
+*.tmp
+tmp/
+temp/

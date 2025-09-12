@@ -1,0 +1,26 @@
+{
+  "all": true,
+  "src": ["src"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/tests/**",
+    "**/examples/**",
+    "**/bin/**",
+    "**/node_modules/**",
+    "**/coverage/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/build/**"
+  ],
+  "reporter": ["text", "lcov", "html"],
+  "reportDir": "./coverage",
+  "clean": true,
+  "checkCoverage": false,
+  "watermarks": {
+    "lines": [60, 80],
+    "functions": [60, 80],
+    "branches": [60, 80],
+    "statements": [60, 80]
+  }
+}
