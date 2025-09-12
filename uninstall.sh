@@ -18,8 +18,10 @@ echo ""
 # Define paths using HOME variable
 INSTALL_DIR="/usr/local/bin"
 DATA_DIR="$HOME/.local/share/claude-lsp"
-CLAUDE_CONFIG="$HOME/.claude/settings.json"
-CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+# Use environment variable if set, otherwise default to ~/.claude
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CLAUDE_CONFIG="$CLAUDE_DIR/settings.json"
+CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 
 # Track what was removed
 REMOVED_ITEMS=()
@@ -116,35 +118,48 @@ fi
 echo ""
 echo "📝 Cleaning up CLAUDE.md..."
 if [ -f "$CLAUDE_MD" ]; then
-    # Create backup
-    cp "$CLAUDE_MD" "$CLAUDE_MD.backup"
+    # Check if section exists before trying to remove
+    if grep -q "<!-- BEGIN CLAUDE-LSP-CLI -->" "$CLAUDE_MD"; then
+        # Backup first
+        cp "$CLAUDE_MD" "$CLAUDE_MD.backup"
+        
+        # Remove section between markers
+        sed '/<!-- BEGIN CLAUDE-LSP-CLI -->/,/<!-- END CLAUDE-LSP-CLI -->/d' "$CLAUDE_MD.backup" > "$CLAUDE_MD.tmp"
     
-    # Remove CLAUDE-LSP-CLI section with any surrounding newlines
-    # This replaces \n*<!-- BEGIN CLAUDE-LSP-CLI -->...<!-- END CLAUDE-LSP-CLI -->\n* with \n
-    perl -0pe 's/\n*<!-- BEGIN CLAUDE-LSP-CLI -->.*?<!-- END CLAUDE-LSP-CLI -->\n*/\n/gs' "$CLAUDE_MD.backup" > "$CLAUDE_MD.tmp"
-    
-    # Replace the original file
-    mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
-    echo -e "${GREEN}✓${NC} Removed CLAUDE-LSP-CLI section from CLAUDE.md"
-    REMOVED_ITEMS+=("CLAUDE.md LSP instructions")
+        # Clean up excessive blank lines (keep max 2 consecutive) and remove trailing blank lines
+        awk '
+            /^$/ { blank++; if (blank <= 2) lines[NR] = $0; next }
+            { 
+                for (i in lines) print lines[i]
+                delete lines
+                blank = 0
+                print 
+            }
+        ' "$CLAUDE_MD.tmp" > "$CLAUDE_MD"
+        
+        rm -f "$CLAUDE_MD.tmp"
+        echo -e "${GREEN}✓${NC} Removed CLAUDE-LSP-CLI section from CLAUDE.md"
+        REMOVED_ITEMS+=("CLAUDE.md LSP instructions")
+    else
+        echo -e "${YELLOW}⚠${NC} CLAUDE-LSP-CLI section not found in CLAUDE.md (skipping)"
+    fi
 else
     echo -e "${YELLOW}⚠${NC} CLAUDE.md not found (nothing to clean up)"
 fi
 
 # 6. Summary
 echo ""
-echo "================================"
+echo "═══════════════════════════════════════════"
 if [ ${#REMOVED_ITEMS[@]} -gt 0 ]; then
     echo -e "${GREEN}✅ Uninstallation complete!${NC}"
     echo ""
-    echo "Removed components:"
+    echo "Removed:"
     for item in "${REMOVED_ITEMS[@]}"; do
         echo "  • $item"
     done
 else
-    echo -e "${YELLOW}⚠ No Claude Code LSP components were found to remove${NC}"
+    echo -e "${YELLOW}⚠️  Nothing to remove - Claude Code LSP was not installed${NC}"
 fi
-
 echo ""
-echo "To reinstall, run from the local repository:"
-echo "  ./install.sh"
+echo "To reinstall, run: ./install.sh"
+echo "═══════════════════════════════════════════"

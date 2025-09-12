@@ -1,0 +1,23 @@
+{
+  "timestamp": "2025-09-12T05:06:57.373Z",
+  "results": [
+    {
+      "language": "typescript",
+      "fileSize": "small",
+      "fileName": "benchmarks/typescript/small.ts",
+      "fileSizeBytes": 6475,
+      "executionTimeMs": 548.5287920000001,
+      "diagnosticCount": 0,
+      "memoryUsageMB": 1.6736211776733398,
+      "timestamp": "2025-09-12T05:06:57.373Z"
+    }
+  ],
+  "summary": {
+    "totalTests": 1,
+    "totalTime": 548.5287920000001,
+    "averageTime": 548.5287920000001,
+    "languages": [
+      "typescript"
+    ]
+  }
+}

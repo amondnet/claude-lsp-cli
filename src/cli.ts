@@ -2,30 +2,29 @@
 
 /**
  * Claude LSP CLI - Simple file-based diagnostics
- * 
+ *
  * Usage:
  *   claude-lsp-cli [options] <command> [args]
- *   
+ *
  * Commands:
  *   hook <event-type>     - Handle Claude Code hook events
  *   check <file>          - Check file for errors
  *   disable <language>    - Disable language checking
  *   enable <language>     - Enable language checking
  *   help                  - Show help
- *   
+ *
  * Global Options:
  *   --port, -p <port>     - Set port for language servers
  *   --browser, -b <name>  - Set browser for web-based tools
- *   
+ *
  * Environment Variables:
  *   PORT                  - Default port for language servers
  *   BROWSER               - Default browser for web-based tools
  */
 
-import { runCheck, enableLanguage, disableLanguage, showHelp } from "./cli/commands";
-import { handlePostToolUse } from "./cli/hooks/post-tool-use";
-import { handleUserPromptSubmit } from "./cli/hooks/user-prompt-submit";
-import { parseArguments } from "./cli/utils/arg-parser";
+import { runCheck, enableLanguage, disableLanguage, showHelp } from './cli/commands';
+import { handlePostToolUse } from './cli/hooks/post-tool-use';
+import { parseArguments } from './cli/utils/arg-parser';
 
 // Parse command line arguments
 const rawArgs = Bun.argv.slice(2);
@@ -46,10 +45,8 @@ const commandArgs = parsed.args;
 
 async function handleHookEvent(eventType: string): Promise<void> {
   const input = await Bun.stdin.text();
-  
-  if (eventType === "UserPromptSubmit") {
-    await handleUserPromptSubmit(input);
-  } else if (eventType === "PostToolUse") {
+
+  if (eventType === 'PostToolUse') {
     await handlePostToolUse(input);
   } else {
     console.error(`Unknown event type: ${eventType}`);
@@ -59,17 +56,17 @@ async function handleHookEvent(eventType: string): Promise<void> {
 
 // Main execution
 (async () => {
-  if (command === "hook") {
+  if (command === 'hook') {
     await handleHookEvent(commandArgs[0]);
-  } else if (command === "check") {
+  } else if (command === 'check') {
     await runCheck(commandArgs[0]);
-  } else if (command === "disable") {
+  } else if (command === 'disable') {
     const result = await disableLanguage(commandArgs[0]);
     console.log(result);
-  } else if (command === "enable") {
+  } else if (command === 'enable') {
     const result = await enableLanguage(commandArgs[0]);
     console.log(result);
-  } else if (command === "help") {
+  } else if (command === 'help') {
     await showHelp();
   } else {
     await showHelp();

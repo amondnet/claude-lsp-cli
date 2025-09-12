@@ -10,7 +10,7 @@ interface GlobalSettings {
 class Settings {
   private static instance: Settings;
   private settings: GlobalSettings = {};
-  
+
   private constructor() {
     // Initialize from environment variables
     if (process.env.PORT) {
@@ -19,35 +19,35 @@ class Settings {
         this.settings.port = port;
       }
     }
-    
+
     if (process.env.BROWSER) {
       this.settings.browser = process.env.BROWSER;
     }
   }
-  
+
   static getInstance(): Settings {
     if (!Settings.instance) {
       Settings.instance = new Settings();
     }
     return Settings.instance;
   }
-  
+
   get port(): number | undefined {
     return this.settings.port;
   }
-  
+
   set port(value: number | undefined) {
     this.settings.port = value;
   }
-  
+
   get browser(): string | undefined {
     return this.settings.browser;
   }
-  
+
   set browser(value: string | undefined) {
     this.settings.browser = value;
   }
-  
+
   getAll(): GlobalSettings {
     return { ...this.settings };
   }

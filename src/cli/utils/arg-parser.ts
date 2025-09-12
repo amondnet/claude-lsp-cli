@@ -1,5 +1,5 @@
-import minimist from "minimist";
-import { globalSettings } from "./global-settings";
+import minimist from 'minimist';
+import { globalSettings } from './global-settings';
 
 export interface ParsedArgs {
   command?: string;
@@ -16,18 +16,18 @@ export function parseArguments(argv: string[]): ParsedArgs {
     alias: {
       p: 'port',
       b: 'browser',
-      h: 'help'
+      h: 'help',
     },
     string: ['browser'],
     boolean: ['help'],
     default: {
       port: process.env.PORT ? parseInt(process.env.PORT, 10) : undefined,
-      browser: process.env.BROWSER
+      browser: process.env.BROWSER,
     },
     stopEarly: false,
-    '--': true
+    '--': true,
   });
-  
+
   // Update global settings if provided
   if (parsed.port && !isNaN(parsed.port)) {
     globalSettings.port = parsed.port;
@@ -35,16 +35,16 @@ export function parseArguments(argv: string[]): ParsedArgs {
   if (parsed.browser) {
     globalSettings.browser = parsed.browser;
   }
-  
+
   // Extract command and args
   const result: ParsedArgs = {
     command: parsed._[0],
     args: parsed._.slice(1),
     globalFlags: {
       port: parsed.port,
-      browser: parsed.browser
-    }
+      browser: parsed.browser,
+    },
   };
-  
+
   return result;
 }

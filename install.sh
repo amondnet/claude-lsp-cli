@@ -7,7 +7,9 @@ set -e
 
 INSTALL_DIR="/usr/local/bin"
 DATA_DIR="$HOME/.local/share/claude-lsp"
-CLAUDE_CONFIG="$HOME/.claude/settings.json"
+# Use environment variable if set, otherwise default to ~/.claude
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CLAUDE_CONFIG="$CLAUDE_DIR/settings.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "🚀 Claude Code LSP Local Binary Installer"
@@ -113,27 +115,48 @@ fi
 # Update CLAUDE.md with LSP instructions
 echo ""
 echo "📝 Updating CLAUDE.md with LSP instructions..."
-CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 if [ -f "$CLAUDE_MD" ]; then
     # Existing file - update it
     cp "$CLAUDE_MD" "$CLAUDE_MD.backup"
     
-    # Remove existing CLAUDE-LSP-CLI section if it exists
-    awk '
-        /<!-- BEGIN CLAUDE-LSP-CLI -->/ { in_section = 1; next }
-        /<!-- END CLAUDE-LSP-CLI -->/ { in_section = 0; next }
-        !in_section { print }
-    ' "$CLAUDE_MD.backup" > "$CLAUDE_MD.tmp"
+    # Check if section exists and remove it if found
+    if grep -q "<!-- BEGIN CLAUDE-LSP-CLI -->" "$CLAUDE_MD.backup"; then
+        # Remove existing CLAUDE-LSP-CLI section including surrounding newlines
+        perl -0pe 's/\n*<!-- BEGIN CLAUDE-LSP-CLI -->.*?<!-- END CLAUDE-LSP-CLI -->\n*//gs' "$CLAUDE_MD.backup" > "$CLAUDE_MD.tmp"
+    else
+        # No section to remove, just copy the file
+        cp "$CLAUDE_MD.backup" "$CLAUDE_MD.tmp"
+    fi
     
     # Trim all trailing newlines from the file
-    # Use perl for more reliable cross-platform behavior
     perl -pi -e 'chomp if eof' "$CLAUDE_MD.tmp"
     
-    # Append with 2 newlines before the section
-    echo "" >> "$CLAUDE_MD.tmp"
-    echo "" >> "$CLAUDE_MD.tmp"
+    # Check if file is empty or has content
+    if [ ! -s "$CLAUDE_MD.tmp" ]; then
+        # File is empty, no need for leading newlines
+        true  # No-op
+    else
+        # File has content, add appropriate spacing
+        # Check how many trailing newlines the content already has by looking at last chars
+        last_chars=$(tail -c 3 "$CLAUDE_MD.tmp" 2>/dev/null | od -An -tx1)
+        
+        # Add newlines as needed (we want 2 blank lines before section)
+        echo "" >> "$CLAUDE_MD.tmp"
+        echo "" >> "$CLAUDE_MD.tmp"
+    fi
     echo "<!-- BEGIN CLAUDE-LSP-CLI -->" >> "$CLAUDE_MD.tmp"
-    cat "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" >> "$CLAUDE_MD.tmp"
+    
+    # Copy content from CLAUDE_INSTRUCTIONS.md if it exists
+    if [ -f "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" ]; then
+        cat "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" >> "$CLAUDE_MD.tmp"
+    else
+        # Fallback minimal content if file not found
+        echo "# LSP Diagnostic Protocol" >> "$CLAUDE_MD.tmp"
+        echo "" >> "$CLAUDE_MD.tmp"
+        echo "File-based diagnostics tool. Run 'claude-lsp-cli' for documentation." >> "$CLAUDE_MD.tmp"
+    fi
+    
     echo "<!-- END CLAUDE-LSP-CLI -->" >> "$CLAUDE_MD.tmp"
     
     # Replace the original file
@@ -141,18 +164,30 @@ if [ -f "$CLAUDE_MD" ]; then
     rm -f "$CLAUDE_MD.backup"
     echo "✅ Updated CLAUDE.md with LSP instructions"
 else
-    # New file - create with section and trailing newline
-    mkdir -p "$HOME/.claude"
+    # New file - create with section from CLAUDE_INSTRUCTIONS.md
+    mkdir -p "$CLAUDE_DIR"
+    
     echo "<!-- BEGIN CLAUDE-LSP-CLI -->" > "$CLAUDE_MD"
-    cat "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" >> "$CLAUDE_MD"
+    
+    # Copy content from CLAUDE_INSTRUCTIONS.md if it exists
+    if [ -f "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" ]; then
+        cat "$SCRIPT_DIR/CLAUDE_INSTRUCTIONS.md" >> "$CLAUDE_MD"
+    else
+        # Fallback minimal content if file not found
+        echo "# LSP Diagnostic Protocol" >> "$CLAUDE_MD"
+        echo "" >> "$CLAUDE_MD"
+        echo "File-based diagnostics tool. Run 'claude-lsp-cli' for documentation." >> "$CLAUDE_MD"
+    fi
+    
     echo "<!-- END CLAUDE-LSP-CLI -->" >> "$CLAUDE_MD"
+    
     echo "✅ Created CLAUDE.md with LSP instructions"
 fi
 
 # Install hooks to settings.json
 echo ""
 echo "🔧 Installing Claude Code hooks..."
-CLAUDE_CONFIG="$HOME/.claude/settings.json"
+# CLAUDE_CONFIG already set above
 
 if [ -f "$CLAUDE_CONFIG" ]; then
     # Create backup
@@ -167,13 +202,6 @@ if [ -f "$CLAUDE_CONFIG" ]; then
                 "type": "command",
                 "command": "claude-lsp-cli hook PostToolUse"
             }]
-        }] |
-        .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | 
-            map(select(.hooks | map(.command) | any(contains("claude-lsp-cli")) | not))) + [{
-            "hooks": [{
-                "type": "command",
-                "command": "claude-lsp-cli hook UserPromptSubmit"
-            }]
         }]' "$CLAUDE_CONFIG.backup" > "$CLAUDE_CONFIG"
         
         rm -f "$CLAUDE_CONFIG.tmp"
@@ -182,13 +210,12 @@ if [ -f "$CLAUDE_CONFIG" ]; then
     else
         echo "⚠️  jq not found - please manually add hooks to settings.json:"
         echo '  "hooks": {'
-        echo '    "PostToolUse": [{"hooks": [{"type": "command", "command": "claude-lsp-cli hook PostToolUse"}]}],'
-        echo '    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "claude-lsp-cli hook UserPromptSubmit"}]}]'
+        echo '    "PostToolUse": [{"hooks": [{"type": "command", "command": "claude-lsp-cli hook PostToolUse"}]}]'
         echo '  }'
     fi
 else
     # Create new settings.json with hooks
-    mkdir -p "$HOME/.claude"
+    mkdir -p "$CLAUDE_DIR"
     cat > "$CLAUDE_CONFIG" << 'EOF'
 {
   "hooks": {
@@ -201,21 +228,19 @@ else
           }
         ]
       }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command", 
-            "command": "claude-lsp-cli hook UserPromptSubmit"
-          }
-        ]
-      }
     ]
   }
 }
 EOF
     echo "✅ Created settings.json with hooks"
+fi
+
+# Check if PATH contains install directory
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+    echo ""
+    echo "⚠️  Add $INSTALL_DIR to your PATH:"
+    echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc"
+    echo "    source ~/.zshrc"
 fi
 
 echo ""
@@ -226,11 +251,4 @@ echo "  • Check your code after every edit in Claude Code"
 echo "  • Use direct tool invocation (no language servers needed)"
 echo "  • Provide fast diagnostics with 11 language support"
 echo ""
-echo "To test manually:"
-echo "  claude-lsp-cli diagnostics /path/to/file.ts"
-echo ""
-echo "To uninstall:"
-echo "  Run: $SCRIPT_DIR/uninstall.sh"
-echo "  Or manually:"
-echo "    sudo rm -f $INSTALL_DIR/claude-lsp-cli"
-echo "    Remove hooks from ~/.claude/settings.json"
+echo "Run 'claude-lsp-cli' to see all available commands"

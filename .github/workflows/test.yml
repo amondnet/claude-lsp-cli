@@ -71,6 +71,19 @@ jobs:
         test -f bin/claude-lsp-cli
         echo "✅ Single unified binary built successfully"
     
+    - name: Run quality checks
+      run: |
+        echo "Running linting checks..."
+        bun run lint
+        
+        echo "Running format checks..."
+        bun run format:check
+        
+        echo "Running type checks..."
+        bun run typecheck
+        
+        echo "✅ All quality checks passed!"
+      
     - name: Run tests
       run: |
         # Ensure Rust is available in PATH
@@ -79,6 +92,9 @@ jobs:
       
     - name: Check test coverage
       run: |
+        echo "Running coverage analysis..."
+        bun run test:coverage
+        
         echo "Test files: $(ls tests/*.test.ts | wc -l)"
         echo "Source files: $(ls src/*.ts | wc -l)"
         echo "Coverage: $(($(ls tests/*.test.ts | wc -l) * 100 / $(ls src/*.ts | wc -l)))%"
