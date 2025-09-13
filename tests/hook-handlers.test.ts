@@ -1,15 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { handlePostToolUse } from '../src/cli/hooks/post-tool-use';
-import { handleUserPromptSubmit } from '../src/cli/hooks/user-prompt-submit';
 import * as fileChecker from '../src/file-checker';
 import * as deduplication from '../src/cli/utils/deduplication';
-import * as userCommand from '../src/cli/commands/user-command';
-import { writeFileSync, rmSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 // Store original process.exit
 const originalExit = process.exit;
-let exitCode: number | undefined;
+let _exitCode: number | undefined;
 
 // Helper to capture console output
 let consoleOutput: string[] = [];
@@ -36,9 +33,9 @@ async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: nu
 describe('Hook Handlers', () => {
   beforeEach(() => {
     // Mock process.exit to capture exit code
-    exitCode = undefined;
+    _exitCode = undefined;
     process.exit = ((code?: number) => {
-      exitCode = code ?? 0;
+      _exitCode = code ?? 0;
       const error = new Error(`process.exit(${code ?? 0})`);
       (error as any).exitCode = code ?? 0;
       throw error;
@@ -94,7 +91,7 @@ describe('Hook Handlers', () => {
       // Mock checkFile to return diagnostics
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockResolvedValue({
-        _file: 'test.ts',
+        file: 'test.ts',
         tool: 'typescript',
         diagnostics: [
           {
@@ -109,7 +106,7 @@ describe('Hook Handlers', () => {
       // Mock deduplication functions
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockReturnValue(true);
-      const mockMarkShown = spyOn(deduplication, 'markResultShown');
+      const _mockMarkShown = spyOn(deduplication, 'markResultShown');
 
       const hookData = {
         tool_input: {
@@ -123,7 +120,7 @@ describe('Hook Handlers', () => {
       
       expect(mockCheckFile).toHaveBeenCalledWith('/test/dir/test.ts');
       expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts', 1);
-      expect(mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts', 1);
+      expect(_mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts', 1);
       
       // Check output format
       const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
@@ -137,7 +134,7 @@ describe('Hook Handlers', () => {
       mockCheckFile.mockImplementation(async (path: string) => {
         if (path.includes('test1.ts')) {
           return {
-            _file: 'test1.ts',
+            file: 'test1.ts',
             tool: 'typescript',
             diagnostics: [{
               severity: 'error' as const,
@@ -148,7 +145,7 @@ describe('Hook Handlers', () => {
           };
         } else if (path.includes('test2.py')) {
           return {
-            _file: 'test2.py',
+            file: 'test2.py',
             tool: 'python',
             diagnostics: [{
               severity: 'warning' as const,
@@ -164,8 +161,8 @@ describe('Hook Handlers', () => {
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockClear();
       mockShouldShow.mockReturnValue(true);
-      const mockMarkShown = spyOn(deduplication, 'markResultShown');
-      mockMarkShown.mockClear();
+      const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      _mockMarkShown.mockClear();
 
       const hookData = {
         tool_response: {
@@ -201,7 +198,7 @@ describe('Hook Handlers', () => {
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockClear();
       mockCheckFile.mockResolvedValue({
-        _file: 'test.ts',
+        file: 'test.ts',
         tool: 'typescript',
         diagnostics: [{
           severity: 'error' as const,
@@ -214,8 +211,8 @@ describe('Hook Handlers', () => {
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockClear();
       mockShouldShow.mockReturnValue(false); // Already shown
-      const mockMarkShown = spyOn(deduplication, 'markResultShown');
-      mockMarkShown.mockClear();
+      const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      _mockMarkShown.mockClear();
 
       const hookData = {
         tool_input: {
@@ -230,7 +227,7 @@ describe('Hook Handlers', () => {
       
       expect(mockCheckFile).toHaveBeenCalled();
       expect(mockShouldShow).toHaveBeenCalled();
-      expect(mockMarkShown).not.toHaveBeenCalled(); // Should not mark if not shown
+      expect(_mockMarkShown).not.toHaveBeenCalled(); // Should not mark if not shown
       expect(consoleErrorOutput.find(o => o.includes('[[system-message]]'))).toBeUndefined();
       // The "Hook processing failed" message comes from catching the mocked process.exit, not a real error
       // So we don't check for it here
@@ -246,14 +243,14 @@ describe('Hook Handlers', () => {
       }));
       
       mockCheckFile.mockResolvedValue({
-        _file: 'test.ts',
+        file: 'test.ts',
         tool: 'typescript',
         diagnostics: manyDiagnostics
       });
 
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockReturnValue(true);
-      const mockMarkShown = spyOn(deduplication, 'markResultShown');
+      const _mockMarkShown = spyOn(deduplication, 'markResultShown');
 
       const hookData = {
         tool_input: {
@@ -304,7 +301,7 @@ describe('Hook Handlers', () => {
     test('should filter to only show errors and warnings', async () => {
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockResolvedValue({
-        _file: 'test.ts',
+        file: 'test.ts',
         tool: 'typescript',
         diagnostics: [
           { severity: 'error' as const, message: 'Error', line: 1, column: 1 },
@@ -315,7 +312,7 @@ describe('Hook Handlers', () => {
 
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockReturnValue(true);
-      const mockMarkShown = spyOn(deduplication, 'markResultShown');
+      const _mockMarkShown = spyOn(deduplication, 'markResultShown');
 
       const hookData = {
         tool_input: { file_path: 'test.ts' }
@@ -381,7 +378,7 @@ describe('Hook Handlers', () => {
         
         // Verify each expected file was checked
         for (const file of testCase.expected) {
-          const expectedPath = file.startsWith('/') ? file : join(process.cwd(), _file);
+          const expectedPath = file.startsWith('/') ? file : join(process.cwd(), file);
           expect(mockCheckFile).toHaveBeenCalledWith(expectedPath);
         }
       }

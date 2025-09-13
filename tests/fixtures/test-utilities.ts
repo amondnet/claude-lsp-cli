@@ -2,8 +2,8 @@
  * Test utilities and helper functions for consistent test setup
  */
 
-import { join } from 'path';
-import { existsSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs';
+import { join, sep } from 'path';
+import { existsSync, writeFileSync, mkdirSync, rmSync, readFileSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import type { DiagnosticResult } from './diagnostic-results';
 import type { HookEvent } from './hook-data';
@@ -85,7 +85,7 @@ export class TempDirectory {
     }
     
     const items = [];
-    const entries = require('fs').readdirSync(fullPath, { withFileTypes: true });
+    const entries = readdirSync(fullPath, { withFileTypes: true });
     
     for (const entry of entries) {
       const itemPath = join(relativePath, entry.name);
@@ -245,7 +245,7 @@ export const generators = {
     errorCount: number = 1,
     warningCount: number = 0
   ): DiagnosticResult => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult['diagnostics'] = [];
     
     // Add errors
     for (let i = 0; i < errorCount; i++) {
@@ -366,7 +366,7 @@ export const jsonUtils = {
 export const pathUtils = {
   // Normalize path for current platform
   normalize: (path: string): string => {
-    return path.replace(/[/\\]/g, require('path').sep);
+    return path.replace(/[/\\]/g, sep);
   },
 
   // Convert to Unix-style path

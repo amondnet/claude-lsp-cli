@@ -202,7 +202,7 @@ describe('Deduplication Utilities', () => {
       expect(existsSync(stateFile)).toBe(true);
       
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state._file).toBe(TEST_FILE);
+      expect(state.file).toBe(TEST_FILE);
       expect(state.diagnosticsCount).toBe(10);
       expect(state.timestamp).toBeCloseTo(Date.now(), -2); // Within 100ms
     });
@@ -260,7 +260,7 @@ describe('Deduplication Utilities', () => {
       // Should have some value written
       expect(existsSync(stateFile)).toBe(true);
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state._file).toBe(TEST_FILE);
+      expect(state.file).toBe(TEST_FILE);
       expect(typeof state.diagnosticsCount).toBe('number');
     });
   });

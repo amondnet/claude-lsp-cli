@@ -6,6 +6,7 @@ import { existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, basename, relative } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
 import { shouldSkipDiagnostic } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const scalaConfig: LanguageConfig = {
   name: 'Scala',
@@ -31,7 +32,7 @@ export const scalaConfig: LanguageConfig = {
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     const targetFileName = basename(_file);
     
@@ -47,7 +48,8 @@ export const scalaConfig: LanguageConfig = {
     if (isScala2Format) {
       // Parse Scala 2.x format
       for (const line of lines) {
-        const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+        // eslint-disable-next-line no-control-regex
+        const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
         const scala2Match = cleanLine.match(/^(.+?):(\d+): (error|warning): (.+)$/);
         if (scala2Match) {
           const errorFile = basename(scala2Match[1]);
@@ -65,7 +67,8 @@ export const scalaConfig: LanguageConfig = {
       // Parse Scala 3 format
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+        // eslint-disable-next-line no-control-regex
+        const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
 
         const match = cleanLine.match(/-- (?:\[E\d+\] )?(.+): (.+?):(\d+):(\d+)/);
         if (match) {
@@ -78,7 +81,8 @@ export const scalaConfig: LanguageConfig = {
 
           // Look for detailed error message in subsequent lines
           for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-            const detailLine = lines[j].replace(/\x1b\[[0-9;]*m/g, '');
+            // eslint-disable-next-line no-control-regex
+            const detailLine = lines[j].replace(/\u001b\[[0-9;]*m/g, '');
 
             if (
               detailLine.includes('too many arguments') ||

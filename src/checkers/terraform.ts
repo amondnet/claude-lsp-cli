@@ -4,6 +4,7 @@
 
 import { relative } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const terraformConfig: LanguageConfig = {
   name: 'Terraform',
@@ -17,7 +18,7 @@ export const terraformConfig: LanguageConfig = {
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     
     // Terraform fmt outputs diff to stderr when formatting issues found
     if (stderr.trim() || stdout.trim()) {

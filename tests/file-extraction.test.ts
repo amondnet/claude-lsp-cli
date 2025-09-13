@@ -32,7 +32,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -59,7 +59,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -85,7 +85,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -115,7 +115,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -145,7 +145,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -174,7 +174,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -209,7 +209,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -240,7 +240,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -278,7 +278,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
@@ -290,7 +290,7 @@ describe('File Path Extraction', () => {
         const match = stderr.match(/\[\[system-message\]\]:(.+)/);
         if (match) {
           const json = JSON.parse(match[1]);
-          const files = json.diagnostics.map((d: any) => d._file);
+          const files = json.diagnostics.map((d: any) => d.file);
           // Check that all three file types are present
           const hasTs = files.some((f: string) => f.endsWith('.ts'));
           const hasPy = files.some((f: string) => f.endsWith('.py'));
@@ -319,7 +319,7 @@ describe('File Path Extraction', () => {
           cwd: TEST_DIR,
         })
       );
-      proc.stdin.end();
+      await proc.stdin.end();
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;

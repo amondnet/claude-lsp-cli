@@ -5,7 +5,8 @@
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity, stripAnsiCodes } from '../language-checker-registry.js';
+import { mapSeverity } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const rustConfig: LanguageConfig = {
   name: 'Rust',
@@ -29,7 +30,7 @@ export const rustConfig: LanguageConfig = {
   },
 
   parseOutput: (stdout: string, stderr: string, file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const output = stdout || stderr;
     const lines = output.split('\n');
     
