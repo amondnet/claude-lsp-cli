@@ -48,7 +48,6 @@ export const scalaConfig: LanguageConfig = {
     if (isScala2Format) {
       // Parse Scala 2.x format
       for (const line of lines) {
-        // eslint-disable-next-line no-control-regex
         const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
         const scala2Match = cleanLine.match(/^(.+?):(\d+): (error|warning): (.+)$/);
         if (scala2Match) {
@@ -67,7 +66,6 @@ export const scalaConfig: LanguageConfig = {
       // Parse Scala 3 format
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        // eslint-disable-next-line no-control-regex
         const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
 
         const match = cleanLine.match(/-- (?:\[E\d+\] )?(.+): (.+?):(\d+):(\d+)/);
@@ -81,7 +79,6 @@ export const scalaConfig: LanguageConfig = {
 
           // Look for detailed error message in subsequent lines
           for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-            // eslint-disable-next-line no-control-regex
             const detailLine = lines[j].replace(/\u001b\[[0-9;]*m/g, '');
 
             if (
