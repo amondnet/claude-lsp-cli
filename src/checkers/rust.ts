@@ -28,7 +28,7 @@ export const rustConfig: LanguageConfig = {
     }
   },
 
-  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, file: string, _projectRoot: string) => {
     const diagnostics = [];
     const output = stdout || stderr;
     const lines = output.split('\n');
@@ -91,7 +91,7 @@ export const rustConfig: LanguageConfig = {
   setupCommand: async (_file: string, _projectRoot: string) => {
     const hasCargoToml = existsSync(join(_projectRoot, 'Cargo.toml'));
     return {
-      _context: { hasCargoToml }
+      context: { hasCargoToml }
     };
   }
 };

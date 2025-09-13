@@ -5,7 +5,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity, stripAnsiCodes } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const goConfig: LanguageConfig = {
   name: 'Go',
@@ -17,13 +17,13 @@ export const goConfig: LanguageConfig = {
     return existsSync(join(_projectRoot, 'go.mod'));
   },
 
-  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+  buildArgs: (file: string, _projectRoot: string, _toolCommand: string, _context?: any) => {
     // Use go build for better error detection than go vet
     return ['build', file];
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     
     for (const line of lines) {
@@ -44,7 +44,7 @@ export const goConfig: LanguageConfig = {
   setupCommand: async (_file: string, _projectRoot: string) => {
     const hasGoMod = existsSync(join(_projectRoot, 'go.mod'));
     return {
-      _context: { hasGoMod }
+      context: { hasGoMod }
     };
   }
 };

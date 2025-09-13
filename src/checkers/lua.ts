@@ -4,6 +4,7 @@
 
 import { relative } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const luaConfig: LanguageConfig = {
   name: 'Lua',
@@ -17,7 +18,7 @@ export const luaConfig: LanguageConfig = {
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     
     for (const line of lines) {

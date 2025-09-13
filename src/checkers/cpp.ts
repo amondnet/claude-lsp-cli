@@ -3,6 +3,7 @@
  */
 
 import type { LanguageConfig } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const cppConfig: LanguageConfig = {
   name: 'Cpp',
@@ -15,7 +16,7 @@ export const cppConfig: LanguageConfig = {
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     
     for (const line of lines) {

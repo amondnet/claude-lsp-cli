@@ -171,7 +171,7 @@ describe('Deduplication Utilities', () => {
 
     test('should handle corrupted state file gracefully', () => {
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(_projectRoot);
+      const stateFile = getStateFile(projectRoot);
       
       // Write invalid JSON
       writeFileSync(stateFile, 'invalid json{');
@@ -182,7 +182,7 @@ describe('Deduplication Utilities', () => {
 
     test('should handle state file with missing fields', () => {
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(_projectRoot);
+      const stateFile = getStateFile(projectRoot);
       
       // Write JSON with missing fields
       writeFileSync(stateFile, JSON.stringify({ _file: TEST_FILE }));
@@ -197,7 +197,7 @@ describe('Deduplication Utilities', () => {
       markResultShown(TEST_FILE, 10);
       
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(_projectRoot);
+      const stateFile = getStateFile(projectRoot);
       
       expect(existsSync(stateFile)).toBe(true);
       
@@ -212,7 +212,7 @@ describe('Deduplication Utilities', () => {
       markResultShown(TEST_FILE, 10);
       
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(_projectRoot);
+      const stateFile = getStateFile(projectRoot);
       
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
       expect(state.diagnosticsCount).toBe(10);
@@ -221,7 +221,7 @@ describe('Deduplication Utilities', () => {
     test('should handle write errors gracefully', () => {
       // Make state file directory read-only
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(_projectRoot);
+      const stateFile = getStateFile(projectRoot);
       
       // Try to create a directory where the state file should be
       // This will fail if file already exists, which is what we want to test
@@ -242,7 +242,7 @@ describe('Deduplication Utilities', () => {
       }
     });
 
-    test('should handle concurrent writes', () => {
+    test('should handle concurrent writes', async () => {
       // Simulate concurrent writes
       const promises = [];
       for (let i = 0; i < 10; i++) {
@@ -252,10 +252,10 @@ describe('Deduplication Utilities', () => {
         }));
       }
       
-      Promise.all(promises);
+      await Promise.all(promises);
       
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(_projectRoot);
+      const stateFile = getStateFile(projectRoot);
       
       // Should have some value written
       expect(existsSync(stateFile)).toBe(true);

@@ -2,14 +2,14 @@
  * Tests for multiple file updates showing combined results
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { handlePostToolUse } from '../src/cli/hooks/post-tool-use';
 import * as fileChecker from '../src/file-checker';
 import * as deduplication from '../src/cli/utils/deduplication';
 
 // Store original process.exit
 const originalExit = process.exit;
-let exitCode: number | undefined;
+let _exitCode: number | undefined;
 
 // Helper to capture console output
 let consoleOutput: string[] = [];
@@ -45,9 +45,9 @@ async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: nu
 describe('Multiple Files Combined Results', () => {
   beforeEach(() => {
     // Mock process.exit to capture exit code
-    exitCode = undefined;
+    _exitCode = undefined;
     process.exit = ((code?: number) => {
-      exitCode = code ?? 0;
+      _exitCode = code ?? 0;
       const error = new Error(`process.exit(${code ?? 0})`);
       (error as any).exitCode = code ?? 0;
       throw error;
@@ -78,7 +78,7 @@ describe('Multiple Files Combined Results', () => {
     mockCheckFile.mockImplementation(async (path: string) => {
       if (path.includes('component.tsx')) {
         return {
-          _file: 'src/component.tsx',
+          file: 'src/component.tsx',
           tool: 'typescript',
           diagnostics: [
             {
@@ -97,7 +97,7 @@ describe('Multiple Files Combined Results', () => {
         };
       } else if (path.includes('utils.ts')) {
         return {
-          _file: 'src/utils.ts',
+          file: 'src/utils.ts',
           tool: 'typescript',
           diagnostics: [{
             severity: 'warning' as const,
@@ -108,7 +108,7 @@ describe('Multiple Files Combined Results', () => {
         };
       } else if (path.includes('main.py')) {
         return {
-          _file: 'scripts/main.py',
+          file: 'scripts/main.py',
           tool: 'python',
           diagnostics: [{
             severity: 'error' as const,
@@ -123,7 +123,7 @@ describe('Multiple Files Combined Results', () => {
 
     const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
     mockShouldShow.mockReturnValue(true);
-    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+    const _mockMarkShown = spyOn(deduplication, 'markResultShown');
 
     const hookData = {
       tool: 'MultiEdit',
@@ -151,7 +151,7 @@ describe('Multiple Files Combined Results', () => {
     expect(result.output.diagnostics[3]).toHaveProperty('file');
     
     // Verify diagnostics are from different files
-    const files = result.output.diagnostics.map((d: any) => d._file);
+    const files = result.output.diagnostics.map((d: any) => d.file);
     expect(files).toContain('src/component.tsx');
     expect(files).toContain('src/utils.ts');
     expect(files).toContain('scripts/main.py');
@@ -172,7 +172,7 @@ describe('Multiple Files Combined Results', () => {
       if (path.includes('file1.ts')) {
         // Return 4 diagnostics
         return {
-          _file: 'file1.ts',
+          file: 'file1.ts',
           tool: 'typescript',
           diagnostics: Array.from({ length: 4 }, (_, i) => ({
             severity: 'error' as const,
@@ -184,7 +184,7 @@ describe('Multiple Files Combined Results', () => {
       } else if (path.includes('file2.ts')) {
         // Return 3 diagnostics
         return {
-          _file: 'file2.ts',
+          file: 'file2.ts',
           tool: 'typescript',
           diagnostics: Array.from({ length: 3 }, (_, i) => ({
             severity: 'error' as const,
@@ -199,7 +199,7 @@ describe('Multiple Files Combined Results', () => {
 
     const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
     mockShouldShow.mockReturnValue(true);
-    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+    const _mockMarkShown = spyOn(deduplication, 'markResultShown');
 
     const hookData = {
       tool_response: {
@@ -232,7 +232,7 @@ describe('Multiple Files Combined Results', () => {
     mockCheckFile.mockImplementation(async (path: string) => {
       if (path.includes('error.ts')) {
         return {
-          _file: 'error.ts',
+          file: 'error.ts',
           tool: 'typescript',
           diagnostics: [{
             severity: 'error' as const,
@@ -243,7 +243,7 @@ describe('Multiple Files Combined Results', () => {
         };
       } else if (path.includes('clean.ts')) {
         return {
-          _file: 'clean.ts',
+          file: 'clean.ts',
           tool: 'typescript',
           diagnostics: [] // No errors
         };
@@ -251,7 +251,7 @@ describe('Multiple Files Combined Results', () => {
         return null; // Language disabled
       }
       return {
-        _file: 'unknown',
+        file: 'unknown',
         tool: 'unknown',
         diagnostics: []
       };
@@ -259,7 +259,7 @@ describe('Multiple Files Combined Results', () => {
 
     const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
     mockShouldShow.mockReturnValue(true);
-    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+    const _mockMarkShown = spyOn(deduplication, 'markResultShown');
 
     const hookData = {
       tool_response: {
@@ -275,7 +275,7 @@ describe('Multiple Files Combined Results', () => {
     // Should only count the file with errors
     expect(result.output.summary).toBe('1 error(s)');
     expect(result.output.diagnostics).toHaveLength(1);
-    expect(result.output.diagnostics[0]._file).toBe('error.ts');
+    expect(result.output.diagnostics[0].file).toBe('error.ts');
   });
 
   test('should handle deduplication correctly for multiple files', async () => {
@@ -284,7 +284,7 @@ describe('Multiple Files Combined Results', () => {
     mockCheckFile.mockImplementation(async (path: string) => {
       if (path.includes('file1.ts')) {
         return {
-          _file: 'file1.ts',
+          file: 'file1.ts',
           tool: 'typescript',
           diagnostics: [{
             severity: 'error' as const,
@@ -295,7 +295,7 @@ describe('Multiple Files Combined Results', () => {
         };
       } else if (path.includes('file2.ts')) {
         return {
-          _file: 'file2.ts',
+          file: 'file2.ts',
           tool: 'typescript',
           diagnostics: [{
             severity: 'error' as const,
@@ -312,13 +312,13 @@ describe('Multiple Files Combined Results', () => {
     mockShouldShow.mockClear();
     // First file should show, second file should not (already shown)
     let callCount = 0;
-    mockShouldShow.mockImplementation((path: string, count: number) => {
+    mockShouldShow.mockImplementation((path: string, _count: number) => {
       callCount++;
       // Only show file1.ts
       return path.includes('file1.ts');
     });
-    const mockMarkShown = spyOn(deduplication, 'markResultShown');
-    mockMarkShown.mockClear();
+    const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    _mockMarkShown.mockClear();
 
     const hookData = {
       tool_response: {
@@ -334,12 +334,12 @@ describe('Multiple Files Combined Results', () => {
     // Should only show diagnostics from file1.ts (file2.ts was deduplicated)
     expect(result.output.summary).toBe('1 error(s)');
     expect(result.output.diagnostics).toHaveLength(1);
-    expect(result.output.diagnostics[0]._file).toBe('file1.ts');
+    expect(result.output.diagnostics[0].file).toBe('file1.ts');
     
     // Verify deduplication was checked for both files
     expect(callCount).toBe(2);
     // But only file1 was marked as shown
-    expect(mockMarkShown).toHaveBeenCalledTimes(1);
+    expect(_mockMarkShown).toHaveBeenCalledTimes(1);
   });
 
   test('should handle all files being deduplicated', async () => {
@@ -347,7 +347,7 @@ describe('Multiple Files Combined Results', () => {
     mockCheckFile.mockClear();
     mockCheckFile.mockImplementation(async (path: string) => {
       return {
-        _file: path.includes('file1.ts') ? 'file1.ts' : 'file2.ts',
+        file: path.includes('file1.ts') ? 'file1.ts' : 'file2.ts',
         tool: 'typescript',
         diagnostics: [{
           severity: 'error' as const,
@@ -362,8 +362,8 @@ describe('Multiple Files Combined Results', () => {
     mockShouldShow.mockClear();
     // All files are deduplicated
     mockShouldShow.mockReturnValue(false);
-    const mockMarkShown = spyOn(deduplication, 'markResultShown');
-    mockMarkShown.mockClear();
+    const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    _mockMarkShown.mockClear();
 
     const hookData = {
       tool_response: {
@@ -380,6 +380,6 @@ describe('Multiple Files Combined Results', () => {
     // Verify deduplication was checked
     expect(mockShouldShow).toHaveBeenCalled();
     // Since shouldShow returned false, markShown should not be called
-    expect(mockMarkShown).not.toHaveBeenCalled();
+    expect(_mockMarkShown).not.toHaveBeenCalled();
   });
 });

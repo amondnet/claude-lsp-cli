@@ -20,7 +20,7 @@ export const scalaConfig: LanguageConfig = {
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['-explain', '-nowarn'];
     const classpathParts = context?.classpathParts || [];
-    const filesToCompile = context?.filesToCompile || [file];
+    const filesToCompile = context?.filesToCompile || [_file];
     
     if (classpathParts.length > 0) {
       args.push('-cp', classpathParts.join(':'));
@@ -164,7 +164,7 @@ export const scalaConfig: LanguageConfig = {
     }
     
     return {
-      _context: { classpathParts, filesToCompile }
+      context: { classpathParts, filesToCompile }
     };
   }
 };

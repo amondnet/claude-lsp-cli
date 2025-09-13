@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join, relative, dirname } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity, stripAnsiCodes } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 function findJavaClasspath(_projectRoot: string): string[] {
   const classpath: string[] = [];
@@ -32,7 +32,7 @@ function findJavaClasspath(_projectRoot: string): string[] {
       const files = readdirSync(libDir);
       for (const file of files) {
         if (file.endsWith('.jar')) {
-          classpath.push(join(libDir, _file));
+          classpath.push(join(libDir, file));
         }
       }
     } catch (e) {
@@ -55,19 +55,19 @@ export const javaConfig: LanguageConfig = {
            existsSync(join(_projectRoot, 'build.gradle.kts'));
   },
 
-  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+  buildArgs: (file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const classpath = context?.classpath || [];
     const args = ['-cp', classpath.join(':'), '-Xlint:all'];
     
     // Just syntax check, don't generate class files
     args.push('-proc:none');
-    args.push(_file);
+    args.push(file);
     
     return args;
   },
 
-  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+  parseOutput: (stdout: string, stderr: string, file: string, _projectRoot: string) => {
+    const diagnostics: DiagnosticResult[] = [];
     const output = stderr || stdout;
     const lines = output.split('\n');
     
@@ -106,7 +106,7 @@ export const javaConfig: LanguageConfig = {
   setupCommand: async (_file: string, _projectRoot: string) => {
     const classpath = findJavaClasspath(_projectRoot);
     return {
-      _context: { classpath }
+      context: { classpath }
     };
   }
 };

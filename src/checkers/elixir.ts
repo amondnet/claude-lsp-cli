@@ -4,6 +4,7 @@
 
 import { relative } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const elixirConfig: LanguageConfig = {
   name: 'Elixir',
@@ -11,13 +12,13 @@ export const elixirConfig: LanguageConfig = {
   extensions: ['.ex', '.exs'],
   localPaths: [], // Elixir is usually system-installed
 
-  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string) => {
-    const relativePath = relative(_projectRoot, _file);
+  buildArgs: (file: string, projectRoot: string, _toolCommand: string) => {
+    const relativePath = relative(projectRoot, file);
     return [relativePath];
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     
     for (let i = 0; i < lines.length; i++) {

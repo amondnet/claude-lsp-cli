@@ -41,8 +41,8 @@ export const typescriptConfig: LanguageConfig = {
     return args;
   },
 
-  setupCommand: async (_file: string, _projectRoot: string) => {
-    const tsconfigRoot = findTsconfigRoot(_file);
+  setupCommand: async (file: string, projectRoot: string) => {
+    const tsconfigRoot = findTsconfigRoot(file);
     let tempTsconfigPath: string | null = null;
 
     if (tsconfigRoot) {
@@ -62,7 +62,7 @@ export const typescriptConfig: LanguageConfig = {
         };
 
         // Use a unique temp file name to avoid conflicts
-        tempTsconfigPath = join(_projectRoot, `tsconfig.temp.${Date.now()}.json`);
+        tempTsconfigPath = join(projectRoot, `tsconfig.temp.${Date.now()}.json`);
         writeFileSync(tempTsconfigPath, JSON.stringify(tempTsconfig, null, 2));
 
         if (process.env.DEBUG) {
@@ -75,7 +75,7 @@ export const typescriptConfig: LanguageConfig = {
     }
 
     return {
-      _context: tempTsconfigPath ? { tempTsconfigPath } : undefined,
+      context: tempTsconfigPath ? { tempTsconfigPath } : undefined,
       cleanup: tempTsconfigPath ? () => {
         try {
           if (existsSync(tempTsconfigPath!)) {

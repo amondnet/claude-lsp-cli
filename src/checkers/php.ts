@@ -5,7 +5,7 @@
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
 import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity, stripAnsiCodes } from '../language-checker-registry.js';
+import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const phpConfig: LanguageConfig = {
   name: 'Php',
@@ -35,7 +35,7 @@ export const phpConfig: LanguageConfig = {
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
-    const diagnostics = [];
+    const diagnostics: DiagnosticResult[] = [];
     const output = stderr + stdout;
     const lines = output.split('\n');
     
@@ -82,7 +82,7 @@ export const phpConfig: LanguageConfig = {
     const hasVendorAutoload = existsSync(join(_projectRoot, 'vendor', 'autoload.php'));
     
     return {
-      _context: { hasComposerJson, hasVendorAutoload }
+      context: { hasComposerJson, hasVendorAutoload }
     };
   }
 };
