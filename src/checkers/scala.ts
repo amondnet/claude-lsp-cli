@@ -8,6 +8,49 @@ import type { LanguageConfig } from '../language-checker-registry.js';
 import { shouldSkipDiagnostic } from '../language-checker-registry.js';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
+// Helper function to strip ANSI color codes
+const stripAnsiCodes = (str: string): string => {
+  // Use String.fromCharCode to avoid ESLint control character detection
+  const escapeChar = String.fromCharCode(27); // ESC character (0x1B)
+  const ansiPattern = new RegExp(`${escapeChar}\\[[0-9;]*m`, 'g');
+  return str.replace(ansiPattern, '');
+};
+
+// Helper to extract detailed error message from subsequent lines
+const extractDetailedMessage = (lines: string[], startIndex: number): string | null => {
+  for (let j = startIndex + 1; j < Math.min(startIndex + 10, lines.length); j++) {
+    const detailLine = stripAnsiCodes(lines[j]);
+
+    // Check for common error patterns
+    if (
+      detailLine.includes('too many arguments') ||
+      detailLine.includes('not a member of') ||
+      detailLine.includes('Not found:') ||
+      detailLine.includes('no pattern match extractor') ||
+      (detailLine.includes('Found:') && detailLine.includes('Required:'))
+    ) {
+      return detailLine.replace(/^\s*\|\s*/, '').trim();
+    }
+
+    // Check for detail lines with pipe prefix
+    const detailMatch = detailLine.match(/\s*\|\s*(.+)$/);
+    if (detailMatch) {
+      const content = detailMatch[1].trim();
+      if (
+        content &&
+        !content.match(/^\^+$/) &&
+        !content.match(/^(import|class|def|val|var|if|else|for|while|try|catch)\s/) &&
+        (content.includes('not a member of') ||
+          content.includes('Not found:') ||
+          content.includes('cannot be applied'))
+      ) {
+        return content;
+      }
+    }
+  }
+  return null;
+};
+
 export const scalaConfig: LanguageConfig = {
   name: 'Scala',
   tool: 'scalac',
@@ -22,11 +65,11 @@ export const scalaConfig: LanguageConfig = {
     const args = ['-explain', '-nowarn'];
     const classpathParts = context?.classpathParts || [];
     const filesToCompile = context?.filesToCompile || [_file];
-    
+
     if (classpathParts.length > 0) {
       args.push('-cp', classpathParts.join(':'));
     }
-    
+
     args.push(...filesToCompile);
     return args;
   },
@@ -35,7 +78,7 @@ export const scalaConfig: LanguageConfig = {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     const targetFileName = basename(_file);
-    
+
     // Check for Scala 2.x format
     let isScala2Format = false;
     for (const line of lines) {
@@ -48,7 +91,7 @@ export const scalaConfig: LanguageConfig = {
     if (isScala2Format) {
       // Parse Scala 2.x format
       for (const line of lines) {
-        const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
+        const cleanLine = stripAnsiCodes(line);
         const scala2Match = cleanLine.match(/^(.+?):(\d+): (error|warning): (.+)$/);
         if (scala2Match) {
           const errorFile = basename(scala2Match[1]);
@@ -66,7 +109,7 @@ export const scalaConfig: LanguageConfig = {
       // Parse Scala 3 format
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
+        const cleanLine = stripAnsiCodes(line);
 
         const match = cleanLine.match(/-- (?:\[E\d+\] )?(.+): (.+?):(\d+):(\d+)/);
         if (match) {
@@ -78,35 +121,9 @@ export const scalaConfig: LanguageConfig = {
           let message = match[1];
 
           // Look for detailed error message in subsequent lines
-          for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-            const detailLine = lines[j].replace(/\u001b\[[0-9;]*m/g, '');
-
-            if (
-              detailLine.includes('too many arguments') ||
-              detailLine.includes('not a member of') ||
-              detailLine.includes('Not found:') ||
-              detailLine.includes('no pattern match extractor') ||
-              (detailLine.includes('Found:') && detailLine.includes('Required:'))
-            ) {
-              message = detailLine.replace(/^\s*\|\s*/, '').trim();
-              break;
-            }
-
-            const detailMatch = detailLine.match(/\s*\|\s*(.+)$/);
-            if (detailMatch) {
-              const content = detailMatch[1].trim();
-              if (
-                content &&
-                !content.match(/^\^+$/) &&
-                !content.match(/^(import|class|def|val|var|if|else|for|while|try|catch)\s/) &&
-                (content.includes('not a member of') ||
-                 content.includes('Not found:') ||
-                 content.includes('cannot be applied'))
-              ) {
-                message = content;
-                break;
-              }
-            }
+          const detailedMessage = extractDetailedMessage(lines, i);
+          if (detailedMessage) {
+            message = detailedMessage;
           }
 
           const diagnostic = {
@@ -123,19 +140,19 @@ export const scalaConfig: LanguageConfig = {
         }
       }
     }
-    
+
     return diagnostics;
   },
 
   setupCommand: async (_file: string, _projectRoot: string) => {
     const fileDir = dirname(_file);
-    const scalaFilesInDir = readdirSync(fileDir).filter(f => f.endsWith('.scala'));
+    const scalaFilesInDir = readdirSync(fileDir).filter((f) => f.endsWith('.scala'));
     const isMultiFilePackage = scalaFilesInDir.length > 1;
     const hasBuildSbt = existsSync(join(_projectRoot, 'build.sbt'));
-    
+
     // Build classpath
     const classpathParts: string[] = [];
-    
+
     if (hasBuildSbt) {
       // Add common target directories for compiled classes
       const targetDirs = [
@@ -144,8 +161,8 @@ export const scalaConfig: LanguageConfig = {
         'target/scala-3.4.3/classes',
         'target/scala-2.13/classes',
         'target/scala-2.12/classes',
-        'core/jvm/target/scala-3.3.1/classes'
-      ].map(dir => join(_projectRoot, dir));
+        'core/jvm/target/scala-3.3.1/classes',
+      ].map((dir) => join(_projectRoot, dir));
 
       for (const dir of targetDirs) {
         if (existsSync(dir)) {
@@ -153,19 +170,19 @@ export const scalaConfig: LanguageConfig = {
         }
       }
     }
-    
+
     // Collect files to compile together
     const filesToCompile: string[] = [];
     if (isMultiFilePackage) {
-      scalaFilesInDir.forEach(f => {
+      scalaFilesInDir.forEach((f) => {
         filesToCompile.push(join(fileDir, f));
       });
     } else {
       filesToCompile.push(_file);
     }
-    
+
     return {
-      context: { classpathParts, filesToCompile }
+      context: { classpathParts, filesToCompile },
     };
-  }
+  },
 };
