@@ -1,7 +1,13 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { getProjectRoot, getStateFile, shouldShowResult, markResultShown } from '../src/cli/utils/deduplication';
+import {
+  getProjectRoot,
+  getStateFile,
+  shouldShowResult,
+  markResultShown,
+} from '../src/cli/utils/deduplication';
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('Deduplication Utilities', () => {
   const TEST_DIR = '/tmp/claude-lsp-dedup-test';
@@ -61,11 +67,11 @@ describe('Deduplication Utilities', () => {
       expect(root).toBe(TEST_DIR);
     });
 
-    test('should return /tmp when no project markers found', () => {
-      const orphanFile = '/tmp/orphan-file.ts';
+    test('should return tmpdir when no project markers found', () => {
+      const orphanFile = join(tmpdir(), 'orphan-file.ts');
       writeFileSync(orphanFile, 'test');
       const root = getProjectRoot(orphanFile);
-      expect(root).toBe('/tmp');
+      expect(root).toBe(tmpdir());
       rmSync(orphanFile);
     });
 
@@ -74,14 +80,14 @@ describe('Deduplication Utilities', () => {
       mkdirSync(join(TEST_DIR, 'src', 'components', 'deep'), { recursive: true });
       writeFileSync(deepFile, 'test');
       writeFileSync(join(TEST_DIR, 'package.json'), '{}');
-      
+
       const root = getProjectRoot(deepFile);
       expect(root).toBe(TEST_DIR);
     });
 
     test('should handle root directory path', () => {
       const root = getProjectRoot('/test.ts');
-      expect(root).toBe('/tmp');
+      expect(root).toBe(tmpdir());
     });
 
     test('should prioritize package.json over other markers', () => {
@@ -89,7 +95,7 @@ describe('Deduplication Utilities', () => {
       writeFileSync(join(TEST_DIR, 'package.json'), '{}');
       writeFileSync(join(TEST_DIR, 'go.mod'), 'module test');
       mkdirSync(join(TEST_DIR, '.git'));
-      
+
       const root = getProjectRoot(TEST_FILE);
       expect(root).toBe(TEST_DIR);
     });
@@ -105,7 +111,9 @@ describe('Deduplication Utilities', () => {
 
     test('should sanitize project path in state file name', () => {
       const stateFile = getStateFile('/path/with/special-chars!@#');
-      expect(stateFile).toMatch(/^\/tmp\/claude-lsp-last-[a-zA-Z0-9_]+\.json$/);
+      const tempDir = tmpdir().replace(/[\\]/g, '\\\\'); // Escape backslashes for regex
+      const pattern = new RegExp(`^${tempDir}/claude-lsp-last-[a-zA-Z0-9_]+.json$`);
+      expect(stateFile).toMatch(pattern);
       expect(stateFile).not.toContain('!');
       expect(stateFile).not.toContain('@');
       expect(stateFile).not.toContain('#');
@@ -119,7 +127,7 @@ describe('Deduplication Utilities', () => {
 
     test('should handle empty project root', () => {
       const stateFile = getStateFile('');
-      expect(stateFile).toMatch(/^\/tmp\/claude-lsp-last-\.json$/);
+      expect(stateFile).toBe(join(tmpdir(), 'claude-lsp-last-.json'));
     });
   });
 
@@ -132,7 +140,7 @@ describe('Deduplication Utilities', () => {
     test('should show result when file path differs', () => {
       // Mark a different file as shown
       markResultShown('/different/file.ts', 5);
-      
+
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
     });
@@ -140,31 +148,31 @@ describe('Deduplication Utilities', () => {
     test('should show result when diagnostics count differs', () => {
       // Mark with different count
       markResultShown(TEST_FILE, 3);
-      
+
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
     });
 
     test('should not show result when same file and count within time window', () => {
       markResultShown(TEST_FILE, 5);
-      
+
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(false);
     });
 
     test('should show result when time window expires', async () => {
       markResultShown(TEST_FILE, 5);
-      
+
       // Wait for time window to expire (2 seconds)
-      await new Promise(resolve => setTimeout(resolve, 2100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 2100));
+
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
     });
 
     test('should handle zero diagnostics count', () => {
       markResultShown(TEST_FILE, 0);
-      
+
       const shouldShow = shouldShowResult(TEST_FILE, 0);
       expect(shouldShow).toBe(false);
     });
@@ -172,10 +180,10 @@ describe('Deduplication Utilities', () => {
     test('should handle corrupted state file gracefully', () => {
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
-      
+
       // Write invalid JSON
       writeFileSync(stateFile, 'invalid json{');
-      
+
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
     });
@@ -183,10 +191,10 @@ describe('Deduplication Utilities', () => {
     test('should handle state file with missing fields', () => {
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
-      
+
       // Write JSON with missing fields
       writeFileSync(stateFile, JSON.stringify({ _file: TEST_FILE }));
-      
+
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
     });
@@ -195,12 +203,12 @@ describe('Deduplication Utilities', () => {
   describe('markResultShown', () => {
     test('should create state file with correct structure', () => {
       markResultShown(TEST_FILE, 10);
-      
+
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
-      
+
       expect(existsSync(stateFile)).toBe(true);
-      
+
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
       expect(state.file).toBe(TEST_FILE);
       expect(state.diagnosticsCount).toBe(10);
@@ -210,10 +218,10 @@ describe('Deduplication Utilities', () => {
     test('should overwrite existing state file', () => {
       markResultShown(TEST_FILE, 5);
       markResultShown(TEST_FILE, 10);
-      
+
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
-      
+
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
       expect(state.diagnosticsCount).toBe(10);
     });
@@ -222,7 +230,7 @@ describe('Deduplication Utilities', () => {
       // Make state file directory read-only
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
-      
+
       // Try to create a directory where the state file should be
       // This will fail if file already exists, which is what we want to test
       try {
@@ -230,10 +238,10 @@ describe('Deduplication Utilities', () => {
       } catch {
         // If it fails, that's fine - we're testing error handling
       }
-      
+
       // Should not throw even if write fails
       expect(() => markResultShown(TEST_FILE, 5)).not.toThrow();
-      
+
       // Clean up if directory was created
       try {
         rmSync(stateFile, { recursive: true });
@@ -246,17 +254,19 @@ describe('Deduplication Utilities', () => {
       // Simulate concurrent writes
       const promises = [];
       for (let i = 0; i < 10; i++) {
-        promises.push(new Promise<void>(resolve => {
-          markResultShown(TEST_FILE, i);
-          resolve();
-        }));
+        promises.push(
+          new Promise<void>((resolve) => {
+            markResultShown(TEST_FILE, i);
+            resolve();
+          })
+        );
       }
-      
+
       await Promise.all(promises);
-      
+
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
-      
+
       // Should have some value written
       expect(existsSync(stateFile)).toBe(true);
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
@@ -270,14 +280,14 @@ describe('Deduplication Utilities', () => {
       // First check - should show
       expect(shouldShowResult(TEST_FILE, 5)).toBe(true);
       markResultShown(TEST_FILE, 5);
-      
+
       // Second check immediately - should not show
       expect(shouldShowResult(TEST_FILE, 5)).toBe(false);
-      
+
       // Different count - should show
       expect(shouldShowResult(TEST_FILE, 3)).toBe(true);
       markResultShown(TEST_FILE, 3);
-      
+
       // Same new count - should not show
       expect(shouldShowResult(TEST_FILE, 3)).toBe(false);
     });
@@ -288,10 +298,10 @@ describe('Deduplication Utilities', () => {
       writeFileSync(file1, 'test');
       writeFileSync(file2, 'test');
       writeFileSync(join(TEST_DIR, 'package.json'), '{}');
-      
+
       // Both files should use same project root
       expect(getProjectRoot(file1)).toBe(getProjectRoot(file2));
-      
+
       // But maintain separate deduplication
       markResultShown(file1, 5);
       expect(shouldShowResult(file1, 5)).toBe(false);
@@ -299,19 +309,19 @@ describe('Deduplication Utilities', () => {
     });
 
     test('should handle project without any markers', () => {
-      const orphanDir = '/tmp/orphan-project';
+      const orphanDir = join(tmpdir(), 'orphan-project');
       const orphanFile = join(orphanDir, 'file.ts');
       mkdirSync(orphanDir, { recursive: true });
       writeFileSync(orphanFile, 'test');
-      
+
       const root = getProjectRoot(orphanFile);
-      expect(root).toBe('/tmp');
-      
+      expect(root).toBe(tmpdir());
+
       // Should still work for deduplication
       expect(shouldShowResult(orphanFile, 5)).toBe(true);
       markResultShown(orphanFile, 5);
       expect(shouldShowResult(orphanFile, 5)).toBe(false);
-      
+
       // Clean up
       rmSync(orphanDir, { recursive: true });
     });

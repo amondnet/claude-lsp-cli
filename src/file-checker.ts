@@ -8,6 +8,7 @@
 import { spawn } from 'bun';
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { dirname, basename, extname, join, relative } from 'path';
+import { tmpdir } from 'os';
 
 // Project root detection
 function findProjectRoot(filePath: string): string {
@@ -96,7 +97,7 @@ async function runCommand(
  * Check a single file with timeout protection
  */
 // Helper function to read global LSP config
-function readLspConfig(_projectRoot?: string): any {
+function readLspConfig(): any {
   // Only use global config
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   const globalConfigPath = join(homeDir, '.claude', 'lsp-config.json');
@@ -105,7 +106,7 @@ function readLspConfig(_projectRoot?: string): any {
     if (existsSync(globalConfigPath)) {
       return JSON.parse(readFileSync(globalConfigPath, 'utf8'));
     }
-  } catch (_e) {
+  } catch {
     // Ignore config parsing errors
   }
 
@@ -114,7 +115,7 @@ function readLspConfig(_projectRoot?: string): any {
 
 // Helper function to check if a language is disabled
 function isLanguageDisabled(projectRoot: string, language: string): boolean {
-  const config = readLspConfig(projectRoot);
+  const config = readLspConfig();
 
   // Check global disable
   if (config.disable === true) {
@@ -132,7 +133,7 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
   }
 
   const projectRoot = findProjectRoot(filePath);
-  
+
   // Try registry-based checker first
   try {
     const { checkFileWithRegistry } = await import('./generic-checker.js');
@@ -147,7 +148,7 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
   }
 
   // Fallback to legacy implementation
-  const relativePath = relative(projectRoot, filePath);
+  // const relativePath = relative(projectRoot, filePath);
   const ext = extname(filePath).toLowerCase();
 
   switch (ext) {
@@ -234,8 +235,11 @@ async function createTempTsconfig(file: string, tsconfigPath: string): Promise<s
       },
     };
 
-    // Create temp tsconfig in /tmp with unique name
-    const tempTsconfigPath = `/tmp/tsconfig-check-${Date.now()}-${Math.random().toString(36).substring(7)}.json`;
+    // Create temp tsconfig in system temp directory with unique name
+    const tempTsconfigPath = join(
+      tmpdir(),
+      `tsconfig-check-${Date.now()}-${Math.random().toString(36).substring(7)}.json`
+    );
     await Bun.write(tempTsconfigPath, JSON.stringify(tempConfig, null, 2));
 
     if (process.env.DEBUG) {
@@ -329,7 +333,8 @@ function buildTscArgsFromConfig(compilerOptions: any, tscArgs: string[]): string
   // Add advanced flags
   if (compilerOptions.noFallthroughCasesInSwitch) tscArgs.push('--noFallthroughCasesInSwitch');
   if (compilerOptions.noImplicitOverride) tscArgs.push('--noImplicitOverride');
-  if (compilerOptions.moduleDetection) tscArgs.push('--moduleDetection', compilerOptions.moduleDetection);
+  if (compilerOptions.moduleDetection)
+    tscArgs.push('--moduleDetection', compilerOptions.moduleDetection);
 
   // Add flags that might be false (only add if explicitly true)
   if (compilerOptions.noUnusedLocals === true) tscArgs.push('--noUnusedLocals');
@@ -350,7 +355,12 @@ function buildTscArgsFromConfig(compilerOptions: any, tscArgs: string[]): string
 /**
  * Parse TypeScript diagnostic output
  */
-function parseTypeScriptOutput(output: string, file: string, relativePath: string, projectRoot: string): Array<{
+function parseTypeScriptOutput(
+  output: string,
+  file: string,
+  relativePath: string,
+  projectRoot: string
+): Array<{
   line: number;
   column: number;
   severity: 'error' | 'warning' | 'info';
@@ -545,11 +555,11 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   // Check for Python project configuration
   const hasPyrightConfig = existsSync(join(projectRoot, 'pyrightconfig.json'));
   const hasPyprojectToml = existsSync(join(projectRoot, 'pyproject.toml'));
-  const _hasSetupCfg = existsSync(join(projectRoot, 'setup.cfg'));
+  // const _hasSetupCfg = existsSync(join(projectRoot, 'setup.cfg'));
   const hasRequirements = existsSync(join(projectRoot, 'requirements.txt'));
   const hasPipfile = existsSync(join(projectRoot, 'Pipfile'));
-  const _hasVenv = existsSync(join(projectRoot, '.venv')) || existsSync(join(projectRoot, 'venv'));
-  const _hasPoetryLock = existsSync(join(projectRoot, 'poetry.lock'));
+  // const _hasVenv = existsSync(join(projectRoot, '.venv')) || existsSync(join(projectRoot, 'venv'));
+  // const _hasPoetryLock = existsSync(join(projectRoot, 'poetry.lock'));
 
   // Build pyright arguments based on project configuration
   // Try local installation first - check multiple possible locations
@@ -686,7 +696,7 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   }
 
   // Filter out common false positives from single-file checking
-  const filterConfig = readLspConfig(projectRoot);
+  const filterConfig = readLspConfig();
   const globalFilterEnabled = filterConfig.disableFilter !== true;
   const pythonFilterEnabled = filterConfig.disablePythonFilter !== true;
   const filterEnabled = globalFilterEnabled && pythonFilterEnabled;
@@ -905,7 +915,7 @@ async function checkRust(file: string): Promise<FileCheckResult | null> {
           }
         }
       }
-      
+
       // Handle rustc's diagnostic format (separate check, not else-if)
       if (msg['$message_type'] === 'diagnostic' && msg.message && msg.spans?.[0]) {
         const span = msg.spans[0];
@@ -1030,7 +1040,7 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
   }
 
   // Fall back to javac with classpath
-  const javacArgs = ['javac', '-Xlint:all', '-d', '/tmp'];
+  const javacArgs = ['javac', '-Xlint:all', '-d', tmpdir()];
 
   // Add classpath for common directories if in a project
   if (hasPom || hasGradle) {
@@ -1320,7 +1330,7 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
   const hasMetalsBsp = existsSync(join(projectRoot, '.bsp'));
 
   // Try to use better build tools if available for more accurate checking
-  const useSbtCompile = readLspConfig(projectRoot).useScalaSbt === true;
+  const useSbtCompile = readLspConfig().useScalaSbt === true;
 
   if (hasBuildSbt && useSbtCompile) {
     // Use sbt compile for full project context (slower but more accurate)
@@ -1535,7 +1545,8 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
   if (isScala2Format) {
     // Parse Scala 2.x format
     for (const line of lines) {
-      const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+      const ansiRegex = new RegExp(`[${String.fromCharCode(27)}]\\[[0-9;]*m`, 'g');
+      const cleanLine = line.replace(ansiRegex, '');
       const scala2Match = cleanLine.match(/^(.+?):(\d+): (error|warning): (.+)$/);
       if (scala2Match) {
         const errorFile = basename(scala2Match[1]);
@@ -1556,7 +1567,8 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Remove ANSI color codes and match Scala 3 error format
-    const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+    const ansiRegex = new RegExp(`[${String.fromCharCode(27)}]\\[[0-9;]*m`, 'g');
+    const cleanLine = line.replace(ansiRegex, '');
 
     // Match various Scala 3 error formats:
     // -- [E006] Not Found Error: src/main/scala/Main.scala:17:28
@@ -1576,7 +1588,8 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
 
       // Look for the actual error description in subsequent lines
       for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-        const detailLine = lines[j].replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI codes
+        const ansiRegex = new RegExp(`[${String.fromCharCode(27)}]\\[[0-9;]*m`, 'g');
+        const detailLine = lines[j].replace(ansiRegex, ''); // Remove ANSI codes
 
         // Look for direct error messages (patterns that commonly appear in Scala errors)
         if (
@@ -1626,7 +1639,7 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
   const hasProjectDir = existsSync(join(projectRoot, 'project'));
 
   // Check global and language-specific filter settings from config file
-  const filterConfig = readLspConfig(projectRoot);
+  const filterConfig = readLspConfig();
   const globalFilterEnabled = filterConfig.disableFilter !== true; // Default: enabled
   const scalaFilterEnabled = filterConfig.disableScalaFilter !== true; // Default: enabled
   const filterEnabled = globalFilterEnabled && scalaFilterEnabled;

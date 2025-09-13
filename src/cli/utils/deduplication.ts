@@ -1,5 +1,6 @@
 import { join, dirname } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 
 export function getProjectRoot(filePath: string): string {
   let dir = dirname(filePath);
@@ -15,12 +16,12 @@ export function getProjectRoot(filePath: string): string {
     }
     dir = join(dir, '..');
   }
-  return '/tmp';
+  return tmpdir();
 }
 
 export function getStateFile(projectRoot: string): string {
   const projectHash = projectRoot.replace(/[^a-zA-Z0-9]/g, '_');
-  return `/tmp/claude-lsp-last-${projectHash}.json`;
+  return join(tmpdir(), `claude-lsp-last-${projectHash}.json`);
 }
 
 export function shouldShowResult(filePath: string, diagnosticsCount: number): boolean {

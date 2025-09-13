@@ -4,6 +4,7 @@
 
 import { existsSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import type { LanguageConfig } from '../language-checker-registry.js';
 import { mapSeverity, stripAnsiCodes, shouldSkipDiagnostic } from '../language-checker-registry.js';
 
@@ -29,7 +30,7 @@ export const typescriptConfig: LanguageConfig = {
 
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['--noEmit', '--pretty', 'false'];
-    
+
     // If we have a temporary tsconfig from setupCommand, use it
     if (context?.tempTsconfigPath) {
       args.push('--project', context.tempTsconfigPath);
@@ -37,11 +38,11 @@ export const typescriptConfig: LanguageConfig = {
       // Just check the single file
       args.push(_file);
     }
-    
+
     return args;
   },
 
-  setupCommand: async (file: string, projectRoot: string) => {
+  setupCommand: async (file: string, _projectRoot: string) => {
     const tsconfigRoot = findTsconfigRoot(file);
     let tempTsconfigPath: string | null = null;
 
@@ -61,8 +62,11 @@ export const typescriptConfig: LanguageConfig = {
           exclude: [],
         };
 
-        // Use a unique temp file name to avoid conflicts
-        tempTsconfigPath = join(projectRoot, `tsconfig.temp.${Date.now()}.json`);
+        // Use a unique temp file name in system temp directory to avoid conflicts
+        tempTsconfigPath = join(
+          tmpdir(),
+          `tsconfig-check-${Date.now()}-${Math.random().toString(36).substring(7)}.json`
+        );
         writeFileSync(tempTsconfigPath, JSON.stringify(tempTsconfig, null, 2));
 
         if (process.env.DEBUG) {
@@ -76,18 +80,20 @@ export const typescriptConfig: LanguageConfig = {
 
     return {
       context: tempTsconfigPath ? { tempTsconfigPath } : undefined,
-      cleanup: tempTsconfigPath ? () => {
-        try {
-          if (existsSync(tempTsconfigPath!)) {
-            unlinkSync(tempTsconfigPath!);
-            if (process.env.DEBUG) {
-              console.error('Cleaned up temporary tsconfig:', tempTsconfigPath);
+      cleanup: tempTsconfigPath
+        ? () => {
+            try {
+              if (existsSync(tempTsconfigPath!)) {
+                unlinkSync(tempTsconfigPath!);
+                if (process.env.DEBUG) {
+                  console.error('Cleaned up temporary tsconfig:', tempTsconfigPath);
+                }
+              }
+            } catch (error) {
+              console.error('Failed to clean up temporary tsconfig:', error);
             }
           }
-        } catch (error) {
-          console.error('Failed to clean up temporary tsconfig:', error);
-        }
-      } : undefined
+        : undefined,
     };
   },
 
@@ -136,7 +142,9 @@ export const typescriptConfig: LanguageConfig = {
   },
 
   detectConfig: (_projectRoot: string) => {
-    return existsSync(join(_projectRoot, 'tsconfig.json')) ||
-           existsSync(join(_projectRoot, 'package.json'));
+    return (
+      existsSync(join(_projectRoot, 'tsconfig.json')) ||
+      existsSync(join(_projectRoot, 'package.json'))
+    );
   },
 };
