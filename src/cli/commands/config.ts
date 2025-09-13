@@ -39,7 +39,7 @@ function updateConfig(updates: Record<string, any>): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
-export async function disableLanguage(language: string): Promise<string> {
+export async function disableLanguage(language: string, includeStatus: boolean = true): Promise<string> {
   // Normalize language names to match what the checker expects
   const langMap: Record<string, string> = {
     typescript: 'TypeScript',
@@ -69,14 +69,19 @@ export async function disableLanguage(language: string): Promise<string> {
     const langKey = `disable${normalizedLang}`;
     updateConfig({ [langKey]: true });
     messages.push(`🚫 Disabled ${language} checking globally`);
+  } else {
+    messages.push(`❌ Unknown language: ${language}. Valid languages: ${Object.keys(langMap).filter(k => k !== 'all').join(', ')}`);
   }
 
-  // Get status and return combined message
-  const status = await showStatus();
-  return messages.join('\n') + '\n' + status;
+  // Get status and return combined message (optional for performance)
+  if (includeStatus) {
+    const status = await showStatus();
+    return messages.join('\n') + '\n' + status;
+  }
+  return messages.join('\n');
 }
 
-export async function enableLanguage(language: string): Promise<string> {
+export async function enableLanguage(language: string, includeStatus: boolean = true): Promise<string> {
   // Normalize language names to match what the checker expects
   const langMap: Record<string, string> = {
     typescript: 'TypeScript',
@@ -106,9 +111,14 @@ export async function enableLanguage(language: string): Promise<string> {
     const langKey = `disable${normalizedLang}`;
     updateConfig({ [langKey]: false });
     messages.push(`✅ Enabled ${language} checking globally`);
+  } else {
+    messages.push(`❌ Unknown language: ${language}. Valid languages: ${Object.keys(langMap).filter(k => k !== 'all').join(', ')}`);
   }
 
-  // Get status and return combined message
-  const status = await showStatus();
-  return messages.join('\n') + '\n' + status;
+  // Get status and return combined message (optional for performance)
+  if (includeStatus) {
+    const status = await showStatus();
+    return messages.join('\n') + '\n' + status;
+  }
+  return messages.join('\n');
 }

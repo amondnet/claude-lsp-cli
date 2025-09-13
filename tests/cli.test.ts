@@ -13,12 +13,12 @@ const exec = promisify(execCallback);
 const CLI_PATH = join(import.meta.dir, '..', 'bin', 'claude-lsp-cli');
 
 describe('CLI - Main Entry Point', () => {
-  describe('Critical Command: diagnostics', () => {
+  describe('Critical Command: check', () => {
     test('should provide diagnostics for TypeScript errors', async () => {
-      // This is the most important feature - getting diagnostics
-      const testProject = join(import.meta.dir, '..', 'examples', 'typescript-project');
+      // This is the most important feature - getting diagnostics for individual files
+      const testFile = join(import.meta.dir, '..', 'examples', 'typescript-project', 'src', 'index.ts');
 
-      const { stdout, stderr } = await exec(`echo "test" | ${CLI_PATH} diagnostics ${testProject}`);
+      const { stdout, stderr } = await exec(`echo "test" | ${CLI_PATH} check ${testFile}`);
 
       // Should return system message format
       if (stdout.includes('[[system-message]]:')) {

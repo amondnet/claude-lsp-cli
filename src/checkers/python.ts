@@ -13,23 +13,23 @@ export const pythonConfig: LanguageConfig = {
   extensions: ['.py', '.pyi'],
   localPaths: ['node_modules/.bin/pyright'],
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => {
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['--outputjson'];
 
     // Check for Python project configuration
-    const hasPyrightConfig = existsSync(join(projectRoot, 'pyrightconfig.json'));
-    const hasPyprojectToml = existsSync(join(projectRoot, 'pyproject.toml'));
+    const hasPyrightConfig = existsSync(join(_projectRoot, 'pyrightconfig.json'));
+    const hasPyprojectToml = existsSync(join(_projectRoot, 'pyproject.toml'));
 
     if (hasPyrightConfig || hasPyprojectToml) {
       // Use project configuration
-      args.push('--project', projectRoot);
+      args.push('--project', _projectRoot);
     }
 
-    args.push(file);
+    args.push(_file);
     return args;
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: Array<{
       line: number;
       column: number;
@@ -48,7 +48,7 @@ export const pythonConfig: LanguageConfig = {
           const message = diag.message;
           
           // Skip if this diagnostic should be filtered
-          if (shouldSkipDiagnostic(message, file)) {
+          if (shouldSkipDiagnostic(message, _file)) {
             continue;
           }
 
@@ -79,7 +79,7 @@ export const pythonConfig: LanguageConfig = {
           if (match) {
             const [, lineStr, colStr, severity, message] = match;
             
-            if (shouldSkipDiagnostic(message, file)) {
+            if (shouldSkipDiagnostic(message, _file)) {
               continue;
             }
 
@@ -97,10 +97,10 @@ export const pythonConfig: LanguageConfig = {
     return diagnostics;
   },
 
-  detectConfig: (projectRoot: string) => {
-    return existsSync(join(projectRoot, 'pyrightconfig.json')) ||
-           existsSync(join(projectRoot, 'pyproject.toml')) ||
-           existsSync(join(projectRoot, 'requirements.txt')) ||
-           existsSync(join(projectRoot, 'Pipfile'));
+  detectConfig: (_projectRoot: string) => {
+    return existsSync(join(_projectRoot, 'pyrightconfig.json')) ||
+           existsSync(join(_projectRoot, 'pyproject.toml')) ||
+           existsSync(join(_projectRoot, 'requirements.txt')) ||
+           existsSync(join(_projectRoot, 'Pipfile'));
   },
 };

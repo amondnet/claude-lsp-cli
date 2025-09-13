@@ -7,6 +7,7 @@ export async function handlePostToolUse(input: string): Promise<void> {
   try {
     if (!input.trim()) {
       process.exit(0);
+      return; // For testing
     }
 
     let hookData: any;
@@ -14,11 +15,13 @@ export async function handlePostToolUse(input: string): Promise<void> {
       hookData = JSON.parse(input);
     } catch {
       process.exit(0);
+      return; // For testing
     }
 
     const filePaths = extractFilePaths(hookData);
     if (filePaths.length === 0) {
       process.exit(0);
+      return; // For testing
     }
 
     // Process all files in parallel and collect results
@@ -82,10 +85,16 @@ export async function handlePostToolUse(input: string): Promise<void> {
 
       console.error(`[[system-message]]:${JSON.stringify(combinedResult)}`);
       process.exit(2);
+      return; // For testing
     }
 
     process.exit(0);
-  } catch (error) {
+  } catch (error: any) {
+    // In tests, process.exit is mocked to throw an error.
+    // Re-throw these so tests can capture the intended exit code.
+    if (error?.message?.includes('process.exit(')) {
+      throw error;
+    }
     console.error(`Hook processing failed: ${error}`);
     process.exit(1);
   }

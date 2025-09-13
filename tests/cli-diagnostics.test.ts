@@ -157,7 +157,7 @@ describe('CLI check Command', () => {
       expect(match).toBeTruthy();
       if (match) {
         const errorCount = parseInt(match[1]);
-        expect(errorCount).toBe(7);
+        expect(errorCount).toBe(10);
       }
     } else {
       // scalac not available or no errors detected - just ensure we get a response

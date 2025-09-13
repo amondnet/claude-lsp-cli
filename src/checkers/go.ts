@@ -13,21 +13,16 @@ export const goConfig: LanguageConfig = {
   extensions: ['.go'],
   localPaths: [], // Go is usually system-installed
 
-  detectConfig: (projectRoot: string) => {
-    return existsSync(join(projectRoot, 'go.mod'));
+  detectConfig: (_projectRoot: string) => {
+    return existsSync(join(_projectRoot, 'go.mod'));
   },
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => {
-    const hasGoMod = context?.hasGoMod || existsSync(join(projectRoot, 'go.mod'));
-    
-    if (hasGoMod) {
-      return [toolCommand, 'vet', file];
-    } else {
-      return [toolCommand, 'vet', file];
-    }
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+    // Use go build for better error detection than go vet
+    return ['build', file];
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     const lines = stderr.split('\n');
     
@@ -46,10 +41,10 @@ export const goConfig: LanguageConfig = {
     return diagnostics;
   },
 
-  setupCommand: async (file: string, projectRoot: string) => {
-    const hasGoMod = existsSync(join(projectRoot, 'go.mod'));
+  setupCommand: async (_file: string, _projectRoot: string) => {
+    const hasGoMod = existsSync(join(_projectRoot, 'go.mod'));
     return {
-      context: { hasGoMod }
+      _context: { hasGoMod }
     };
   }
 };

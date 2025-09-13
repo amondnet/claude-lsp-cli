@@ -290,7 +290,7 @@ describe('File Path Extraction', () => {
         const match = stderr.match(/\[\[system-message\]\]:(.+)/);
         if (match) {
           const json = JSON.parse(match[1]);
-          const files = json.diagnostics.map((d: any) => d.file);
+          const files = json.diagnostics.map((d: any) => d._file);
           // Check that all three file types are present
           const hasTs = files.some((f: string) => f.endsWith('.ts'));
           const hasPy = files.some((f: string) => f.endsWith('.py'));

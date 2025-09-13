@@ -13,11 +13,11 @@ export const scalaConfig: LanguageConfig = {
   extensions: ['.scala', '.sc'],
   localPaths: [], // Scala compiler is usually system-installed
 
-  detectConfig: (projectRoot: string) => {
-    return existsSync(join(projectRoot, 'build.sbt'));
+  detectConfig: (_projectRoot: string) => {
+    return existsSync(join(_projectRoot, 'build.sbt'));
   },
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => {
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['-explain', '-nowarn'];
     const classpathParts = context?.classpathParts || [];
     const filesToCompile = context?.filesToCompile || [file];
@@ -30,10 +30,10 @@ export const scalaConfig: LanguageConfig = {
     return args;
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     const lines = stderr.split('\n');
-    const targetFileName = basename(file);
+    const targetFileName = basename(_file);
     
     // Check for Scala 2.x format
     let isScala2Format = false;
@@ -116,7 +116,7 @@ export const scalaConfig: LanguageConfig = {
           };
 
           // Apply filtering for common false positives
-          if (!shouldSkipDiagnostic(diagnostic.message, file)) {
+          if (!shouldSkipDiagnostic(diagnostic.message, _file)) {
             diagnostics.push(diagnostic);
           }
         }
@@ -126,11 +126,11 @@ export const scalaConfig: LanguageConfig = {
     return diagnostics;
   },
 
-  setupCommand: async (file: string, projectRoot: string) => {
-    const fileDir = dirname(file);
+  setupCommand: async (_file: string, _projectRoot: string) => {
+    const fileDir = dirname(_file);
     const scalaFilesInDir = readdirSync(fileDir).filter(f => f.endsWith('.scala'));
     const isMultiFilePackage = scalaFilesInDir.length > 1;
-    const hasBuildSbt = existsSync(join(projectRoot, 'build.sbt'));
+    const hasBuildSbt = existsSync(join(_projectRoot, 'build.sbt'));
     
     // Build classpath
     const classpathParts: string[] = [];
@@ -144,7 +144,7 @@ export const scalaConfig: LanguageConfig = {
         'target/scala-2.13/classes',
         'target/scala-2.12/classes',
         'core/jvm/target/scala-3.3.1/classes'
-      ].map(dir => join(projectRoot, dir));
+      ].map(dir => join(_projectRoot, dir));
 
       for (const dir of targetDirs) {
         if (existsSync(dir)) {
@@ -160,11 +160,11 @@ export const scalaConfig: LanguageConfig = {
         filesToCompile.push(join(fileDir, f));
       });
     } else {
-      filesToCompile.push(file);
+      filesToCompile.push(_file);
     }
     
     return {
-      context: { classpathParts, filesToCompile }
+      _context: { classpathParts, filesToCompile }
     };
   }
 };

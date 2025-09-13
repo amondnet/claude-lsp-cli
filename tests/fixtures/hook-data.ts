@@ -115,7 +115,7 @@ export const postToolUseEvents = {
         path: filePath,
         old_str: 'function test() {\n  console.log("old");\n}',
         new_str: 'function test() {\n  console.log("new");\n  return true;\n}',
-        context: {
+        _context: {
           lineNumbers: [1, 2, 3],
           surroundingCode: true
         }

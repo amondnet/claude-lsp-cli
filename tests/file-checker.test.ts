@@ -74,7 +74,7 @@ result = add("hello", "world")  # Type error
 
   test('should format diagnostics correctly', () => {
     const result = {
-      file: '/path/to/test.ts',
+      _file: '/path/to/test.ts',
       tool: 'tsc',
       diagnostics: [
         {

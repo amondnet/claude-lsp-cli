@@ -14,9 +14,9 @@ export async function handleUserCommand(prompt: string): Promise<string | null> 
 
   // Handle >lsp: commands and return the result as a string
   if (command === 'enable') {
-    return await enableLanguage(args[0], null);
+    return await enableLanguage(args[0]);
   } else if (command === 'disable') {
-    return await disableLanguage(args[0], null);
+    return await disableLanguage(args[0]);
   } else if (command === 'check') {
     // For check command, capture the output
     let output = '';
@@ -25,6 +25,6 @@ export async function handleUserCommand(prompt: string): Promise<string | null> 
     });
     return output || 'File checked successfully';
   } else {
-    return await showHelp(null);
+    return await showHelp();
   }
 }

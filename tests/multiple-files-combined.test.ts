@@ -1,0 +1,385 @@
+/**
+ * Tests for multiple file updates showing combined results
+ */
+
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { handlePostToolUse } from '../src/cli/hooks/post-tool-use';
+import * as fileChecker from '../src/file-checker';
+import * as deduplication from '../src/cli/utils/deduplication';
+
+// Store original process.exit
+const originalExit = process.exit;
+let exitCode: number | undefined;
+
+// Helper to capture console output
+let consoleOutput: string[] = [];
+let consoleErrorOutput: string[] = [];
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+// Helper function to run async hook and capture exit
+async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: number; output?: any }> {
+  try {
+    await fn;
+    return { exitCode: undefined };
+  } catch (error: any) {
+    if (error.message && error.message.includes('process.exit')) {
+      // Extract exit code from the error message
+      const match = error.message.match(/process\.exit\((\d+)\)/);
+      const code = match ? parseInt(match[1]) : error.exitCode ?? 0;
+      
+      // Try to extract the JSON output if it was logged
+      const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
+      let output;
+      if (errorOutput) {
+        const jsonPart = errorOutput.split('[[system-message]]:')[1];
+        output = JSON.parse(jsonPart);
+      }
+      
+      return { exitCode: code, output };
+    }
+    throw error;
+  }
+}
+
+describe('Multiple Files Combined Results', () => {
+  beforeEach(() => {
+    // Mock process.exit to capture exit code
+    exitCode = undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code ?? 0;
+      const error = new Error(`process.exit(${code ?? 0})`);
+      (error as any).exitCode = code ?? 0;
+      throw error;
+    }) as any;
+
+    // Capture console output
+    consoleOutput = [];
+    consoleErrorOutput = [];
+    console.log = ((...args: any[]) => {
+      consoleOutput.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    }) as any;
+    console.error = ((...args: any[]) => {
+      consoleErrorOutput.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    }) as any;
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    console.log = originalConsoleLog;
+    console.error = originalConsoleError;
+    // Restore process.exit
+    process.exit = originalExit;
+  });
+
+  test('should combine diagnostics from multiple TypeScript and Python files', async () => {
+    const mockCheckFile = spyOn(fileChecker, 'checkFile');
+    mockCheckFile.mockClear();
+    mockCheckFile.mockImplementation(async (path: string) => {
+      if (path.includes('component.tsx')) {
+        return {
+          _file: 'src/component.tsx',
+          tool: 'typescript',
+          diagnostics: [
+            {
+              severity: 'error' as const,
+              message: 'Type \'number\' is not assignable to type \'string\'',
+              line: 15,
+              column: 7
+            },
+            {
+              severity: 'error' as const,
+              message: 'Cannot find name \'useState\'',
+              line: 8,
+              column: 10
+            }
+          ]
+        };
+      } else if (path.includes('utils.ts')) {
+        return {
+          _file: 'src/utils.ts',
+          tool: 'typescript',
+          diagnostics: [{
+            severity: 'warning' as const,
+            message: 'Unused variable \'temp\'',
+            line: 23,
+            column: 5
+          }]
+        };
+      } else if (path.includes('main.py')) {
+        return {
+          _file: 'scripts/main.py',
+          tool: 'python',
+          diagnostics: [{
+            severity: 'error' as const,
+            message: 'Undefined variable \'config\'',
+            line: 45,
+            column: 12
+          }]
+        };
+      }
+      return null;
+    });
+
+    const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+    mockShouldShow.mockReturnValue(true);
+    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+
+    const hookData = {
+      tool: 'MultiEdit',
+      tool_response: {
+        output: 'Modified files: src/component.tsx src/utils.ts scripts/main.py'
+      },
+      cwd: '/project'
+    };
+
+    const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+    
+    expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
+    expect(result.output).toBeDefined();
+    
+    // Check summary includes both errors and warnings
+    expect(result.output.summary).toBe('3 error(s), 1 warning(s)');
+    
+    // Check that diagnostics array contains items from all files (limited to 5)
+    expect(result.output.diagnostics).toHaveLength(4); // We have 4 total diagnostics
+    
+    // Verify each diagnostic has the file field added
+    expect(result.output.diagnostics[0]).toHaveProperty('file');
+    expect(result.output.diagnostics[1]).toHaveProperty('file');
+    expect(result.output.diagnostics[2]).toHaveProperty('file');
+    expect(result.output.diagnostics[3]).toHaveProperty('file');
+    
+    // Verify diagnostics are from different files
+    const files = result.output.diagnostics.map((d: any) => d._file);
+    expect(files).toContain('src/component.tsx');
+    expect(files).toContain('src/utils.ts');
+    expect(files).toContain('scripts/main.py');
+    
+    // Verify specific diagnostics content
+    const tsErrors = result.output.diagnostics.filter((d: any) => d.file === 'src/component.tsx');
+    expect(tsErrors).toHaveLength(2);
+    expect(tsErrors[0].message).toContain('Type \'number\' is not assignable');
+    
+    const pyErrors = result.output.diagnostics.filter((d: any) => d.file === 'scripts/main.py');
+    expect(pyErrors).toHaveLength(1);
+    expect(pyErrors[0].message).toContain('Undefined variable');
+  });
+
+  test('should limit combined diagnostics to 5 items when there are many', async () => {
+    const mockCheckFile = spyOn(fileChecker, 'checkFile');
+    mockCheckFile.mockImplementation(async (path: string) => {
+      if (path.includes('file1.ts')) {
+        // Return 4 diagnostics
+        return {
+          _file: 'file1.ts',
+          tool: 'typescript',
+          diagnostics: Array.from({ length: 4 }, (_, i) => ({
+            severity: 'error' as const,
+            message: `Error ${i + 1} in file1`,
+            line: i + 1,
+            column: 1
+          }))
+        };
+      } else if (path.includes('file2.ts')) {
+        // Return 3 diagnostics
+        return {
+          _file: 'file2.ts',
+          tool: 'typescript',
+          diagnostics: Array.from({ length: 3 }, (_, i) => ({
+            severity: 'error' as const,
+            message: `Error ${i + 1} in file2`,
+            line: i + 1,
+            column: 1
+          }))
+        };
+      }
+      return null;
+    });
+
+    const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+    mockShouldShow.mockReturnValue(true);
+    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+
+    const hookData = {
+      tool_response: {
+        output: 'Updated file1.ts and file2.ts'
+      }
+    };
+
+    const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+    
+    expect(result.exitCode).toBe(2);
+    expect(result.output).toBeDefined();
+    
+    // Should show total count in summary
+    expect(result.output.summary).toBe('7 error(s)');
+    
+    // But diagnostics array should be limited to 5
+    expect(result.output.diagnostics).toHaveLength(5);
+    
+    // Verify we have diagnostics from both files in the limited set
+    const file1Diags = result.output.diagnostics.filter((d: any) => d.file === 'file1.ts');
+    const file2Diags = result.output.diagnostics.filter((d: any) => d.file === 'file2.ts');
+    
+    expect(file1Diags.length + file2Diags.length).toBe(5);
+    expect(file1Diags.length).toBeGreaterThan(0);
+    expect(file2Diags.length).toBeGreaterThan(0);
+  });
+
+  test('should handle mix of files with and without diagnostics', async () => {
+    const mockCheckFile = spyOn(fileChecker, 'checkFile');
+    mockCheckFile.mockImplementation(async (path: string) => {
+      if (path.includes('error.ts')) {
+        return {
+          _file: 'error.ts',
+          tool: 'typescript',
+          diagnostics: [{
+            severity: 'error' as const,
+            message: 'Type error',
+            line: 10,
+            column: 5
+          }]
+        };
+      } else if (path.includes('clean.ts')) {
+        return {
+          _file: 'clean.ts',
+          tool: 'typescript',
+          diagnostics: [] // No errors
+        };
+      } else if (path.includes('disabled.scala')) {
+        return null; // Language disabled
+      }
+      return {
+        _file: 'unknown',
+        tool: 'unknown',
+        diagnostics: []
+      };
+    });
+
+    const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+    mockShouldShow.mockReturnValue(true);
+    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+
+    const hookData = {
+      tool_response: {
+        output: 'Modified error.ts clean.ts disabled.scala'
+      }
+    };
+
+    const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+    
+    expect(result.exitCode).toBe(2); // Has errors from error.ts
+    expect(result.output).toBeDefined();
+    
+    // Should only count the file with errors
+    expect(result.output.summary).toBe('1 error(s)');
+    expect(result.output.diagnostics).toHaveLength(1);
+    expect(result.output.diagnostics[0]._file).toBe('error.ts');
+  });
+
+  test('should handle deduplication correctly for multiple files', async () => {
+    const mockCheckFile = spyOn(fileChecker, 'checkFile');
+    mockCheckFile.mockClear();
+    mockCheckFile.mockImplementation(async (path: string) => {
+      if (path.includes('file1.ts')) {
+        return {
+          _file: 'file1.ts',
+          tool: 'typescript',
+          diagnostics: [{
+            severity: 'error' as const,
+            message: 'Error in file1',
+            line: 1,
+            column: 1
+          }]
+        };
+      } else if (path.includes('file2.ts')) {
+        return {
+          _file: 'file2.ts',
+          tool: 'typescript',
+          diagnostics: [{
+            severity: 'error' as const,
+            message: 'Error in file2',
+            line: 1,
+            column: 1
+          }]
+        };
+      }
+      return null;
+    });
+
+    const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+    mockShouldShow.mockClear();
+    // First file should show, second file should not (already shown)
+    let callCount = 0;
+    mockShouldShow.mockImplementation((path: string, count: number) => {
+      callCount++;
+      // Only show file1.ts
+      return path.includes('file1.ts');
+    });
+    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+    mockMarkShown.mockClear();
+
+    const hookData = {
+      tool_response: {
+        output: 'Modified file1.ts and file2.ts'
+      }
+    };
+
+    const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+    
+    expect(result.exitCode).toBe(2); // Has errors from file1.ts
+    expect(result.output).toBeDefined();
+    
+    // Should only show diagnostics from file1.ts (file2.ts was deduplicated)
+    expect(result.output.summary).toBe('1 error(s)');
+    expect(result.output.diagnostics).toHaveLength(1);
+    expect(result.output.diagnostics[0]._file).toBe('file1.ts');
+    
+    // Verify deduplication was checked for both files
+    expect(callCount).toBe(2);
+    // But only file1 was marked as shown
+    expect(mockMarkShown).toHaveBeenCalledTimes(1);
+  });
+
+  test('should handle all files being deduplicated', async () => {
+    const mockCheckFile = spyOn(fileChecker, 'checkFile');
+    mockCheckFile.mockClear();
+    mockCheckFile.mockImplementation(async (path: string) => {
+      return {
+        _file: path.includes('file1.ts') ? 'file1.ts' : 'file2.ts',
+        tool: 'typescript',
+        diagnostics: [{
+          severity: 'error' as const,
+          message: 'Same error',
+          line: 1,
+          column: 1
+        }]
+      };
+    });
+
+    const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+    mockShouldShow.mockClear();
+    // All files are deduplicated
+    mockShouldShow.mockReturnValue(false);
+    const mockMarkShown = spyOn(deduplication, 'markResultShown');
+    mockMarkShown.mockClear();
+
+    const hookData = {
+      tool_response: {
+        output: 'Modified file1.ts and file2.ts'
+      }
+    };
+
+    const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+    
+    // When all files are deduplicated, should exit 0 with no output
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBeUndefined();
+    
+    // Verify deduplication was checked
+    expect(mockShouldShow).toHaveBeenCalled();
+    // Since shouldShow returned false, markShown should not be called
+    expect(mockMarkShown).not.toHaveBeenCalled();
+  });
+});

@@ -905,8 +905,9 @@ async function checkRust(file: string): Promise<FileCheckResult | null> {
           }
         }
       }
-      // Also handle rustc's simpler format
-      else if (msg.message && msg.spans?.[0]) {
+      
+      // Handle rustc's diagnostic format (separate check, not else-if)
+      if (msg['$message_type'] === 'diagnostic' && msg.message && msg.spans?.[0]) {
         const span = msg.spans[0];
 
         // Check if this error is for our file

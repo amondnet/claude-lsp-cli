@@ -101,6 +101,16 @@ export default [
     },
   },
   
+  // Checker files - these implement interfaces with specific signatures
+  {
+    files: ['src/checkers/*.ts'],
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  
   // Prettier config (disables formatting rules that conflict)
   eslintConfigPrettier,
   

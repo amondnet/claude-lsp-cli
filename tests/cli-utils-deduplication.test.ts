@@ -171,7 +171,7 @@ describe('Deduplication Utilities', () => {
 
     test('should handle corrupted state file gracefully', () => {
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(projectRoot);
+      const stateFile = getStateFile(_projectRoot);
       
       // Write invalid JSON
       writeFileSync(stateFile, 'invalid json{');
@@ -182,10 +182,10 @@ describe('Deduplication Utilities', () => {
 
     test('should handle state file with missing fields', () => {
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(projectRoot);
+      const stateFile = getStateFile(_projectRoot);
       
       // Write JSON with missing fields
-      writeFileSync(stateFile, JSON.stringify({ file: TEST_FILE }));
+      writeFileSync(stateFile, JSON.stringify({ _file: TEST_FILE }));
       
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
@@ -197,12 +197,12 @@ describe('Deduplication Utilities', () => {
       markResultShown(TEST_FILE, 10);
       
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(projectRoot);
+      const stateFile = getStateFile(_projectRoot);
       
       expect(existsSync(stateFile)).toBe(true);
       
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state.file).toBe(TEST_FILE);
+      expect(state._file).toBe(TEST_FILE);
       expect(state.diagnosticsCount).toBe(10);
       expect(state.timestamp).toBeCloseTo(Date.now(), -2); // Within 100ms
     });
@@ -212,7 +212,7 @@ describe('Deduplication Utilities', () => {
       markResultShown(TEST_FILE, 10);
       
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(projectRoot);
+      const stateFile = getStateFile(_projectRoot);
       
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
       expect(state.diagnosticsCount).toBe(10);
@@ -221,7 +221,7 @@ describe('Deduplication Utilities', () => {
     test('should handle write errors gracefully', () => {
       // Make state file directory read-only
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(projectRoot);
+      const stateFile = getStateFile(_projectRoot);
       
       // Try to create a directory where the state file should be
       // This will fail if file already exists, which is what we want to test
@@ -255,12 +255,12 @@ describe('Deduplication Utilities', () => {
       Promise.all(promises);
       
       const projectRoot = getProjectRoot(TEST_FILE);
-      const stateFile = getStateFile(projectRoot);
+      const stateFile = getStateFile(_projectRoot);
       
       // Should have some value written
       expect(existsSync(stateFile)).toBe(true);
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state.file).toBe(TEST_FILE);
+      expect(state._file).toBe(TEST_FILE);
       expect(typeof state.diagnosticsCount).toBe('number');
     });
   });

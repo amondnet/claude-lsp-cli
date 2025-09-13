@@ -11,30 +11,33 @@ export const elixirConfig: LanguageConfig = {
   extensions: ['.ex', '.exs'],
   localPaths: [], // Elixir is usually system-installed
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string) => {
-    const relativePath = relative(projectRoot, file);
-    return [toolCommand, relativePath];
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string) => {
+    const relativePath = relative(_projectRoot, _file);
+    return [relativePath];
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     const lines = stderr.split('\n');
     
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
       // Match the new error format: "error: message" followed by location
-      if (line.trim().startsWith('error:')) {
-        const errorMessage = line.replace(/^\s*error:\s*/, '');
+      if (line.trim().startsWith('error:') || line.trim().startsWith('warning:')) {
+        const isError = line.trim().startsWith('error:');
+        const message = line.replace(/^\s*(error|warning):\s*/, '').trim();
 
         // Look for location info in subsequent lines
-        for (let i = lines.indexOf(line) + 1; i < lines.length; i++) {
-          const locationLine = lines[i];
+        for (let j = i + 1; j < lines.length && j < i + 10; j++) {
+          const locationLine = lines[j];
           const locationMatch = locationLine.match(/└─\s+(.+?):(\d+):(\d+):/);
           if (locationMatch) {
             diagnostics.push({
               line: parseInt(locationMatch[2]),
               column: parseInt(locationMatch[3]),
-              severity: 'error' as const,
-              message: errorMessage,
+              severity: isError ? ('error' as const) : ('warning' as const),
+              message: message,
             });
             break;
           }
@@ -42,12 +45,13 @@ export const elixirConfig: LanguageConfig = {
       }
 
       // Also match the old format for backward compatibility
-      const oldMatch = line.match(/\*\* \((CompileError|SyntaxError)\) (.+?):(\d+): (.+)/);
+      const oldMatch = line.match(/\*\* \((CompileError|SyntaxError|warning)\) (.+?):(\d+):?\s*(.+)/);
       if (oldMatch) {
+        const isError = oldMatch[1] !== 'warning';
         diagnostics.push({
           line: parseInt(oldMatch[3]),
           column: 1,
-          severity: 'error' as const,
+          severity: isError ? ('error' as const) : ('warning' as const),
           message: oldMatch[4],
         });
       }

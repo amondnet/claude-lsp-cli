@@ -11,12 +11,12 @@ export const terraformConfig: LanguageConfig = {
   extensions: ['.tf'],
   localPaths: [], // Terraform is usually system-installed
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string) => {
-    const relativePath = relative(projectRoot, file);
-    return [toolCommand, 'fmt', '-check', '-diff', relativePath];
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string) => {
+    const relativePath = relative(_projectRoot, _file);
+    return ['fmt', '-check', '-diff', relativePath];
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     
     // Terraform fmt outputs diff to stderr when formatting issues found

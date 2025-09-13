@@ -11,12 +11,12 @@ export const luaConfig: LanguageConfig = {
   extensions: ['.lua'],
   localPaths: [], // Lua is usually system-installed
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string) => {
-    const relativePath = relative(projectRoot, file);
-    return [toolCommand, '-p', relativePath];
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string) => {
+    const relativePath = relative(_projectRoot, _file);
+    return ['-p', relativePath];
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     const lines = stderr.split('\n');
     

@@ -27,7 +27,7 @@ export const typescriptConfig: LanguageConfig = {
   extensions: ['.ts', '.tsx', '.mts', '.cts'],
   localPaths: ['node_modules/.bin/tsc'],
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => {
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['--noEmit', '--pretty', 'false'];
     
     // If we have a temporary tsconfig from setupCommand, use it
@@ -35,14 +35,14 @@ export const typescriptConfig: LanguageConfig = {
       args.push('--project', context.tempTsconfigPath);
     } else {
       // Just check the single file
-      args.push(file);
+      args.push(_file);
     }
     
     return args;
   },
 
-  setupCommand: async (file: string, projectRoot: string) => {
-    const tsconfigRoot = findTsconfigRoot(file);
+  setupCommand: async (_file: string, _projectRoot: string) => {
+    const tsconfigRoot = findTsconfigRoot(_file);
     let tempTsconfigPath: string | null = null;
 
     if (tsconfigRoot) {
@@ -62,7 +62,7 @@ export const typescriptConfig: LanguageConfig = {
         };
 
         // Use a unique temp file name to avoid conflicts
-        tempTsconfigPath = join(projectRoot, `tsconfig.temp.${Date.now()}.json`);
+        tempTsconfigPath = join(_projectRoot, `tsconfig.temp.${Date.now()}.json`);
         writeFileSync(tempTsconfigPath, JSON.stringify(tempTsconfig, null, 2));
 
         if (process.env.DEBUG) {
@@ -75,7 +75,7 @@ export const typescriptConfig: LanguageConfig = {
     }
 
     return {
-      context: tempTsconfigPath ? { tempTsconfigPath } : undefined,
+      _context: tempTsconfigPath ? { tempTsconfigPath } : undefined,
       cleanup: tempTsconfigPath ? () => {
         try {
           if (existsSync(tempTsconfigPath!)) {
@@ -91,7 +91,7 @@ export const typescriptConfig: LanguageConfig = {
     };
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: Array<{
       line: number;
       column: number;
@@ -120,7 +120,7 @@ export const typescriptConfig: LanguageConfig = {
       const colNum = parseInt(colStr, 10);
 
       // Skip if this diagnostic should be filtered
-      if (shouldSkipDiagnostic(message, file)) {
+      if (shouldSkipDiagnostic(message, _file)) {
         continue;
       }
 
@@ -135,8 +135,8 @@ export const typescriptConfig: LanguageConfig = {
     return diagnostics;
   },
 
-  detectConfig: (projectRoot: string) => {
-    return existsSync(join(projectRoot, 'tsconfig.json')) ||
-           existsSync(join(projectRoot, 'package.json'));
+  detectConfig: (_projectRoot: string) => {
+    return existsSync(join(_projectRoot, 'tsconfig.json')) ||
+           existsSync(join(_projectRoot, 'package.json'));
   },
 };

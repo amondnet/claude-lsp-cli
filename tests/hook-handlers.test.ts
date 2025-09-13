@@ -24,7 +24,10 @@ async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: nu
     return { exitCode: undefined };
   } catch (error: any) {
     if (error.message && error.message.includes('process.exit')) {
-      return { exitCode: error.exitCode, errorMessage: error.message };
+      // Extract exit code from the error message
+      const match = error.message.match(/process\.exit\((\d+)\)/);
+      const code = match ? parseInt(match[1]) : error.exitCode ?? 0;
+      return { exitCode: code, errorMessage: error.message };
     }
     throw error;
   }
@@ -65,17 +68,17 @@ describe('Hook Handlers', () => {
   describe('handlePostToolUse', () => {
     test('should exit gracefully with empty input', async () => {
       const result = await runHookAndCaptureExit(handlePostToolUse(''));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(0); // Empty input exits cleanly with 0
     });
 
     test('should exit gracefully with whitespace-only input', async () => {
       const result = await runHookAndCaptureExit(handlePostToolUse('   \n\t  '));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(0); // Whitespace input exits cleanly with 0
     });
 
     test('should exit gracefully with invalid JSON', async () => {
       const result = await runHookAndCaptureExit(handlePostToolUse('not json'));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(0); // Invalid JSON exits cleanly with 0
     });
 
     test('should exit gracefully when no files extracted', async () => {
@@ -84,14 +87,14 @@ describe('Hook Handlers', () => {
         cwd: '/test/dir'
       };
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(0); // No files extracted exits cleanly with 0
     });
 
     test('should check file and report diagnostics', async () => {
       // Mock checkFile to return diagnostics
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockResolvedValue({
-        file: 'test.ts',
+        _file: 'test.ts',
         tool: 'typescript',
         diagnostics: [
           {
@@ -116,7 +119,7 @@ describe('Hook Handlers', () => {
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
       
       expect(mockCheckFile).toHaveBeenCalledWith('/test/dir/test.ts');
       expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts', 1);
@@ -134,7 +137,7 @@ describe('Hook Handlers', () => {
       mockCheckFile.mockImplementation(async (path: string) => {
         if (path.includes('test1.ts')) {
           return {
-            file: 'test1.ts',
+            _file: 'test1.ts',
             tool: 'typescript',
             diagnostics: [{
               severity: 'error' as const,
@@ -145,7 +148,7 @@ describe('Hook Handlers', () => {
           };
         } else if (path.includes('test2.py')) {
           return {
-            file: 'test2.py',
+            _file: 'test2.py',
             tool: 'python',
             diagnostics: [{
               severity: 'warning' as const,
@@ -171,7 +174,7 @@ describe('Hook Handlers', () => {
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
       
       expect(mockCheckFile).toHaveBeenCalledTimes(2);
       const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
@@ -189,7 +192,7 @@ describe('Hook Handlers', () => {
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(0); // Disabled language exits cleanly with 0
       expect(mockCheckFile).toHaveBeenCalled();
       expect(consoleErrorOutput.find(o => o.includes('[[system-message]]'))).toBeUndefined();
     });
@@ -198,7 +201,7 @@ describe('Hook Handlers', () => {
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockClear();
       mockCheckFile.mockResolvedValue({
-        file: 'test.ts',
+        _file: 'test.ts',
         tool: 'typescript',
         diagnostics: [{
           severity: 'error' as const,
@@ -217,17 +220,20 @@ describe('Hook Handlers', () => {
       const hookData = {
         tool_input: {
           file_path: 'test.ts'
-        }
+        },
+        cwd: process.cwd() // Add cwd to avoid issues with path resolution
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      
+      expect(result.exitCode).toBe(0); // Should exit 0 when duplicated results are suppressed
       
       expect(mockCheckFile).toHaveBeenCalled();
       expect(mockShouldShow).toHaveBeenCalled();
       expect(mockMarkShown).not.toHaveBeenCalled(); // Should not mark if not shown
       expect(consoleErrorOutput.find(o => o.includes('[[system-message]]'))).toBeUndefined();
-      expect(consoleErrorOutput.some(o => o.includes('Hook processing failed'))).toBe(true);
+      // The "Hook processing failed" message comes from catching the mocked process.exit, not a real error
+      // So we don't check for it here
     });
 
     test('should limit diagnostics to maximum 5 items', async () => {
@@ -240,7 +246,7 @@ describe('Hook Handlers', () => {
       }));
       
       mockCheckFile.mockResolvedValue({
-        file: 'test.ts',
+        _file: 'test.ts',
         tool: 'typescript',
         diagnostics: manyDiagnostics
       });
@@ -256,7 +262,7 @@ describe('Hook Handlers', () => {
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
       
       const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
       const parsed = JSON.parse(errorOutput!.replace('[[system-message]]:', ''));
@@ -291,14 +297,14 @@ describe('Hook Handlers', () => {
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(0); // No diagnostics exits cleanly with 0
       expect(mockCheckFile).toHaveBeenCalledWith('/absolute/path/test.ts'); // Should use absolute path as-is
     });
 
     test('should filter to only show errors and warnings', async () => {
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockResolvedValue({
-        file: 'test.ts',
+        _file: 'test.ts',
         tool: 'typescript',
         diagnostics: [
           { severity: 'error' as const, message: 'Error', line: 1, column: 1 },
@@ -316,7 +322,7 @@ describe('Hook Handlers', () => {
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      expect(result.exitCode).toBe(1); // Outer catch exits with 1
+      expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
       
       const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
       const parsed = JSON.parse(errorOutput!.replace('[[system-message]]:', ''));
@@ -345,7 +351,7 @@ describe('Hook Handlers', () => {
         },
         {
           name: 'output in tool_response',
-          data: { tool_response: { output: 'Modified file: src/main.go' } },
+          data: { tool_response: { output: 'Modified _file: src/main.go' } },
           expected: ['src/main.go']
         },
         {
@@ -369,13 +375,13 @@ describe('Hook Handlers', () => {
         mockCheckFile.mockClear();
         
         const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(testCase.data)));
-        expect(result.exitCode).toBe(1); // Outer catch exits with 1
+        expect(result.exitCode).toBe(0); // No diagnostics exits cleanly with 0
         
         expect(mockCheckFile).toHaveBeenCalledTimes(testCase.expected.length);
         
         // Verify each expected file was checked
         for (const file of testCase.expected) {
-          const expectedPath = file.startsWith('/') ? file : join(process.cwd(), file);
+          const expectedPath = file.startsWith('/') ? file : join(process.cwd(), _file);
           expect(mockCheckFile).toHaveBeenCalledWith(expectedPath);
         }
       }

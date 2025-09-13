@@ -18,7 +18,14 @@ A lightweight, file-based diagnostics CLI for Claude Code that provides real-tim
 
 ## 📦 Installation
 
-### From Source (Recommended)
+### Quick Install (Recommended)
+
+```bash
+# One-line installation (downloads pre-built binary)
+curl -fsSL https://raw.githubusercontent.com/teamchong/claude-lsp-cli/main/install-one-liner.sh | bash
+```
+
+### From Source
 
 Choose the installer based on your shell:
 
@@ -29,9 +36,20 @@ Choose the installer based on your shell:
 git clone https://github.com/teamchong/claude-lsp-cli.git
 cd claude-lsp-cli
 
-# Install with automatic setup
+# Interactive installation (auto-detects best location)
 ./install.sh
+# - If ~/.local/bin is in PATH: installs there (no sudo)
+# - Otherwise: asks if you want system-wide (/usr/local/bin with sudo) 
+#   or user-local (add to PATH manually)
+
+# Force user directory installation (no sudo, may need PATH setup)
+CLAUDE_LSP_SYSTEM_INSTALL=false ./install.sh
+
+# Force system-wide installation (requires sudo, works immediately)
+CLAUDE_LSP_SYSTEM_INSTALL=true ./install.sh
 ```
+
+**Important:** For the `!claude-lsp-cli` commands to work in Claude Code, the binary must be in your PATH. The installer will guide you if PATH setup is needed.
 
 #### Option 2: PowerShell Scripts (Cross-Platform)
 
@@ -70,7 +88,7 @@ The installer automatically:
 npm install -g claude-lsp-cli-lsp
 
 # Or use directly with npx
-npx claude-lsp-cli diagnostics src/file.ts
+npx claude-lsp-cli check src/file.ts
 ```
 
 ## 🎯 Usage
@@ -82,7 +100,7 @@ npx claude-lsp-cli diagnostics src/file.ts
 claude-lsp-cli
 
 # Check a specific file
-claude-lsp-cli diagnostics src/index.ts
+claude-lsp-cli check src/index.ts
 
 # Enable/disable languages
 claude-lsp-cli disable python
@@ -159,16 +177,16 @@ Test the diagnostics with example files:
 
 ```bash
 # TypeScript - multiple errors
-claude-lsp-cli diagnostics examples/typescript-project/src/index.ts
+claude-lsp-cli check examples/typescript-project/src/index.ts
 
 # Python - multiple errors
-claude-lsp-cli diagnostics examples/python-project/main.py
+claude-lsp-cli check examples/python-project/main.py
 
 # Go - multiple errors
-claude-lsp-cli diagnostics examples/go-project/cmd/server/main.go
+claude-lsp-cli check examples/go-project/cmd/server/main.go
 
 # Rust - multiple errors
-claude-lsp-cli diagnostics examples/rust-project/src/main.rs
+claude-lsp-cli check examples/rust-project/src/main.rs
 ```
 
 ## ⚙️ Configuration
@@ -255,7 +273,7 @@ bun install
 bun run build
 
 # Test locally
-./bin/claude-lsp-cli diagnostics src/cli.ts
+./bin/claude-lsp-cli check src/cli.ts
 ```
 
 ### Publishing to NPM

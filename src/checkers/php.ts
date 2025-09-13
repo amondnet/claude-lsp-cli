@@ -13,12 +13,12 @@ export const phpConfig: LanguageConfig = {
   extensions: ['.php'],
   localPaths: [], // PHP is usually system-installed
 
-  detectConfig: (projectRoot: string) => {
-    return existsSync(join(projectRoot, 'composer.json'));
+  detectConfig: (_projectRoot: string) => {
+    return existsSync(join(_projectRoot, 'composer.json'));
   },
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => {
-    const relativePath = relative(projectRoot, file);
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+    const relativePath = relative(_projectRoot, _file);
     const args = [];
     
     const hasComposerJson = context?.hasComposerJson;
@@ -26,7 +26,7 @@ export const phpConfig: LanguageConfig = {
     
     if (hasComposerJson && hasVendorAutoload) {
       // Include Composer autoloader for better class resolution
-      args.push('-d', `auto_prepend_file=${join(projectRoot, 'vendor', 'autoload.php')}`);
+      args.push('-d', `auto_prepend_file=${join(_projectRoot, 'vendor', 'autoload.php')}`);
     }
     
     // Add lint flag and file
@@ -34,7 +34,7 @@ export const phpConfig: LanguageConfig = {
     return args;
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     const output = stderr + stdout;
     const lines = output.split('\n');
@@ -77,12 +77,12 @@ export const phpConfig: LanguageConfig = {
     return diagnostics;
   },
 
-  setupCommand: async (file: string, projectRoot: string) => {
-    const hasComposerJson = existsSync(join(projectRoot, 'composer.json'));
-    const hasVendorAutoload = existsSync(join(projectRoot, 'vendor', 'autoload.php'));
+  setupCommand: async (_file: string, _projectRoot: string) => {
+    const hasComposerJson = existsSync(join(_projectRoot, 'composer.json'));
+    const hasVendorAutoload = existsSync(join(_projectRoot, 'vendor', 'autoload.php'));
     
     return {
-      context: { hasComposerJson, hasVendorAutoload }
+      _context: { hasComposerJson, hasVendorAutoload }
     };
   }
 };

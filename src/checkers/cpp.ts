@@ -10,11 +10,11 @@ export const cppConfig: LanguageConfig = {
   extensions: ['.cpp', '.cxx', '.cc', '.c', '.h'],
   localPaths: [], // GCC is usually system-installed
 
-  buildArgs: (file: string, projectRoot: string, toolCommand: string) => {
-    return [toolCommand, '-fsyntax-only', '-Wall', file];
+  buildArgs: (file: string, _projectRoot: string, _toolCommand: string) => {
+    return ['-fsyntax-only', '-Wall', file];
   },
 
-  parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => {
+  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics = [];
     const lines = stderr.split('\n');
     

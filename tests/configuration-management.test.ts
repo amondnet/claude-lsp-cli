@@ -516,11 +516,11 @@ describe('Configuration Management', () => {
   describe('Integration scenarios', () => {
     test('should handle rapid enable/disable cycles', async () => {
       for (let i = 0; i < 10; i++) {
-        await configModule.disableLanguage('python');
+        await configModule.disableLanguage('python', false);
         let config = configModule.loadConfig();
         expect(config.disablePython).toBe(true);
 
-        await configModule.enableLanguage('python');
+        await configModule.enableLanguage('python', false);
         config = configModule.loadConfig();
         expect(config.disablePython).toBe(false);
       }
@@ -531,7 +531,7 @@ describe('Configuration Management', () => {
       
       // Disable all
       for (const lang of languages) {
-        await configModule.disableLanguage(lang);
+        await configModule.disableLanguage(lang, false);
       }
 
       let config = configModule.loadConfig();
@@ -542,7 +542,7 @@ describe('Configuration Management', () => {
 
       // Enable all
       for (const lang of languages) {
-        await configModule.enableLanguage(lang);
+        await configModule.enableLanguage(lang, false);
       }
 
       config = configModule.loadConfig();
@@ -554,12 +554,12 @@ describe('Configuration Management', () => {
 
     test('should handle mixed enable/disable operations', async () => {
       // Start with some languages disabled
-      await configModule.disableLanguage('python');
-      await configModule.disableLanguage('typescript');
+      await configModule.disableLanguage('python', false);
+      await configModule.disableLanguage('typescript', false);
 
       // Enable one, disable another
-      await configModule.enableLanguage('python');
-      await configModule.disableLanguage('go');
+      await configModule.enableLanguage('python', false);
+      await configModule.disableLanguage('go', false);
 
       const config = configModule.loadConfig();
       expect(config.disablePython).toBe(false);
@@ -569,12 +569,12 @@ describe('Configuration Management', () => {
 
     test('should handle global disable followed by specific enables', async () => {
       // Disable all languages
-      await configModule.disableLanguage('all');
+      await configModule.disableLanguage('all', false);
       let config = configModule.loadConfig();
       expect(config.disable).toBe(true);
 
       // Enable specific language (should override global setting)
-      await configModule.enableLanguage('python');
+      await configModule.enableLanguage('python', false);
       config = configModule.loadConfig();
       expect(config.disable).toBe(true); // Global still disabled
       expect(config.disablePython).toBe(false); // But Python specifically enabled

@@ -23,7 +23,7 @@ interface PerformanceMetrics {
 }
 
 class PerformanceTester {
-  private setupTestDir(): void {
+  public setupTestDir(): void {
     try {
       rmSync(PERFORMANCE_TEST_DIR, { recursive: true, force: true });
     } catch {
@@ -32,7 +32,7 @@ class PerformanceTester {
     mkdirSync(PERFORMANCE_TEST_DIR, { recursive: true });
   }
 
-  private async measurePerformance(filePath: string): Promise<PerformanceMetrics> {
+  public async measurePerformance(filePath: string): Promise<PerformanceMetrics> {
     const fileSizeBytes = statSync(filePath).size;
     
     // Force garbage collection if available
@@ -312,7 +312,7 @@ describe("Performance Tests", () => {
     // Should detect the intentional type errors
     expect(metrics.diagnosticCount).toBeGreaterThan(0);
     
-    console.log(`TypeScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} diagnostics`);
+    console.log(`TypeScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
   }, 10000); // 10 second timeout
 
   it("Python file checking should complete within performance threshold", async () => {
@@ -322,7 +322,7 @@ describe("Performance Tests", () => {
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
     
     // Python might not have diagnostics if pyright is not available
-    console.log(`Python performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} diagnostics`);
+    console.log(`Python performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
   }, 10000);
 
   it("JavaScript file checking should complete within performance threshold", async () => {
@@ -331,7 +331,7 @@ describe("Performance Tests", () => {
     expect(metrics.executionTimeMs).toBeLessThan(PERFORMANCE_THRESHOLD_MS);
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
     
-    console.log(`JavaScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} diagnostics`);
+    console.log(`JavaScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
   }, 10000);
 
   it("should maintain consistent performance across multiple runs", async () => {
@@ -374,7 +374,7 @@ console.log(undefinedVar${i}); // Undefined variable
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
     expect(metrics.diagnosticCount).toBeGreaterThan(10); // Should find many errors
     
-    console.log(`Large diagnostics performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} diagnostics`);
+    console.log(`Large diagnostics performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
   }, 15000);
 });
 

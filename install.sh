@@ -5,7 +5,48 @@
 
 set -e
 
-INSTALL_DIR="/usr/local/bin"
+# Determine installation directory
+if [ "${CLAUDE_LSP_SYSTEM_INSTALL:-}" = "true" ]; then
+    INSTALL_DIR="/usr/local/bin"
+elif [ "${CLAUDE_LSP_SYSTEM_INSTALL:-}" = "false" ]; then
+    INSTALL_DIR="$HOME/.local/bin"
+else
+    # Auto-detect best installation path
+    USER_DIR="$HOME/.local/bin"
+    SYSTEM_DIR="/usr/local/bin"
+    
+    # Check if user dir is in PATH
+    if [[ ":$PATH:" == *":$USER_DIR:"* ]]; then
+        echo "✅ Found $USER_DIR in PATH - will install there (no sudo needed)"
+        INSTALL_DIR="$USER_DIR"
+    else
+        echo "⚠️  $USER_DIR is not in your PATH"
+        echo ""
+        echo "Choose installation location:"
+        echo "1) $SYSTEM_DIR (requires sudo, but works immediately)"
+        echo "2) $USER_DIR (no sudo, but you'll need to add to PATH)"
+        echo ""
+        read -p "Enter choice (1 or 2): " choice
+        
+        case $choice in
+            1)
+                INSTALL_DIR="$SYSTEM_DIR"
+                CLAUDE_LSP_SYSTEM_INSTALL=true
+                echo "→ Installing to $SYSTEM_DIR (will require sudo)"
+                ;;
+            2)
+                INSTALL_DIR="$USER_DIR"
+                CLAUDE_LSP_SYSTEM_INSTALL=false
+                echo "→ Installing to $USER_DIR (no sudo needed)"
+                ;;
+            *)
+                echo "Invalid choice, defaulting to user directory"
+                INSTALL_DIR="$USER_DIR"
+                CLAUDE_LSP_SYSTEM_INSTALL=false
+                ;;
+        esac
+    fi
+fi
 DATA_DIR="$HOME/.local/share/claude-lsp"
 # Use environment variable if set, otherwise default to ~/.claude
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -78,17 +119,30 @@ if pgrep -f "claude-lsp-cli" > /dev/null 2>&1; then
 fi
 
 # Create install directory if needed
-sudo mkdir -p "$INSTALL_DIR"
+if [ "${CLAUDE_LSP_SYSTEM_INSTALL:-false}" = "true" ]; then
+    sudo mkdir -p "$INSTALL_DIR"
+else
+    mkdir -p "$INSTALL_DIR"
+fi
 
 # Use install command which handles busy files better, or force copy
 if command -v install &> /dev/null; then
-    sudo install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    if [ "${CLAUDE_LSP_SYSTEM_INSTALL:-false}" = "true" ]; then
+        sudo install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    else
+        install -m 755 "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+    fi
 else
     # Fallback: remove existing file first if it exists
-    [ -f "$INSTALL_DIR/claude-lsp-cli" ] && sudo rm -f "$INSTALL_DIR/claude-lsp-cli"
-    
-    sudo cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
-    sudo chmod +x "$INSTALL_DIR/claude-lsp-cli"
+    if [ "${CLAUDE_LSP_SYSTEM_INSTALL:-false}" = "true" ]; then
+        [ -f "$INSTALL_DIR/claude-lsp-cli" ] && sudo rm -f "$INSTALL_DIR/claude-lsp-cli"
+        sudo cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+        sudo chmod +x "$INSTALL_DIR/claude-lsp-cli"
+    else
+        [ -f "$INSTALL_DIR/claude-lsp-cli" ] && rm -f "$INSTALL_DIR/claude-lsp-cli"
+        cp "$SCRIPT_DIR/bin/claude-lsp-cli" "$INSTALL_DIR/"
+        chmod +x "$INSTALL_DIR/claude-lsp-cli"
+    fi
 fi
 
 echo "✅ Installed binary from $SCRIPT_DIR/bin/ to $INSTALL_DIR/"
@@ -235,12 +289,56 @@ EOF
     echo "✅ Created settings.json with hooks"
 fi
 
-# Check if PATH contains install directory
+# Check if PATH contains install directory and offer to add it
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo ""
-    echo "⚠️  Add $INSTALL_DIR to your PATH:"
-    echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc"
-    echo "    source ~/.zshrc"
+    echo "⚠️  WARNING: $INSTALL_DIR is not in your PATH!"
+    echo ""
+    echo "The !claude-lsp-cli commands will NOT work in Claude Code until it's in PATH."
+    echo ""
+    
+    # Detect shell config file
+    if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+        SHELL_RC="$HOME/.zshrc"
+        SHELL_NAME="zsh"
+    elif [ -n "$BASH_VERSION" ] || [ -f "$HOME/.bashrc" ]; then
+        SHELL_RC="$HOME/.bashrc"
+        SHELL_NAME="bash"
+    elif [ -f "$HOME/.profile" ]; then
+        SHELL_RC="$HOME/.profile"
+        SHELL_NAME="sh"
+    else
+        SHELL_RC=""
+        SHELL_NAME="unknown"
+    fi
+    
+    if [ -n "$SHELL_RC" ]; then
+        echo "Would you like to add $INSTALL_DIR to your PATH automatically?"
+        read -p "This will modify $SHELL_RC (y/N): " add_to_path
+        
+        if [[ "$add_to_path" =~ ^[Yy]$ ]]; then
+            # Add to PATH in shell config
+            echo "" >> "$SHELL_RC"
+            echo "# Added by claude-lsp-cli installer" >> "$SHELL_RC"
+            echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$SHELL_RC"
+            echo "✅ Added to $SHELL_RC"
+            echo ""
+            echo "Run this to update your current session:"
+            echo "    source $SHELL_RC"
+        else
+            echo ""
+            echo "To add manually, run:"
+            echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $SHELL_RC"
+            echo "    source $SHELL_RC"
+        fi
+    else
+        echo "To add to PATH, run:"
+        echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
+    fi
+    
+    echo ""
+    echo "OR reinstall with system-wide installation (requires sudo):"
+    echo "    CLAUDE_LSP_SYSTEM_INSTALL=true ./install.sh"
 fi
 
 echo ""

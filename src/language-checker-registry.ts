@@ -20,7 +20,7 @@ export interface LanguageConfig {
   /** Local binary paths to check (relative to project root and CWD) */
   localPaths: string[];
   /** Function to build command arguments */
-  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => string[];
+  buildArgs: (file: string, projectRoot: string, toolCommand: string, context?: any) => { tool?: string; args: string[] } | string[];
   /** Function to parse tool output into diagnostics */
   parseOutput: (stdout: string, stderr: string, file: string, projectRoot: string) => FileCheckResult['diagnostics'];
   /** Optional: project configuration detection */

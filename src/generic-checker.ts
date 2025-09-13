@@ -6,7 +6,7 @@
  */
 
 import { existsSync } from 'fs';
-import { extname } from 'path';
+import { extname , join } from 'path';
 import { spawn } from 'bun';
 import type { FileCheckResult } from './file-checker.js';
 import { LANGUAGE_REGISTRY, findLocalTool, createResult } from './language-checker-registry.js';
@@ -44,7 +44,6 @@ async function runCommand(
 
 // Import the config reading function from the main file-checker module
 import { readFileSync } from 'fs';
-import { join } from 'path';
 import { homedir } from 'os';
 
 /**
@@ -125,10 +124,21 @@ export async function checkFileWithRegistry(
 
   try {
     // Build command arguments
-    const args = langConfig.buildArgs(filePath, projectRoot, toolCommand, setupContext);
+    const buildResult = langConfig.buildArgs(filePath, projectRoot, toolCommand, setupContext);
+    
+    // Handle both old array format and new object format
+    let finalTool = toolCommand;
+    let args: string[];
+    
+    if (Array.isArray(buildResult)) {
+      args = buildResult;
+    } else {
+      finalTool = buildResult.tool || toolCommand;
+      args = buildResult.args;
+    }
     
     // Prepend the tool command to the arguments array
-    const fullCommand = [toolCommand, ...args];
+    const fullCommand = [finalTool, ...args];
 
     if (process.env.DEBUG) {
       console.error(`Running ${langConfig.name} checker:`, fullCommand.join(' '));

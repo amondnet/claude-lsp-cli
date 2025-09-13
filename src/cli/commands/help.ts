@@ -1,11 +1,10 @@
 import { spawn } from 'bun';
 import { loadConfig } from './config';
-import { globalSettings } from '../utils/global-settings';
 
 export async function showHelp(log: (..._args: any) => any = console.log): Promise<string> {
   const helpText = `Claude LSP CLI - File-based diagnostics for Claude Code
 
-Usage: claude-lsp-cli [options] <command> [args]
+Usage: claude-lsp-cli <command> [args]
 
 Commands:
   hook <event>             Handle Claude Code hook events
@@ -13,14 +12,6 @@ Commands:
   disable <language>       Disable language checking globally (e.g. disable scala)
   enable <language>        Enable language checking globally (e.g. enable scala)
   help                     Show this help message
-
-Global Options:
-  --port, -p <port>        Set port for language servers
-  --browser, -b <name>     Set browser for web-based tools
-
-Environment Variables:
-  PORT                     Default port for language servers
-  BROWSER                  Default browser for web-based tools
 `;
   const status = await showStatus();
   const fullMessage = helpText + status;
@@ -58,19 +49,6 @@ export async function showStatus(log: (..._args: any) => any = console.log): Pro
   messages.push(`
 Current Status:
 `);
-
-  // Show global settings if configured
-  const settings = globalSettings.getAll();
-  if (settings.port || settings.browser) {
-    messages.push('Global Settings:');
-    if (settings.port) {
-      messages.push(`  Port: ${settings.port}`);
-    }
-    if (settings.browser) {
-      messages.push(`  Browser: ${settings.browser}`);
-    }
-    messages.push('');
-  }
 
   if (globalDisabled) {
     messages.push('  🚫 All language checking is DISABLED via config');

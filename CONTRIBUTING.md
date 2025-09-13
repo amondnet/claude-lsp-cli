@@ -275,10 +275,10 @@ List any breaking changes and migration instructions.
 
 ```bash
 # Test CLI during development
-bun run src/cli.ts diagnostics examples/typescript-project/src/index.ts
+bun run src/cli.ts check examples/typescript-project/src/index.ts
 
 # Test built binary
-./bin/claude-lsp-cli diagnostics examples/python-project/main.py
+./bin/claude-lsp-cli check examples/python-project/main.py
 
 # Run specific test files
 bun test tests/file-checker.test.ts
