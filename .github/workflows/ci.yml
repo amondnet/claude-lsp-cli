@@ -27,7 +27,7 @@ jobs:
           sudo apt-get update
           
           # Install commonly available language tools
-          sudo apt-get install -y scala default-jdk lua5.3 lua5.3-dev elixir
+          sudo apt-get install -y golang-go scala default-jdk lua5.3 lua5.3-dev elixir
           
           # Install Rust via rustup (official way)
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -40,6 +40,7 @@ jobs:
           
           # Show what's available
           echo "Checking installed system tools:"
+          which go && go version || echo "Go not found"
           which javac && javac -version || echo "Java not found"
           which rustc && rustc --version || echo "Rust not found" 
           which scalac && scalac -version || echo "Scala not found"
