@@ -19,29 +19,29 @@ export const lspConfigs = {
 
   /** Config with some languages disabled */
   someDisabled: (): LspConfig => ({
-    disabled: ['python', 'scala']
+    disabled: ['python', 'scala'],
   }),
 
   /** Config with many languages disabled */
   manyDisabled: (): LspConfig => ({
-    disabled: ['python', 'scala', 'java', 'rust', 'go']
+    disabled: ['python', 'scala', 'java', 'rust', 'go'],
   }),
 
   /** Config with explicit enabled languages */
   explicitEnabled: (): LspConfig => ({
-    enabled: ['typescript', 'javascript', 'python']
+    enabled: ['typescript', 'javascript', 'python'],
   }),
 
   /** Config with custom timeout */
   withTimeout: (): LspConfig => ({
     globalTimeout: 45000,
-    disabled: ['scala']
+    disabled: ['scala'],
   }),
 
   /** Config with debug mode */
   withDebug: (): LspConfig => ({
     debugMode: true,
-    disabled: []
+    disabled: [],
   }),
 
   /** Complex configuration */
@@ -52,13 +52,13 @@ export const lspConfigs = {
     customSettings: {
       typescript: {
         strictMode: true,
-        target: 'ES2020'
+        target: 'ES2020',
       },
       python: {
         useMypy: true,
-        strictOptional: false
-      }
-    }
+        strictOptional: false,
+      },
+    },
   }),
 
   /** Invalid JSON structure (for error testing) */
@@ -71,8 +71,8 @@ export const lspConfigs = {
   withUnknownProps: (): LspConfig => ({
     disabled: ['python'],
     unknownProperty: 'should be ignored',
-    anotherUnknown: { nested: true }
-  })
+    anotherUnknown: { nested: true },
+  }),
 };
 
 /**
@@ -81,51 +81,36 @@ export const lspConfigs = {
 export const claudeSettings = {
   /** Empty settings */
   empty: {
-    hooks: {}
+    hooks: {},
   },
 
   /** Settings with existing hooks */
   withExistingHooks: {
     hooks: {
-      PostToolUse: [
-        'existing-hook-1.sh',
-        'existing-hook-2.js'
-      ],
-      UserPromptSubmit: [
-        'prompt-hook.py'
-      ]
-    }
+      PostToolUse: ['existing-hook-1.sh', 'existing-hook-2.js'],
+      UserPromptSubmit: ['prompt-hook.py'],
+    },
   },
 
   /** Settings with LSP hooks already installed */
   withLspHooks: {
     hooks: {
-      PostToolUse: [
-        'claude-lsp-cli hook PostToolUse'
-      ],
-      UserPromptSubmit: [
-        'claude-lsp-cli hook UserPromptSubmit'
-      ]
-    }
+      PostToolUse: ['claude-lsp-cli hook PostToolUse'],
+      UserPromptSubmit: ['claude-lsp-cli hook UserPromptSubmit'],
+    },
   },
 
   /** Settings with mixed hooks */
   mixed: {
     hooks: {
-      PostToolUse: [
-        'existing-hook.sh',
-        'claude-lsp-cli hook PostToolUse'
-      ],
-      UserPromptSubmit: [
-        'claude-lsp-cli hook UserPromptSubmit',
-        'another-hook.py'
-      ]
+      PostToolUse: ['existing-hook.sh', 'claude-lsp-cli hook PostToolUse'],
+      UserPromptSubmit: ['claude-lsp-cli hook UserPromptSubmit', 'another-hook.py'],
     },
     otherSettings: {
       theme: 'dark',
-      fontSize: 14
-    }
-  }
+      fontSize: 14,
+    },
+  },
 };
 
 /**
@@ -136,14 +121,14 @@ export const environmentScenarios = {
   standard: {
     HOME: '/Users/testuser',
     PATH: '/usr/local/bin:/usr/bin:/bin',
-    NODE_ENV: 'test'
+    NODE_ENV: 'test',
   },
 
   /** Windows environment */
   windows: {
     USERPROFILE: 'C:\\Users\\testuser',
     PATH: 'C:\\Windows\\System32;C:\\Program Files\\nodejs',
-    OS: 'Windows_NT'
+    OS: 'Windows_NT',
   },
 
   /** Linux environment */
@@ -151,21 +136,21 @@ export const environmentScenarios = {
     HOME: '/home/testuser',
     PATH: '/usr/local/bin:/usr/bin:/bin',
     USER: 'testuser',
-    SHELL: '/bin/bash'
+    SHELL: '/bin/bash',
   },
 
   /** Limited environment (CI-like) */
   limited: {
     HOME: '/tmp/test-home',
     PATH: '/usr/bin:/bin',
-    CI: 'true'
+    CI: 'true',
   },
 
   /** Environment without nodejs tools */
   noNodejs: {
     HOME: '/Users/testuser',
-    PATH: '/usr/bin:/bin' // No /usr/local/bin where node tools usually are
-  }
+    PATH: '/usr/bin:/bin', // No /usr/local/bin where node tools usually are
+  },
 };
 
 /**
@@ -176,7 +161,7 @@ export const directoryStructures = {
   simple: {
     'package.json': '{"name": "test-project", "version": "1.0.0"}',
     'src/index.ts': 'console.log("Hello, world!");',
-    'src/utils.ts': 'export const utils = {};'
+    'src/utils.ts': 'export const utils = {};',
   },
 
   /** Complex project structure */
@@ -187,7 +172,7 @@ export const directoryStructures = {
     'src/utils.ts': 'export const utils = {};',
     'src/components/Button.tsx': 'export const Button = () => <button />;',
     'tests/index.test.ts': 'import { utils } from "../src/utils";',
-    'README.md': '# Test Project'
+    'README.md': '# Test Project',
   },
 
   /** Multi-language project */
@@ -196,7 +181,7 @@ export const directoryStructures = {
     'frontend/src/app.ts': 'console.log("TypeScript");',
     'backend/main.py': 'print("Python")',
     'services/main.go': 'package main\nfunc main() {}',
-    'scripts/build.js': 'console.log("JavaScript");'
+    'scripts/build.js': 'console.log("JavaScript");',
   },
 
   /** Project with configuration files */
@@ -206,8 +191,8 @@ export const directoryStructures = {
     '.prettierrc': '{"semi": true}',
     'tsconfig.json': '{"compilerOptions": {"strict": true}}',
     'jest.config.js': 'module.exports = { preset: "ts-jest" };',
-    'src/index.ts': 'console.log("Hello");'
-  }
+    'src/index.ts': 'console.log("Hello");',
+  },
 };
 
 /**
@@ -269,7 +254,7 @@ export const languageStatuses = {
   Scala: ❌ Disabled
   C++: ❌ Disabled
   Lua: ❌ Disabled
-  Elixir: ❌ Disabled`
+  Elixir: ❌ Disabled`,
 };
 
 /**
@@ -277,10 +262,12 @@ export const languageStatuses = {
  */
 export const commandResults = {
   /** Successful enable command */
-  enableSuccess: (language: string) => `✅ ${language.charAt(0).toUpperCase() + language.slice(1)} checking enabled`,
+  enableSuccess: (language: string) =>
+    `✅ ${language.charAt(0).toUpperCase() + language.slice(1)} checking enabled`,
 
   /** Successful disable command */
-  disableSuccess: (language: string) => `❌ ${language.charAt(0).toUpperCase() + language.slice(1)} checking disabled`,
+  disableSuccess: (language: string) =>
+    `❌ ${language.charAt(0).toUpperCase() + language.slice(1)} checking disabled`,
 
   /** Unknown language error */
   unknownLanguage: (language: string) => `❌ Unknown language: ${language}`,
@@ -306,5 +293,5 @@ Examples:
   claude-lsp-cli check src/index.ts
   claude-lsp-cli enable python
   claude-lsp-cli disable scala
-  claude-lsp-cli status`
+  claude-lsp-cli status`,
 };

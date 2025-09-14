@@ -5,6 +5,7 @@ This directory contains comprehensive test fixtures, mock implementations, and u
 ## Overview
 
 The fixtures system provides:
+
 - **Mock data** for hooks, diagnostics, configurations, and file contents
 - **Mock implementations** for file system, process execution, and other system interactions
 - **Test utilities** for creating temporary directories, timing operations, and assertions
@@ -36,7 +37,7 @@ import {
   typescriptResults,
   MockFileSystem,
   TempDirectory,
-  testUtils
+  testUtils,
 } from './fixtures';
 ```
 
@@ -63,7 +64,7 @@ const errorResult = typescriptResults.withErrors();
 
 // Or create custom results
 const customResult = createDiagnosticResult('python', 'errors', [
-  { line: 5, column: 10, severity: 'error', message: 'Custom error' }
+  { line: 5, column: 10, severity: 'error', message: 'Custom error' },
 ]);
 ```
 
@@ -215,7 +216,7 @@ const event = postToolUseEvents.fileEdit('/test.ts');
 // Avoid: Creating ad-hoc data
 const event = {
   event: 'PostToolUse',
-  data: { tool: 'Edit', args: { file_path: '/test.ts' } }
+  data: { tool: 'Edit', args: { file_path: '/test.ts' } },
 };
 ```
 
@@ -273,8 +274,8 @@ export const newLanguageResults = {
     language: 'newlang',
     diagnosticCount: 0,
     summary: '0 errors, 0 warnings',
-    diagnostics: []
-  })
+    diagnostics: [],
+  }),
 };
 ```
 

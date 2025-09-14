@@ -16,7 +16,14 @@ describe('CLI - Main Entry Point', () => {
   describe('Critical Command: check', () => {
     test('should provide diagnostics for TypeScript errors', async () => {
       // This is the most important feature - getting diagnostics for individual files
-      const testFile = join(import.meta.dir, '..', 'examples', 'typescript-project', 'src', 'index.ts');
+      const testFile = join(
+        import.meta.dir,
+        '..',
+        'examples',
+        'typescript-project',
+        'src',
+        'index.ts'
+      );
 
       const { stdout, stderr } = await exec(`echo "test" | ${CLI_PATH} check ${testFile}`);
 

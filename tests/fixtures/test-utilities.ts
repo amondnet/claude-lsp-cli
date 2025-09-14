@@ -17,7 +17,10 @@ export class TempDirectory {
   private created: Set<string> = new Set();
 
   constructor(prefix: string = 'claude-lsp-test') {
-    this.basePath = join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    this.basePath = join(
+      tmpdir(),
+      `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
     if (!existsSync(this.basePath)) {
       mkdirSync(this.basePath, { recursive: true });
     }
@@ -27,11 +30,11 @@ export class TempDirectory {
   createFile(relativePath: string, content: string): string {
     const fullPath = join(this.basePath, relativePath);
     const dir = join(fullPath, '..');
-    
+
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    
+
     writeFileSync(fullPath, content);
     this.created.add(fullPath);
     return fullPath;
@@ -83,10 +86,10 @@ export class TempDirectory {
     if (!existsSync(fullPath)) {
       return [];
     }
-    
+
     const items = [];
     const entries = readdirSync(fullPath, { withFileTypes: true });
-    
+
     for (const entry of entries) {
       const itemPath = join(relativePath, entry.name);
       if (entry.isFile()) {
@@ -95,7 +98,7 @@ export class TempDirectory {
         items.push(...this.listFiles(itemPath));
       }
     }
-    
+
     return items;
   }
 }
@@ -105,8 +108,7 @@ export class TempDirectory {
  */
 export const asyncUtils = {
   // Sleep for specified milliseconds
-  sleep: (ms: number): Promise<void> => 
-    new Promise(resolve => setTimeout(resolve, ms)),
+  sleep: (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)),
 
   // Wait for condition to be true with timeout
   waitFor: async (
@@ -115,14 +117,14 @@ export const asyncUtils = {
     interval: number = 100
   ): Promise<void> => {
     const startTime = Date.now();
-    
+
     while (Date.now() - startTime < timeout) {
       if (await condition()) {
         return;
       }
       await asyncUtils.sleep(interval);
     }
-    
+
     throw new Error(`Condition not met within ${timeout}ms`);
   },
 
@@ -135,9 +137,9 @@ export const asyncUtils = {
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error(errorMessage)), timeout);
     });
-    
+
     return Promise.race([promise, timeoutPromise]);
-  }
+  },
 };
 
 /**
@@ -188,7 +190,7 @@ export const assertions = {
       return output.includes('[[system-message]]:');
     }
     return typeof output === 'string';
-  }
+  },
 };
 
 /**
@@ -215,20 +217,20 @@ export const generators = {
     const contentMap: Record<string, { clean: string; withErrors: string }> = {
       typescript: {
         clean: 'const message: string = "Hello, world!"; console.log(message);',
-        withErrors: 'const x: string = 42; const y: number = "wrong";'
+        withErrors: 'const x: string = 42; const y: number = "wrong";',
       },
       javascript: {
         clean: 'const message = "Hello, world!"; console.log(message);',
-        withErrors: 'console.log(undefinedVariable);'
+        withErrors: 'console.log(undefinedVariable);',
       },
       python: {
         clean: 'def greet(name: str) -> str:\n    return f"Hello, {name}!"\nprint(greet("World"))',
-        withErrors: 'def func(x: int) -> str:\n    return x + 1'
+        withErrors: 'def func(x: int) -> str:\n    return x + 1',
       },
       go: {
         clean: 'package main\nimport "fmt"\nfunc main() {\n    fmt.Println("Hello")\n}',
-        withErrors: 'package main\nfunc main() {\n    undefinedFunction()\n}'
-      }
+        withErrors: 'package main\nfunc main() {\n    undefinedFunction()\n}',
+      },
     };
 
     const content = contentMap[language];
@@ -246,7 +248,7 @@ export const generators = {
     warningCount: number = 0
   ): DiagnosticResult => {
     const diagnostics: DiagnosticResult['diagnostics'] = [];
-    
+
     // Add errors
     for (let i = 0; i < errorCount; i++) {
       diagnostics.push({
@@ -254,10 +256,10 @@ export const generators = {
         column: 5,
         severity: 'error' as const,
         message: `Test error ${i + 1}`,
-        code: `E${1000 + i}`
+        code: `E${1000 + i}`,
       });
     }
-    
+
     // Add warnings
     for (let i = 0; i < warningCount; i++) {
       diagnostics.push({
@@ -265,7 +267,7 @@ export const generators = {
         column: 8,
         severity: 'warning' as const,
         message: `Test warning ${i + 1}`,
-        code: `W${2000 + i}`
+        code: `W${2000 + i}`,
       });
     }
 
@@ -273,9 +275,9 @@ export const generators = {
       language,
       diagnosticCount: errorCount + warningCount,
       summary: `${errorCount} errors, ${warningCount} warnings`,
-      diagnostics
+      diagnostics,
     };
-  }
+  },
 };
 
 /**
@@ -286,7 +288,7 @@ export const suiteHelpers = {
   createTestSetup: () => {
     const tempDir = new TempDirectory();
     const cleanup = () => tempDir.cleanup();
-    
+
     return { tempDir, cleanup };
   },
 
@@ -299,7 +301,11 @@ export const suiteHelpers = {
   ) => {
     return async () => {
       try {
-        await asyncUtils.withTimeout(testFn(), timeout, `Test "${name}" timed out after ${timeout}ms`);
+        await asyncUtils.withTimeout(
+          testFn(),
+          timeout,
+          `Test "${name}" timed out after ${timeout}ms`
+        );
       } finally {
         if (cleanup) {
           cleanup();
@@ -321,7 +327,7 @@ export const suiteHelpers = {
   // Get platform-specific path separator
   getPathSep: (): string => {
     return process.platform === 'win32' ? '\\' : '/';
-  }
+  },
 };
 
 /**
@@ -334,7 +340,7 @@ export const jsonUtils = {
     if (parts.length < 2) {
       throw new Error('No system message found in output');
     }
-    
+
     const jsonPart = parts[1].trim();
     try {
       return JSON.parse(jsonPart);
@@ -346,18 +352,18 @@ export const jsonUtils = {
   // Extract diagnostic result from CLI output
   extractDiagnosticResult: (output: string): DiagnosticResult => {
     const parsed = jsonUtils.parseSystemMessage(output);
-    
+
     if (!assertions.isValidDiagnosticResult(parsed)) {
       throw new Error('Invalid diagnostic result structure');
     }
-    
+
     return parsed;
   },
 
   // Pretty print JSON for debugging
   prettyPrint: (obj: any): string => {
     return JSON.stringify(obj, null, 2);
-  }
+  },
 };
 
 /**
@@ -382,7 +388,7 @@ export const pathUtils = {
   // Join paths safely
   joinSafe: (...parts: string[]): string => {
     return join(...parts);
-  }
+  },
 };
 
 /**
@@ -404,9 +410,9 @@ export const languageUtils = {
       '.java': 'java',
       '.php': 'php',
       '.scala': 'scala',
-      '.sc': 'scala'
+      '.sc': 'scala',
     };
-    
+
     return languageMap[ext] || null;
   },
 
@@ -420,21 +426,30 @@ export const languageUtils = {
       rust: ['.rs'],
       java: ['.java'],
       php: ['.php'],
-      scala: ['.scala', '.sc']
+      scala: ['.scala', '.sc'],
     };
-    
+
     return extMap[language] || [];
   },
 
   // Check if file is supported
   isLanguageSupported: (language: string): boolean => {
     const supportedLanguages = [
-      'typescript', 'javascript', 'python', 'go', 'rust',
-      'java', 'php', 'scala', 'cpp', 'lua', 'elixir'
+      'typescript',
+      'javascript',
+      'python',
+      'go',
+      'rust',
+      'java',
+      'php',
+      'scala',
+      'cpp',
+      'lua',
+      'elixir',
     ];
-    
+
     return supportedLanguages.includes(language);
-  }
+  },
 };
 
 /**
@@ -448,5 +463,5 @@ export const testUtils = {
   suiteHelpers,
   jsonUtils,
   pathUtils,
-  languageUtils
+  languageUtils,
 };

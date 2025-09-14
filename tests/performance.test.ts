@@ -1,17 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { performance } from "perf_hooks";
-import { checkFile } from "../src/file-checker";
-import { writeFileSync, mkdirSync, rmSync, statSync } from "fs";
-import { join } from "path";
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { performance } from 'perf_hooks';
+import { checkFile } from '../src/file-checker';
+import { writeFileSync, mkdirSync, rmSync, statSync } from 'fs';
+import { join } from 'path';
 
 /**
  * Performance regression tests for claude-lsp-cli
- * 
+ *
  * These tests establish baseline performance metrics and catch regressions.
  * They use small test files to ensure fast execution in CI.
  */
 
-const PERFORMANCE_TEST_DIR = "/tmp/claude-lsp-performance-tests";
+const PERFORMANCE_TEST_DIR = '/tmp/claude-lsp-performance-tests';
 const PERFORMANCE_THRESHOLD_MS = 5000; // Max 5 seconds per check
 const MEMORY_THRESHOLD_MB = 100; // Max 100MB memory increase
 
@@ -34,7 +34,7 @@ class PerformanceTester {
 
   public async measurePerformance(filePath: string): Promise<PerformanceMetrics> {
     const fileSizeBytes = statSync(filePath).size;
-    
+
     // Force garbage collection if available
     if (global.gc) {
       global.gc();
@@ -42,23 +42,23 @@ class PerformanceTester {
 
     const memBefore = process.memoryUsage();
     const startTime = performance.now();
-    
+
     const result = await checkFile(filePath);
-    
+
     const endTime = performance.now();
     const memAfter = process.memoryUsage();
 
     return {
       executionTimeMs: endTime - startTime,
       memoryDeltaMB: (memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024,
-      diagnosticCount: (result && result.diagnostics) ? result.diagnostics.length : 0,
+      diagnosticCount: result && result.diagnostics ? result.diagnostics.length : 0,
       fileSizeBytes,
     };
   }
 
   async testTypeScriptPerformance(): Promise<PerformanceMetrics> {
-    const filePath = join(PERFORMANCE_TEST_DIR, "test.ts");
-    
+    const filePath = join(PERFORMANCE_TEST_DIR, 'test.ts');
+
     // Create a moderately complex TypeScript file with intentional errors
     const content = `
 interface UserData {
@@ -139,8 +139,8 @@ export { UserManager, UserData };
   }
 
   async testPythonPerformance(): Promise<PerformanceMetrics> {
-    const filePath = join(PERFORMANCE_TEST_DIR, "test.py");
-    
+    const filePath = join(PERFORMANCE_TEST_DIR, 'test.py');
+
     const content = `
 from typing import List, Dict, Optional, Union
 import re
@@ -215,8 +215,8 @@ manager.non_existent_method()
   }
 
   async testJavaScriptPerformance(): Promise<PerformanceMetrics> {
-    const filePath = join(PERFORMANCE_TEST_DIR, "test.js");
-    
+    const filePath = join(PERFORMANCE_TEST_DIR, 'test.js');
+
     const content = `
 class UserManager {
   constructor() {
@@ -292,94 +292,107 @@ module.exports = { UserManager };
   }
 }
 
-describe("Performance Tests", () => {
+describe('Performance Tests', () => {
   const tester = new PerformanceTester();
-  
+
   beforeEach(() => {
     tester.setupTestDir();
   });
-  
+
   afterEach(() => {
     tester.cleanup();
   });
 
-  it("TypeScript file checking should complete within performance threshold", async () => {
+  it('TypeScript file checking should complete within performance threshold', async () => {
     const metrics = await tester.testTypeScriptPerformance();
-    
+
     expect(metrics.executionTimeMs).toBeLessThan(PERFORMANCE_THRESHOLD_MS);
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
-    
+
     // Should detect the intentional type errors
     expect(metrics.diagnosticCount).toBeGreaterThan(0);
-    
-    console.log(`TypeScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
+
+    console.log(
+      `TypeScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`
+    );
   }, 10000); // 10 second timeout
 
-  it("Python file checking should complete within performance threshold", async () => {
+  it('Python file checking should complete within performance threshold', async () => {
     const metrics = await tester.testPythonPerformance();
-    
+
     expect(metrics.executionTimeMs).toBeLessThan(PERFORMANCE_THRESHOLD_MS);
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
-    
+
     // Python might not have diagnostics if pyright is not available
-    console.log(`Python performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
+    console.log(
+      `Python performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`
+    );
   }, 10000);
 
-  it("JavaScript file checking should complete within performance threshold", async () => {
+  it('JavaScript file checking should complete within performance threshold', async () => {
     const metrics = await tester.testJavaScriptPerformance();
-    
+
     expect(metrics.executionTimeMs).toBeLessThan(PERFORMANCE_THRESHOLD_MS);
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
-    
-    console.log(`JavaScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
+
+    console.log(
+      `JavaScript performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`
+    );
   }, 10000);
 
-  it("should maintain consistent performance across multiple runs", async () => {
+  it('should maintain consistent performance across multiple runs', async () => {
     const runs = 3;
     const metrics: PerformanceMetrics[] = [];
-    
+
     // Run TypeScript test multiple times
     for (let i = 0; i < runs; i++) {
       const result = await tester.testTypeScriptPerformance();
       metrics.push(result);
     }
-    
+
     // Calculate variance
-    const times = metrics.map(m => m.executionTimeMs);
+    const times = metrics.map((m) => m.executionTimeMs);
     const avgTime = times.reduce((sum, t) => sum + t, 0) / times.length;
     const variance = times.reduce((sum, t) => sum + Math.pow(t - avgTime, 2), 0) / times.length;
     const standardDeviation = Math.sqrt(variance);
-    
+
     // Standard deviation should be less than 50% of average time
     const coefficientOfVariation = standardDeviation / avgTime;
     expect(coefficientOfVariation).toBeLessThan(0.5);
-    
-    console.log(`Performance consistency: avg ${avgTime.toFixed(2)}ms, std dev ${standardDeviation.toFixed(2)}ms, CV ${(coefficientOfVariation * 100).toFixed(1)}%`);
+
+    console.log(
+      `Performance consistency: avg ${avgTime.toFixed(2)}ms, std dev ${standardDeviation.toFixed(2)}ms, CV ${(coefficientOfVariation * 100).toFixed(1)}%`
+    );
   }, 30000); // 30 second timeout for multiple runs
 
-  it("should handle memory efficiently with large diagnostic output", async () => {
-    const filePath = join(PERFORMANCE_TEST_DIR, "large-diagnostics.ts");
-    
+  it('should handle memory efficiently with large diagnostic output', async () => {
+    const filePath = join(PERFORMANCE_TEST_DIR, 'large-diagnostics.ts');
+
     // Create a file with many errors to test memory handling
-    const errors = Array.from({ length: 50 }, (_, i) => `
+    const errors = Array.from(
+      { length: 50 },
+      (_, i) => `
 const error${i}: string = ${i}; // Type error
 console.log(undefinedVar${i}); // Undefined variable
-`).join('\n');
-    
+`
+    ).join('\n');
+
     writeFileSync(filePath, `// File with many diagnostics\n${errors}`);
-    
+
     const metrics = await tester.measurePerformance(filePath);
-    
+
     expect(metrics.executionTimeMs).toBeLessThan(PERFORMANCE_THRESHOLD_MS);
     expect(metrics.memoryDeltaMB).toBeLessThan(MEMORY_THRESHOLD_MB);
     expect(metrics.diagnosticCount).toBeGreaterThan(10); // Should find many errors
-    
-    console.log(`Large diagnostics performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`);
+
+    console.log(
+      `Large diagnostics performance: ${metrics.executionTimeMs.toFixed(2)}ms, ${metrics.memoryDeltaMB.toFixed(2)}MB, ${metrics.diagnosticCount} check`
+    );
   }, 15000);
 });
 
-describe("Performance Benchmarking Utilities", () => {
-  it("should export performance measurement functionality", () => {
+describe('Performance Benchmarking Utilities', () => {
+  it('should export performance measurement functionality', () => {
     // Test that the performance testing utilities can be imported
     const tester = new PerformanceTester();
     expect(tester).toBeDefined();

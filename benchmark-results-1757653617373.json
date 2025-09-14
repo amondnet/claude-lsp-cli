@@ -16,8 +16,6 @@
     "totalTests": 1,
     "totalTime": 548.5287920000001,
     "averageTime": 548.5287920000001,
-    "languages": [
-      "typescript"
-    ]
+    "languages": ["typescript"]
   }
 }

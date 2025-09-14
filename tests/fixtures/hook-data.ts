@@ -22,10 +22,10 @@ export const postToolUseEvents = {
         command: 'str_replace',
         path: filePath,
         old_str: 'old content',
-        new_str: 'new content'
+        new_str: 'new content',
       },
-      result: 'Edit completed'
-    }
+      result: 'Edit completed',
+    },
   }),
 
   /** Multiple file edits */
@@ -37,14 +37,14 @@ export const postToolUseEvents = {
       parameters: {
         command: 'str_replace',
         paths: filePaths,
-        changes: filePaths.map(path => ({
+        changes: filePaths.map((path) => ({
           path,
           old_str: 'old content',
-          new_str: 'new content'
-        }))
+          new_str: 'new content',
+        })),
       },
-      result: 'Multiple edits completed'
-    }
+      result: 'Multiple edits completed',
+    },
   }),
 
   /** File creation event */
@@ -56,10 +56,10 @@ export const postToolUseEvents = {
       parameters: {
         command: 'create',
         path: filePath,
-        file_text: content
+        file_text: content,
       },
-      result: 'File created'
-    }
+      result: 'File created',
+    },
   }),
 
   /** Write tool usage */
@@ -70,10 +70,10 @@ export const postToolUseEvents = {
       tool: 'Write',
       parameters: {
         file_path: filePath,
-        content: content
+        content: content,
       },
-      result: `Successfully wrote to ${filePath}`
-    }
+      result: `Successfully wrote to ${filePath}`,
+    },
   }),
 
   /** Edit tool usage */
@@ -85,10 +85,10 @@ export const postToolUseEvents = {
       parameters: {
         file_path: filePath,
         old_string: oldStr,
-        new_string: newStr
+        new_string: newStr,
       },
-      result: `Successfully edited ${filePath}`
-    }
+      result: `Successfully edited ${filePath}`,
+    },
   }),
 
   /** Non-file tool (should be ignored) */
@@ -98,10 +98,10 @@ export const postToolUseEvents = {
     data: {
       tool: 'bash',
       parameters: {
-        command: command
+        command: command,
       },
-      result: 'Command executed'
-    }
+      result: 'Command executed',
+    },
   }),
 
   /** Complex nested data */
@@ -117,16 +117,16 @@ export const postToolUseEvents = {
         new_str: 'function test() {\n  console.log("new");\n  return true;\n}',
         _context: {
           lineNumbers: [1, 2, 3],
-          surroundingCode: true
-        }
+          surroundingCode: true,
+        },
       },
       result: 'Complex edit completed',
       metadata: {
         linesChanged: 3,
-        charactersAdded: 15
-      }
-    }
-  })
+        charactersAdded: 15,
+      },
+    },
+  }),
 };
 
 /**
@@ -138,8 +138,8 @@ export const userPromptSubmitEvents = {
     event: 'UserPromptSubmit',
     timestamp: Date.now(),
     data: {
-      prompt: prompt
-    }
+      prompt: prompt,
+    },
   }),
 
   /** LSP command */
@@ -147,8 +147,8 @@ export const userPromptSubmitEvents = {
     event: 'UserPromptSubmit',
     timestamp: Date.now(),
     data: {
-      prompt: `>lsp: ${command}`
-    }
+      prompt: `>lsp: ${command}`,
+    },
   }),
 
   /** Empty prompt */
@@ -156,23 +156,23 @@ export const userPromptSubmitEvents = {
     event: 'UserPromptSubmit',
     timestamp: Date.now(),
     data: {
-      prompt: ''
-    }
+      prompt: '',
+    },
   }),
 
   /** Missing prompt field */
   missingPrompt: (): HookEvent => ({
     event: 'UserPromptSubmit',
     timestamp: Date.now(),
-    data: {}
+    data: {},
   }),
 
   /** Malformed data */
   malformedData: (): HookEvent => ({
     event: 'UserPromptSubmit',
     timestamp: Date.now(),
-    data: null
-  })
+    data: null,
+  }),
 };
 
 /**
@@ -183,21 +183,17 @@ export const testFilePaths = {
   typescript: [
     '/project/src/index.ts',
     '/project/src/components/Button.tsx',
-    '/project/tests/index.test.ts'
+    '/project/tests/index.test.ts',
   ],
 
   /** Python files */
-  python: [
-    '/project/main.py',
-    '/project/src/utils.py',
-    '/project/tests/test_main.py'
-  ],
+  python: ['/project/main.py', '/project/src/utils.py', '/project/tests/test_main.py'],
 
   /** JavaScript files */
   javascript: [
     '/project/src/app.js',
     '/project/config/webpack.config.js',
-    '/project/scripts/build.js'
+    '/project/scripts/build.js',
   ],
 
   /** Mixed language project */
@@ -206,15 +202,11 @@ export const testFilePaths = {
     '/project/api/server.py',
     '/project/config/main.go',
     '/project/styles/app.scss',
-    '/project/README.md'
+    '/project/README.md',
   ],
 
   /** Relative paths (should be converted to absolute) */
-  relative: [
-    'src/index.ts',
-    './components/Button.tsx',
-    '../utils/helper.js'
-  ],
+  relative: ['src/index.ts', './components/Button.tsx', '../utils/helper.js'],
 
   /** Edge cases */
   edgeCases: [
@@ -222,15 +214,18 @@ export const testFilePaths = {
     '/path/with-dashes/file.ts',
     '/path/with_underscores/file.ts',
     '/path/with.dots/file.ts',
-    '/very/deep/nested/directory/structure/file.ts'
-  ]
+    '/very/deep/nested/directory/structure/file.ts',
+  ],
 };
 
 /**
  * Helper to create batch hook events for testing multiple files
  */
-export function createBatchHookEvents(filePaths: string[], eventType: 'edit' | 'create' = 'edit'): HookEvent[] {
-  return filePaths.map(path => {
+export function createBatchHookEvents(
+  filePaths: string[],
+  eventType: 'edit' | 'create' = 'edit'
+): HookEvent[] {
+  return filePaths.map((path) => {
     if (eventType === 'create') {
       return postToolUseEvents.fileCreate(path, `// Generated content for ${path}`);
     }
@@ -255,5 +250,5 @@ export const lspCommands = [
   'disable typescript',
   'check /path/to/file.ts',
   'reset',
-  'version'
+  'version',
 ];

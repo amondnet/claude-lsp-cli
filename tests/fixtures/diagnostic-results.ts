@@ -24,7 +24,7 @@ export const typescriptResults = {
     language: 'typescript',
     diagnosticCount: 0,
     summary: '0 errors, 0 warnings',
-    diagnostics: []
+    diagnostics: [],
   }),
 
   /** TypeScript with errors */
@@ -38,16 +38,16 @@ export const typescriptResults = {
         column: 5,
         severity: 'error',
         message: "Cannot find name 'undefinedVariable'",
-        code: 'TS2304'
+        code: 'TS2304',
       },
       {
         line: 15,
         column: 12,
         severity: 'error',
         message: "Type 'string' is not assignable to type 'number'",
-        code: 'TS2322'
-      }
-    ]
+        code: 'TS2322',
+      },
+    ],
   }),
 
   /** TypeScript with warnings */
@@ -61,9 +61,9 @@ export const typescriptResults = {
         column: 7,
         severity: 'warning',
         message: "'unusedVariable' is declared but its value is never read",
-        code: 'TS6133'
-      }
-    ]
+        code: 'TS6133',
+      },
+    ],
   }),
 
   /** Mixed errors and warnings */
@@ -77,24 +77,24 @@ export const typescriptResults = {
         column: 10,
         severity: 'error',
         message: "Property 'nonexistent' does not exist on type 'Object'",
-        code: 'TS2339'
+        code: 'TS2339',
       },
       {
         line: 12,
         column: 3,
         severity: 'warning',
         message: "'oldFunction' is deprecated",
-        code: 'TS6385'
+        code: 'TS6385',
       },
       {
         line: 18,
         column: 15,
         severity: 'warning',
         message: "Unused import 'React'",
-        code: 'TS6133'
-      }
-    ]
-  })
+        code: 'TS6133',
+      },
+    ],
+  }),
 };
 
 /**
@@ -106,7 +106,7 @@ export const pythonResults = {
     language: 'python',
     diagnosticCount: 0,
     summary: '0 errors, 0 warnings',
-    diagnostics: []
+    diagnostics: [],
   }),
 
   /** Python with syntax errors */
@@ -119,10 +119,10 @@ export const pythonResults = {
         line: 7,
         column: 15,
         severity: 'error',
-        message: "invalid syntax. Perhaps you forgot a comma?",
-        code: 'E999'
-      }
-    ]
+        message: 'invalid syntax. Perhaps you forgot a comma?',
+        code: 'E999',
+      },
+    ],
   }),
 
   /** Python with type errors */
@@ -135,17 +135,17 @@ export const pythonResults = {
         line: 12,
         column: 8,
         severity: 'error',
-        message: "Cannot call function of unknown type",
-        code: 'reportGeneralTypeIssues'
+        message: 'Cannot call function of unknown type',
+        code: 'reportGeneralTypeIssues',
       },
       {
         line: 20,
         column: 5,
         severity: 'error',
         message: 'Argument of type "str" cannot be assigned to parameter "count" of type "int"',
-        code: 'reportGeneralTypeIssues'
-      }
-    ]
+        code: 'reportGeneralTypeIssues',
+      },
+    ],
   }),
 
   /** Python with import issues */
@@ -159,10 +159,10 @@ export const pythonResults = {
         column: 1,
         severity: 'error',
         message: 'Import "nonexistent_module" could not be resolved',
-        code: 'reportMissingImports'
-      }
-    ]
-  })
+        code: 'reportMissingImports',
+      },
+    ],
+  }),
 };
 
 /**
@@ -174,7 +174,7 @@ export const goResults = {
     language: 'go',
     diagnosticCount: 0,
     summary: '0 errors, 0 warnings',
-    diagnostics: []
+    diagnostics: [],
   }),
 
   /** Go with compilation errors */
@@ -188,9 +188,9 @@ export const goResults = {
         column: 10,
         severity: 'error',
         message: 'undefined: undeclaredVariable',
-        code: 'UndeclaredName'
-      }
-    ]
+        code: 'UndeclaredName',
+      },
+    ],
   }),
 
   /** Go with unused variables */
@@ -204,10 +204,10 @@ export const goResults = {
         column: 2,
         severity: 'error',
         message: 'unusedVar declared and not used',
-        code: 'UnusedVar'
-      }
-    ]
-  })
+        code: 'UnusedVar',
+      },
+    ],
+  }),
 };
 
 /**
@@ -219,7 +219,7 @@ export const javascriptResults = {
     language: 'javascript',
     diagnosticCount: 0,
     summary: '0 errors, 0 warnings',
-    diagnostics: []
+    diagnostics: [],
   }),
 
   /** JavaScript with ESLint errors */
@@ -233,17 +233,17 @@ export const javascriptResults = {
         column: 3,
         severity: 'error',
         message: "'console' is not defined",
-        code: 'no-undef'
+        code: 'no-undef',
       },
       {
         line: 12,
         column: 7,
         severity: 'error',
-        message: "Missing semicolon",
-        code: 'semi'
-      }
-    ]
-  })
+        message: 'Missing semicolon',
+        code: 'semi',
+      },
+    ],
+  }),
 };
 
 /**
@@ -278,7 +278,7 @@ export const errorScenarios = {
   invalidConfig: new Error('Invalid JSON syntax in configuration file'),
 
   /** Network-related error */
-  networkError: new Error('ENOTFOUND: getaddrinfo failed')
+  networkError: new Error('ENOTFOUND: getaddrinfo failed'),
 };
 
 /**
@@ -292,8 +292,10 @@ export function createDiagnosticResult(
   const base = {
     language,
     diagnosticCount: customDiagnostics?.length || 0,
-    summary: customDiagnostics ? `${customDiagnostics.length} issues found` : '0 errors, 0 warnings',
-    diagnostics: customDiagnostics || []
+    summary: customDiagnostics
+      ? `${customDiagnostics.length} issues found`
+      : '0 errors, 0 warnings',
+    diagnostics: customDiagnostics || [],
   };
 
   switch (scenario) {
@@ -302,26 +304,30 @@ export function createDiagnosticResult(
         ...base,
         diagnosticCount: 1,
         summary: '1 errors, 0 warnings',
-        diagnostics: [{
-          line: 10,
-          column: 5,
-          severity: 'error',
-          message: `Generic ${language} error`,
-          code: 'ERROR001'
-        }]
+        diagnostics: [
+          {
+            line: 10,
+            column: 5,
+            severity: 'error',
+            message: `Generic ${language} error`,
+            code: 'ERROR001',
+          },
+        ],
       };
     case 'warnings':
       return {
         ...base,
         diagnosticCount: 1,
         summary: '0 errors, 1 warnings',
-        diagnostics: [{
-          line: 15,
-          column: 8,
-          severity: 'warning',
-          message: `Generic ${language} warning`,
-          code: 'WARN001'
-        }]
+        diagnostics: [
+          {
+            line: 15,
+            column: 8,
+            severity: 'warning',
+            message: `Generic ${language} warning`,
+            code: 'WARN001',
+          },
+        ],
       };
     case 'mixed':
       return {
@@ -334,16 +340,16 @@ export function createDiagnosticResult(
             column: 5,
             severity: 'error',
             message: `Generic ${language} error`,
-            code: 'ERROR001'
+            code: 'ERROR001',
           },
           {
             line: 15,
             column: 8,
             severity: 'warning',
             message: `Generic ${language} warning`,
-            code: 'WARN001'
-          }
-        ]
+            code: 'WARN001',
+          },
+        ],
       };
     default:
       return base;

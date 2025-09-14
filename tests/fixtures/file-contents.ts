@@ -107,7 +107,7 @@ const Todo: React.FC<TodoProps> = ({ id, text, completed, onToggle }) => {
   );
 };
 
-export default Todo;`
+export default Todo;`,
 };
 
 /**
@@ -269,7 +269,7 @@ function example() {
 }
 
 // Missing function declaration
-const result = missingFunction();`
+const result = missingFunction();`,
 };
 
 /**
@@ -333,7 +333,7 @@ func main() {
 // Missing return statement
 func shouldReturnString() string {
     fmt.Println("No return")
-}`
+}`,
 };
 
 /**
@@ -372,7 +372,7 @@ mod tests {
     let first = &vec[0];
     vec.push(4); // Error: cannot borrow as mutable
     println!("{}", first);
-}`
+}`,
   },
 
   java: {
@@ -406,7 +406,7 @@ mod tests {
         // Method not found
         String result = nonexistentMethod();
     }
-}`
+}`,
   },
 
   php: {
@@ -456,7 +456,7 @@ function addNumbers(int $a, int $b): int {
 }
 
 $result = addNumbers("5", "10"); // Type error
-?>`
+?>`,
   },
 
   scala: {
@@ -492,8 +492,8 @@ $result = addNumbers("5", "10"); // Type error
     
     val result = problematicFunction
   }
-}`
-  }
+}`,
+  },
 };
 
 /**
@@ -563,7 +563,7 @@ edition = "2021"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }`
+reqwest = { version = "0.11", features = ["json"] }`,
 };
 
 /**
@@ -581,7 +581,7 @@ export function createFileContent(
     rust: languageFiles.rust,
     java: languageFiles.java,
     php: languageFiles.php,
-    scala: languageFiles.scala
+    scala: languageFiles.scala,
   };
 
   const files = languageMap[language];
@@ -612,5 +612,5 @@ export const fileExtensions = {
   cpp: ['.cpp', '.cxx', '.cc', '.c++'],
   c: ['.c', '.h'],
   lua: ['.lua'],
-  elixir: ['.ex', '.exs']
+  elixir: ['.ex', '.exs'],
 };

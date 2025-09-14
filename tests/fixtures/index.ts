@@ -1,6 +1,6 @@
 /**
  * Test Fixtures and Mocks for claude-lsp-cli
- * 
+ *
  * Centralized test data and mock implementations to support comprehensive testing.
  */
 

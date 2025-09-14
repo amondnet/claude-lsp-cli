@@ -157,11 +157,7 @@ export const newLangConfig: LanguageConfig = {
   extensions: ['.ext'],
   toolName: 'newlang-checker',
   findTool: () => findLocalTool('newlang-checker', 'bin/newlang-checker'),
-  buildCommand: (toolPath, filePath, options) => [
-    toolPath,
-    '--check',
-    filePath,
-  ],
+  buildCommand: (toolPath, filePath, options) => [toolPath, '--check', filePath],
   parseOutput: (stdout, stderr, filePath) => {
     // Parse tool output into standardized diagnostics
     return diagnostics;
@@ -183,6 +179,7 @@ LANGUAGE_REGISTRY.set('ext', newLangConfig);
 ### 3. Add Tests
 
 Create comprehensive tests covering:
+
 - Tool detection
 - Command building
 - Output parsing
@@ -192,6 +189,7 @@ Create comprehensive tests covering:
 ### 4. Add Example Project
 
 Create `examples/newlang-project/` with:
+
 - Sample files with intentional errors
 - Configuration files if needed
 - README explaining the test cases
@@ -209,6 +207,7 @@ type(scope): description
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `refactor`: Code refactoring
@@ -217,6 +216,7 @@ type(scope): description
 - `chore`: Maintenance tasks
 
 **Examples:**
+
 ```
 feat(typescript): add support for project references
 fix(cli): handle missing config files gracefully
@@ -238,27 +238,32 @@ docs(readme): update installation instructions
 
 ```markdown
 ## Description
+
 Brief description of changes and motivation.
 
 ## Type of Change
+
 - [ ] Bug fix (non-breaking change)
 - [ ] New feature (non-breaking change)
 - [ ] Breaking change (fix or feature causing existing functionality to change)
 - [ ] Documentation update
 
 ## Testing
+
 - [ ] All existing tests pass
 - [ ] New tests added for new functionality
 - [ ] Tested with example projects
 - [ ] Manual testing completed
 
 ## Quality Checks
+
 - [ ] `bun run lint` passes
 - [ ] `bun run format:check` passes
 - [ ] `bun test` passes
 - [ ] Code coverage maintained/improved
 
 ## Breaking Changes
+
 List any breaking changes and migration instructions.
 ```
 
