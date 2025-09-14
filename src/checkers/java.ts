@@ -4,27 +4,27 @@
 
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join, relative, dirname } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 function findJavaClasspath(_projectRoot: string): string[] {
   const classpath: string[] = [];
-  
+
   // Add project root for package structure
   classpath.push(_projectRoot);
-  
+
   // Look for Maven structure
   const mavenTarget = join(_projectRoot, 'target', 'classes');
   if (existsSync(mavenTarget)) {
     classpath.push(mavenTarget);
   }
-  
+
   // Look for Gradle structure
   const gradleBuild = join(_projectRoot, 'build', 'classes', 'main');
   if (existsSync(gradleBuild)) {
     classpath.push(gradleBuild);
   }
-  
+
   // Look for lib directory with JAR files
   const libDir = join(_projectRoot, 'lib');
   if (existsSync(libDir)) {
@@ -39,7 +39,7 @@ function findJavaClasspath(_projectRoot: string): string[] {
       // Ignore errors reading lib directory
     }
   }
-  
+
   return classpath;
 }
 
@@ -50,19 +50,21 @@ export const javaConfig: LanguageConfig = {
   localPaths: [], // Java is usually system-installed
 
   detectConfig: (_projectRoot: string) => {
-    return existsSync(join(_projectRoot, 'pom.xml')) || 
-           existsSync(join(_projectRoot, 'build.gradle')) ||
-           existsSync(join(_projectRoot, 'build.gradle.kts'));
+    return (
+      existsSync(join(_projectRoot, 'pom.xml')) ||
+      existsSync(join(_projectRoot, 'build.gradle')) ||
+      existsSync(join(_projectRoot, 'build.gradle.kts'))
+    );
   },
 
   buildArgs: (file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const classpath = context?.classpath || [];
     const args = ['-cp', classpath.join(':'), '-Xlint:all'];
-    
+
     // Just syntax check, don't generate class files
     args.push('-proc:none');
     args.push(file);
-    
+
     return args;
   },
 
@@ -70,13 +72,13 @@ export const javaConfig: LanguageConfig = {
     const diagnostics: DiagnosticResult[] = [];
     const output = stderr || stdout;
     const lines = output.split('\n');
-    
+
     for (const line of lines) {
       // Java compiler format: "filename:line: error/warning: message"
       const match = line.match(/^(.+?):(\d+): (error|warning): (.+)$/);
       if (match) {
         const matchedFile = match[1];
-        
+
         // Check if this error is for our target file
         if (matchedFile === file || matchedFile.endsWith(file.split('/').pop() || '')) {
           diagnostics.push({
@@ -87,7 +89,7 @@ export const javaConfig: LanguageConfig = {
           });
         }
       }
-      
+
       // Handle compilation errors without line numbers
       const errorMatch = line.match(/^(.+?): (.+)$/);
       if (errorMatch && line.includes('error') && !line.includes(':')) {
@@ -99,14 +101,14 @@ export const javaConfig: LanguageConfig = {
         });
       }
     }
-    
+
     return diagnostics;
   },
 
   setupCommand: async (_file: string, _projectRoot: string) => {
     const classpath = findJavaClasspath(_projectRoot);
     return {
-      context: { classpath }
+      context: { classpath },
     };
-  }
+  },
 };

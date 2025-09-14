@@ -11,8 +11,11 @@ describe('Configuration Management', () => {
   // Create a temporary directory for each test
   beforeEach(() => {
     originalEnv = { ...process.env };
-    mockHomeDir = join(tmpdir(), `claude-lsp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    
+    mockHomeDir = join(
+      tmpdir(),
+      `claude-lsp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+
     // Mock HOME directory
     process.env.HOME = mockHomeDir;
     delete process.env.USERPROFILE;
@@ -22,19 +25,19 @@ describe('Configuration Management', () => {
     delete require.cache[modulePath];
     const helpModulePath = require.resolve('../src/cli/commands/help');
     delete require.cache[helpModulePath];
-    
+
     configModule = require('../src/cli/commands/config');
   });
 
   afterEach(() => {
     // Restore original environment
     process.env = originalEnv;
-    
+
     // Clean up test directory
     if (existsSync(mockHomeDir)) {
       rmSync(mockHomeDir, { recursive: true, force: true });
     }
-    
+
     // Clear module cache
     const modulePath = require.resolve('../src/cli/commands/config');
     delete require.cache[modulePath];
@@ -51,7 +54,7 @@ describe('Configuration Management', () => {
     test('should load existing config file', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
-      
+
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, JSON.stringify({ disablePython: true }));
 
@@ -66,9 +69,9 @@ describe('Configuration Management', () => {
         disable: false,
         disablePython: true,
         disableTypeScript: false,
-        customField: 'test-value'
+        customField: 'test-value',
       };
-      
+
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, JSON.stringify(testConfig, null, 2));
 
@@ -79,7 +82,7 @@ describe('Configuration Management', () => {
     test('should throw error for invalid JSON (no error handling in loadConfig)', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
-      
+
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, '{ invalid json }');
 
@@ -90,7 +93,7 @@ describe('Configuration Management', () => {
     test('should throw error for empty file (no error handling in loadConfig)', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
-      
+
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, '');
 
@@ -101,7 +104,7 @@ describe('Configuration Management', () => {
     test('should handle USERPROFILE on Windows', () => {
       delete process.env.HOME;
       process.env.USERPROFILE = mockHomeDir;
-      
+
       // Clear and reimport module to use new env vars
       const modulePath = require.resolve('../src/cli/commands/config');
       delete require.cache[modulePath];
@@ -114,7 +117,7 @@ describe('Configuration Management', () => {
     test('should handle missing HOME and USERPROFILE', () => {
       delete process.env.HOME;
       delete process.env.USERPROFILE;
-      
+
       // Clear and reimport module to use new env vars
       const modulePath = require.resolve('../src/cli/commands/config');
       delete require.cache[modulePath];
@@ -125,7 +128,7 @@ describe('Configuration Management', () => {
       // NOTE: If this fails, it means there's a config file in /.claude/lsp-config.json
       // which is outside our test isolation
       const config = noHomeConfigModule.loadConfig();
-      
+
       // In a clean environment this should be empty, but if there's a system config
       // we'll just verify it's an object (the important thing is it doesn't crash)
       expect(typeof config).toBe('object');
@@ -137,12 +140,14 @@ describe('Configuration Management', () => {
     // Mock showStatus to avoid dependency issues
     beforeEach(() => {
       const helpModule = require('../src/cli/commands/help');
-      spyOn(helpModule, 'showStatus').mockResolvedValue('🟢 Language Status:\n  Python: ❌ Disabled\n  TypeScript: ✅ Enabled');
+      spyOn(helpModule, 'showStatus').mockResolvedValue(
+        '🟢 Language Status:\n  Python: ❌ Disabled\n  TypeScript: ✅ Enabled'
+      );
     });
 
     test('should disable specific language', async () => {
       const result = await configModule.disableLanguage('python');
-      
+
       expect(result).toContain('🚫 Disabled python checking globally');
       expect(result).toContain('🟢 Language Status:');
 
@@ -153,7 +158,7 @@ describe('Configuration Management', () => {
 
     test('should disable all languages', async () => {
       const result = await configModule.disableLanguage('all');
-      
+
       expect(result).toContain('🚫 Disabled ALL language checking globally');
 
       const config = configModule.loadConfig();
@@ -190,9 +195,19 @@ describe('Configuration Management', () => {
 
     test('should handle all supported languages', async () => {
       const languages = [
-        'typescript', 'python', 'go', 'rust', 'java', 
-        'cpp', 'c++', 'c', 'php', 'scala', 'lua', 
-        'elixir', 'terraform'
+        'typescript',
+        'python',
+        'go',
+        'rust',
+        'java',
+        'cpp',
+        'c++',
+        'c',
+        'php',
+        'scala',
+        'lua',
+        'elixir',
+        'terraform',
       ];
 
       for (const lang of languages) {
@@ -218,10 +233,13 @@ describe('Configuration Management', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
       mkdirSync(configDir, { recursive: true });
-      writeFileSync(configPath, JSON.stringify({ 
-        disablePython: false,
-        customField: 'preserved'
-      }));
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          disablePython: false,
+          customField: 'preserved',
+        })
+      );
 
       await configModule.disableLanguage('typescript');
 
@@ -244,10 +262,10 @@ describe('Configuration Management', () => {
 
     test('should handle unknown language gracefully', async () => {
       const result = await configModule.disableLanguage('unknown-language');
-      
+
       // Should not throw error and still show status
       expect(result).toContain('🟢 Language Status:');
-      
+
       // Config should be empty (no language disabled since 'unknown-language' is not in langMap)
       const config = configModule.loadConfig();
       expect(Object.keys(config).length).toBe(0);
@@ -271,7 +289,9 @@ describe('Configuration Management', () => {
   describe('enableLanguage', () => {
     beforeEach(() => {
       const helpModule = require('../src/cli/commands/help');
-      spyOn(helpModule, 'showStatus').mockResolvedValue('🟢 Language Status:\n  Python: ✅ Enabled\n  TypeScript: ✅ Enabled');
+      spyOn(helpModule, 'showStatus').mockResolvedValue(
+        '🟢 Language Status:\n  Python: ✅ Enabled\n  TypeScript: ✅ Enabled'
+      );
     });
 
     test('should enable specific language', async () => {
@@ -319,7 +339,7 @@ describe('Configuration Management', () => {
     test('should handle language aliases', async () => {
       // Disable cpp languages first
       await configModule.disableLanguage('cpp');
-      
+
       // Enable using aliases
       await configModule.enableLanguage('c++');
       const config = configModule.loadConfig();
@@ -331,11 +351,14 @@ describe('Configuration Management', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
       mkdirSync(configDir, { recursive: true });
-      writeFileSync(configPath, JSON.stringify({
-        disablePython: true,
-        disableTypeScript: true,
-        customField: 'preserved'
-      }));
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          disablePython: true,
+          disableTypeScript: true,
+          customField: 'preserved',
+        })
+      );
 
       await configModule.enableLanguage('python');
 
@@ -356,7 +379,7 @@ describe('Configuration Management', () => {
 
     test('should handle unknown language gracefully', async () => {
       const result = await configModule.enableLanguage('unknown-language');
-      
+
       // Should not throw error and still show status
       expect(result).toContain('🟢 Language Status:');
     });
@@ -433,13 +456,13 @@ describe('Configuration Management', () => {
       // but demonstrates the intention to handle file system errors
       const configDir = join(mockHomeDir, '.claude');
       mkdirSync(configDir, { recursive: true });
-      
+
       // Mock fs operations to simulate permission error
-      const originalWriteFileSync = writeFileSync;
-      const mockWriteFileSync = mock(() => {
+      const _originalWriteFileSync = writeFileSync;
+      const _mockWriteFileSync = mock(() => {
         throw new Error('EACCES: permission denied');
       });
-      
+
       // This is more of a documentation test since we can't easily mock fs in Bun
       // In a real scenario, the function should handle file system errors gracefully
       expect(() => {
@@ -465,9 +488,9 @@ describe('Configuration Management', () => {
 
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configContent = readFileSync(configPath, 'utf8');
-      
+
       expect(() => JSON.parse(configContent)).not.toThrow();
-      
+
       const config = JSON.parse(configContent);
       expect(config.disablePython).toBe(true);
       expect(config.disableTypeScript).toBe(true);
@@ -478,7 +501,7 @@ describe('Configuration Management', () => {
 
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configContent = readFileSync(configPath, 'utf8');
-      
+
       // Should contain proper indentation (2 spaces)
       expect(configContent).toContain('  "disablePython": true');
     });
@@ -506,7 +529,7 @@ describe('Configuration Management', () => {
 
       // This should work because updateConfig handles errors
       await configModule.disableLanguage('python');
-      
+
       // Now loadConfig should work because updateConfig created valid JSON
       const config = configModule.loadConfig();
       expect(config.disablePython).toBe(true);
@@ -528,7 +551,7 @@ describe('Configuration Management', () => {
 
     test('should handle multiple languages in sequence', async () => {
       const languages = ['python', 'typescript', 'go', 'rust'];
-      
+
       // Disable all
       for (const lang of languages) {
         await configModule.disableLanguage(lang, false);

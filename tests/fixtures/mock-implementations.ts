@@ -76,7 +76,7 @@ export class MockProcessExecutor {
   // Execute a mocked command
   executeCommand(command: string): MockProcessResult {
     this.commandHistory.push(command);
-    
+
     const result = this.commandResults.get(command);
     if (result) {
       return result;
@@ -86,7 +86,7 @@ export class MockProcessExecutor {
     return {
       stdout: '',
       stderr: '',
-      exitCode: 0
+      exitCode: 0,
     };
   }
 
@@ -263,19 +263,19 @@ export class MockConsoleCapture {
     this.originalConsole.info = console.info;
 
     console.log = mock((...args: any[]) => {
-      this.stdout.push(args.map(arg => String(arg)).join(' '));
+      this.stdout.push(args.map((arg) => String(arg)).join(' '));
     });
 
     console.error = mock((...args: any[]) => {
-      this.stderr.push(args.map(arg => String(arg)).join(' '));
+      this.stderr.push(args.map((arg) => String(arg)).join(' '));
     });
 
     console.warn = mock((...args: any[]) => {
-      this.stderr.push(args.map(arg => String(arg)).join(' '));
+      this.stderr.push(args.map((arg) => String(arg)).join(' '));
     });
 
     console.info = mock((...args: any[]) => {
-      this.stdout.push(args.map(arg => String(arg)).join(' '));
+      this.stdout.push(args.map((arg) => String(arg)).join(' '));
     });
   }
 
@@ -388,7 +388,7 @@ export class MockHookDataParser {
   }
 
   // Mock parse function
-  parse(input: string): any {
+  parse(_input: string): any {
     if (this.shouldThrowError && this.errorToThrow) {
       throw this.errorToThrow;
     }
@@ -428,7 +428,7 @@ export const mockUtils = {
   createSpy<T extends object, K extends keyof T>(
     object: T,
     method: K,
-    implementation?: (...args: any[]) => any
+    implementation?: (..._args: any[]) => any
   ): any {
     const spy = spyOn(object, method);
     if (implementation) {
@@ -441,7 +441,7 @@ export const mockUtils = {
   resetAllMocks(): void {
     // Note: This would typically call jest.clearAllMocks() or similar
     // For Bun test, we might need to implement mock tracking
-  }
+  },
 };
 
 /**
@@ -467,7 +467,7 @@ export class TestEnvironment {
       deduplicationManager: this.deduplicationManager,
       consoleCapture: this.consoleCapture,
       environment: this.environment,
-      hookDataParser: this.hookDataParser
+      hookDataParser: this.hookDataParser,
     };
   }
 

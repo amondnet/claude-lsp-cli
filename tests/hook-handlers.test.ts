@@ -7,6 +7,7 @@ import { join } from 'path';
 // Store original process.exit
 const originalExit = process.exit;
 let _exitCode: number | undefined;
+void _exitCode;
 
 // Helper to capture console output
 let consoleOutput: string[] = [];
@@ -15,7 +16,9 @@ const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
 // Helper function to run async hook and capture exit
-async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: number; errorMessage?: string }> {
+async function runHookAndCaptureExit(
+  fn: Promise<void>
+): Promise<{ exitCode?: number; errorMessage?: string }> {
   try {
     await fn;
     return { exitCode: undefined };
@@ -23,7 +26,7 @@ async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: nu
     if (error.message && error.message.includes('process.exit')) {
       // Extract exit code from the error message
       const match = error.message.match(/process\.exit\((\d+)\)/);
-      const code = match ? parseInt(match[1]) : error.exitCode ?? 0;
+      const code = match ? parseInt(match[1]) : (error.exitCode ?? 0);
       return { exitCode: code, errorMessage: error.message };
     }
     throw error;
@@ -45,10 +48,14 @@ describe('Hook Handlers', () => {
     consoleOutput = [];
     consoleErrorOutput = [];
     console.log = ((...args: any[]) => {
-      consoleOutput.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+      consoleOutput.push(
+        args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
+      );
     }) as any;
     console.error = ((...args: any[]) => {
-      consoleErrorOutput.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+      consoleErrorOutput.push(
+        args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
+      );
     }) as any;
 
     // Clear any mocks if needed
@@ -81,7 +88,7 @@ describe('Hook Handlers', () => {
     test('should exit gracefully when no files extracted', async () => {
       const hookData = {
         tool: 'SomeTool',
-        cwd: '/test/dir'
+        cwd: '/test/dir',
       };
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(0); // No files extracted exits cleanly with 0
@@ -98,32 +105,33 @@ describe('Hook Handlers', () => {
             severity: 'error' as const,
             message: 'Type error',
             line: 10,
-            column: 5
-          }
-        ]
+            column: 5,
+          },
+        ],
       });
 
       // Mock deduplication functions
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockReturnValue(true);
       const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      void _mockMarkShown;
 
       const hookData = {
         tool_input: {
-          file_path: 'test.ts'
+          file_path: 'test.ts',
         },
-        cwd: '/test/dir'
+        cwd: '/test/dir',
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
-      
+
       expect(mockCheckFile).toHaveBeenCalledWith('/test/dir/test.ts');
       expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts', 1);
       expect(_mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts', 1);
-      
+
       // Check output format
-      const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
+      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
       expect(errorOutput).toBeDefined();
       expect(errorOutput).toContain('"summary":"1 error(s)"');
     });
@@ -136,23 +144,27 @@ describe('Hook Handlers', () => {
           return {
             file: 'test1.ts',
             tool: 'typescript',
-            diagnostics: [{
-              severity: 'error' as const,
-              message: 'Error 1',
-              line: 1,
-              column: 1
-            }]
+            diagnostics: [
+              {
+                severity: 'error' as const,
+                message: 'Error 1',
+                line: 1,
+                column: 1,
+              },
+            ],
           };
         } else if (path.includes('test2.py')) {
           return {
             file: 'test2.py',
             tool: 'python',
-            diagnostics: [{
-              severity: 'warning' as const,
-              message: 'Warning 1',
-              line: 2,
-              column: 2
-            }]
+            diagnostics: [
+              {
+                severity: 'warning' as const,
+                message: 'Warning 1',
+                line: 2,
+                column: 2,
+              },
+            ],
           };
         }
         return null;
@@ -162,19 +174,20 @@ describe('Hook Handlers', () => {
       mockShouldShow.mockClear();
       mockShouldShow.mockReturnValue(true);
       const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      void _mockMarkShown;
       _mockMarkShown.mockClear();
 
       const hookData = {
         tool_response: {
-          output: 'Files modified: test1.ts and test2.py'
-        }
+          output: 'Files modified: test1.ts and test2.py',
+        },
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
-      
+
       expect(mockCheckFile).toHaveBeenCalledTimes(2);
-      const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
+      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
       expect(errorOutput).toContain('"summary":"1 error(s), 1 warning(s)"');
     });
 
@@ -184,14 +197,14 @@ describe('Hook Handlers', () => {
 
       const hookData = {
         tool_input: {
-          file_path: 'test.scala' // Scala might be disabled
-        }
+          file_path: 'test.scala', // Scala might be disabled
+        },
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(0); // Disabled language exits cleanly with 0
       expect(mockCheckFile).toHaveBeenCalled();
-      expect(consoleErrorOutput.find(o => o.includes('[[system-message]]'))).toBeUndefined();
+      expect(consoleErrorOutput.find((o) => o.includes('[[system-message]]'))).toBeUndefined();
     });
 
     test('should respect deduplication and not show same results', async () => {
@@ -200,35 +213,38 @@ describe('Hook Handlers', () => {
       mockCheckFile.mockResolvedValue({
         file: 'test.ts',
         tool: 'typescript',
-        diagnostics: [{
-          severity: 'error' as const,
-          message: 'Same error',
-          line: 1,
-          column: 1
-        }]
+        diagnostics: [
+          {
+            severity: 'error' as const,
+            message: 'Same error',
+            line: 1,
+            column: 1,
+          },
+        ],
       });
 
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockClear();
       mockShouldShow.mockReturnValue(false); // Already shown
       const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      void _mockMarkShown;
       _mockMarkShown.mockClear();
 
       const hookData = {
         tool_input: {
-          file_path: 'test.ts'
+          file_path: 'test.ts',
         },
-        cwd: process.cwd() // Add cwd to avoid issues with path resolution
+        cwd: process.cwd(), // Add cwd to avoid issues with path resolution
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-      
+
       expect(result.exitCode).toBe(0); // Should exit 0 when duplicated results are suppressed
-      
+
       expect(mockCheckFile).toHaveBeenCalled();
       expect(mockShouldShow).toHaveBeenCalled();
       expect(_mockMarkShown).not.toHaveBeenCalled(); // Should not mark if not shown
-      expect(consoleErrorOutput.find(o => o.includes('[[system-message]]'))).toBeUndefined();
+      expect(consoleErrorOutput.find((o) => o.includes('[[system-message]]'))).toBeUndefined();
       // The "Hook processing failed" message comes from catching the mocked process.exit, not a real error
       // So we don't check for it here
     });
@@ -239,29 +255,30 @@ describe('Hook Handlers', () => {
         severity: 'error' as const,
         message: `Error ${i + 1}`,
         line: i + 1,
-        column: 1
+        column: 1,
       }));
-      
+
       mockCheckFile.mockResolvedValue({
         file: 'test.ts',
         tool: 'typescript',
-        diagnostics: manyDiagnostics
+        diagnostics: manyDiagnostics,
       });
 
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockReturnValue(true);
       const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      void _mockMarkShown;
 
       const hookData = {
         tool_input: {
-          file_path: 'test.ts'
-        }
+          file_path: 'test.ts',
+        },
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
-      
-      const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
+
+      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
       const parsed = JSON.parse(errorOutput!.replace('[[system-message]]:', ''));
       expect(parsed.diagnostics.length).toBe(5); // Limited to 5
       expect(parsed.summary).toBe('10 error(s)'); // But summary shows all
@@ -273,13 +290,13 @@ describe('Hook Handlers', () => {
 
       const hookData = {
         tool_input: {
-          file_path: 'test.ts'
-        }
+          file_path: 'test.ts',
+        },
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(1);
-      expect(consoleErrorOutput.some(o => o.includes('Hook processing failed'))).toBe(true);
+      expect(consoleErrorOutput.some((o) => o.includes('Hook processing failed'))).toBe(true);
     });
 
     test('should handle absolute paths correctly', async () => {
@@ -288,9 +305,9 @@ describe('Hook Handlers', () => {
 
       const hookData = {
         tool_input: {
-          file_path: '/absolute/path/test.ts'
+          file_path: '/absolute/path/test.ts',
         },
-        cwd: '/different/dir'
+        cwd: '/different/dir',
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
@@ -306,28 +323,30 @@ describe('Hook Handlers', () => {
         diagnostics: [
           { severity: 'error' as const, message: 'Error', line: 1, column: 1 },
           { severity: 'warning' as const, message: 'Warning', line: 2, column: 1 },
-          { severity: 'info' as const, message: 'Info', line: 3, column: 1 }
-        ]
+          { severity: 'info' as const, message: 'Info', line: 3, column: 1 },
+        ],
       });
 
       const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
       mockShouldShow.mockReturnValue(true);
       const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+      void _mockMarkShown;
 
       const hookData = {
-        tool_input: { file_path: 'test.ts' }
+        tool_input: { file_path: 'test.ts' },
       };
 
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
-      
-      const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
+
+      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
       const parsed = JSON.parse(errorOutput!.replace('[[system-message]]:', ''));
       expect(parsed.diagnostics.length).toBe(2); // Only error and warning
-      expect(parsed.diagnostics.every((d: any) => d.severity === 'error' || d.severity === 'warning')).toBe(true);
+      expect(
+        parsed.diagnostics.every((d: any) => d.severity === 'error' || d.severity === 'warning')
+      ).toBe(true);
     });
   });
-
 
   describe('Integration with file extraction', () => {
     test('should extract files from various hook data structures', async () => {
@@ -339,43 +358,45 @@ describe('Hook Handlers', () => {
         {
           name: 'tool_input.file_path',
           data: { tool_input: { file_path: 'test.ts' } },
-          expected: ['test.ts']
+          expected: ['test.ts'],
         },
         {
           name: 'tool_response.filePath',
           data: { tool_response: { filePath: 'test.py' } },
-          expected: ['test.py']
+          expected: ['test.py'],
         },
         {
           name: 'output in tool_response',
           data: { tool_response: { output: 'Modified _file: src/main.go' } },
-          expected: ['src/main.go']
+          expected: ['src/main.go'],
         },
         {
           name: 'command in tool_input',
           data: { tool_input: { command: 'cat package.json test.rs' } },
-          expected: ['test.rs']
+          expected: ['test.rs'],
         },
         {
           name: 'multiple files',
-          data: { 
-            tool_response: { 
-              output: 'Files modified: test1.ts and test2.py and test3.java' 
-            } 
+          data: {
+            tool_response: {
+              output: 'Files modified: test1.ts and test2.py and test3.java',
+            },
           },
-          expected: ['test1.ts', 'test2.py', 'test3.java']
-        }
+          expected: ['test1.ts', 'test2.py', 'test3.java'],
+        },
       ];
 
       for (let i = 0; i < testCases.length; i++) {
         const testCase = testCases[i];
         mockCheckFile.mockClear();
-        
-        const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(testCase.data)));
+
+        const result = await runHookAndCaptureExit(
+          handlePostToolUse(JSON.stringify(testCase.data))
+        );
         expect(result.exitCode).toBe(0); // No diagnostics exits cleanly with 0
-        
+
         expect(mockCheckFile).toHaveBeenCalledTimes(testCase.expected.length);
-        
+
         // Verify each expected file was checked
         for (const file of testCase.expected) {
           const expectedPath = file.startsWith('/') ? file : join(process.cwd(), file);

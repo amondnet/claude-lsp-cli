@@ -2,27 +2,27 @@ import { join, dirname } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { showStatus } from './help';
 
-export function loadConfig(): any {
+export function loadConfig(): Record<string, unknown> {
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   const configPath = join(homeDir, '.claude', 'lsp-config.json');
-  let config: any = {};
+  let config: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     config = JSON.parse(readFileSync(configPath, 'utf8'));
   }
   return config;
 }
 
-function updateConfig(updates: Record<string, any>): void {
+function updateConfig(updates: Record<string, unknown>): void {
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   const configPath = join(homeDir, '.claude', 'lsp-config.json');
-  let config: any = {};
+  let config: Record<string, unknown> = {};
 
   // Read existing config
   try {
     if (existsSync(configPath)) {
       config = JSON.parse(readFileSync(configPath, 'utf8'));
     }
-  } catch (_e) {
+  } catch {
     // Start with empty config if parsing fails
   }
 
@@ -39,7 +39,10 @@ function updateConfig(updates: Record<string, any>): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
-export async function disableLanguage(language: string, includeStatus: boolean = true): Promise<string> {
+export async function disableLanguage(
+  language: string,
+  includeStatus: boolean = true
+): Promise<string> {
   // Normalize language names to match what the checker expects
   const langMap: Record<string, string> = {
     typescript: 'TypeScript',
@@ -70,7 +73,11 @@ export async function disableLanguage(language: string, includeStatus: boolean =
     updateConfig({ [langKey]: true });
     messages.push(`🚫 Disabled ${language} checking globally`);
   } else {
-    messages.push(`❌ Unknown language: ${language}. Valid languages: ${Object.keys(langMap).filter(k => k !== 'all').join(', ')}`);
+    messages.push(
+      `❌ Unknown language: ${language}. Valid languages: ${Object.keys(langMap)
+        .filter((k) => k !== 'all')
+        .join(', ')}`
+    );
   }
 
   // Get status and return combined message (optional for performance)
@@ -81,7 +88,10 @@ export async function disableLanguage(language: string, includeStatus: boolean =
   return messages.join('\n');
 }
 
-export async function enableLanguage(language: string, includeStatus: boolean = true): Promise<string> {
+export async function enableLanguage(
+  language: string,
+  includeStatus: boolean = true
+): Promise<string> {
   // Normalize language names to match what the checker expects
   const langMap: Record<string, string> = {
     typescript: 'TypeScript',
@@ -112,7 +122,11 @@ export async function enableLanguage(language: string, includeStatus: boolean = 
     updateConfig({ [langKey]: false });
     messages.push(`✅ Enabled ${language} checking globally`);
   } else {
-    messages.push(`❌ Unknown language: ${language}. Valid languages: ${Object.keys(langMap).filter(k => k !== 'all').join(', ')}`);
+    messages.push(
+      `❌ Unknown language: ${language}. Valid languages: ${Object.keys(langMap)
+        .filter((k) => k !== 'all')
+        .join(', ')}`
+    );
   }
 
   // Get status and return combined message (optional for performance)

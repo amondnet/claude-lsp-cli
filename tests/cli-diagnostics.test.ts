@@ -213,9 +213,9 @@ describe('CLI Hook Mode', () => {
     });
 
     proc.stdin.write(hookData);
-    proc.stdin.end();
+    void proc.stdin.end();
 
-    const stdout = await new Response(proc.stdout).text();
+    const _stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
     const exitCode = await proc.exited;
 
@@ -239,14 +239,14 @@ describe('CLI Hook Mode', () => {
     });
 
     proc.stdin.write(hookData);
-    proc.stdin.end();
+    void proc.stdin.end();
 
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
+    const _stdout = await new Response(proc.stdout).text();
+    const _stderr = await new Response(proc.stderr).text();
     const exitCode = await proc.exited;
 
     expect(exitCode).toBe(0);
-    expect(stdout).toBe(''); // No output when no diagnostics
+    expect(_stdout).toBe(''); // No output when no diagnostics
   }, 30000);
 
   test('Hook mode with non-code tool returns exit code 0', async () => {
@@ -264,10 +264,10 @@ describe('CLI Hook Mode', () => {
     });
 
     proc.stdin.write(hookData);
-    proc.stdin.end();
+    void proc.stdin.end();
 
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
+    const _stdout = await new Response(proc.stdout).text();
+    const _stderr = await new Response(proc.stderr).text();
     const exitCode = await proc.exited;
 
     expect(exitCode).toBe(0);
@@ -285,9 +285,9 @@ describe('CLI Hook Mode', () => {
 
       // Send invalid JSON that will cause parsing to fail
       proc.stdin.write('invalid json');
-      proc.stdin.end();
+      void proc.stdin.end();
 
-      const stdout = await new Response(proc.stdout).text();
+      const _stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
 
@@ -295,7 +295,7 @@ describe('CLI Hook Mode', () => {
       expect(exitCode).toBeLessThanOrEqual(1);
       // Should not produce error output (graceful failure)
       expect(stderr).toBe('');
-      expect(stdout).toBe('');
+      expect(_stdout).toBe('');
     });
   });
 });

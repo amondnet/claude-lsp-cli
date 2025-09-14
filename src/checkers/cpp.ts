@@ -2,7 +2,7 @@
  * C++ Language Checker Configuration
  */
 
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const cppConfig: LanguageConfig = {
@@ -18,7 +18,7 @@ export const cppConfig: LanguageConfig = {
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
-    
+
     for (const line of lines) {
       // Match both regular errors/warnings and fatal errors
       const match = line.match(/^.+?:(\d+):(\d+): (error|warning|fatal error): (.+)$/);
@@ -26,12 +26,12 @@ export const cppConfig: LanguageConfig = {
         diagnostics.push({
           line: parseInt(match[1]),
           column: parseInt(match[2]),
-          severity: match[3].includes('error') ? 'error' as const : 'warning' as const,
+          severity: match[3].includes('error') ? ('error' as const) : ('warning' as const),
           message: match[4],
         });
       }
     }
-    
+
     return diagnostics;
-  }
+  },
 };

@@ -1,12 +1,13 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { spawn } from 'bun';
 import { join } from 'path';
-import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, writeFileSync, rmSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { setTimeout as sleep } from 'timers/promises';
 
 const CLI_PATH = join(import.meta.dir, '..', 'bin', 'claude-lsp-cli');
-const EXAMPLES_DIR = join(import.meta.dir, '..', 'examples');
+const _EXAMPLES_DIR = join(import.meta.dir, '..', 'examples');
+void _EXAMPLES_DIR;
 const TEST_DIR = join(tmpdir(), `claude-lsp-integration-${Date.now()}`);
 const CONFIG_PATH = join(TEST_DIR, '.claude-lsp-config.json');
 
@@ -23,7 +24,7 @@ async function runCLI(
   options: { cwd?: string; timeout?: number; stdin?: string } = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { cwd = process.cwd(), timeout = 30000, stdin } = options;
-  
+
   const proc = spawn([CLI_PATH, ...args], {
     cwd,
     stdout: 'pipe',
@@ -34,7 +35,7 @@ async function runCLI(
   // Write to stdin if provided
   if (stdin && proc.stdin) {
     proc.stdin.write(stdin);
-    proc.stdin.end();
+    void proc.stdin.end();
   }
 
   // Set up timeout
@@ -70,13 +71,13 @@ function createPostToolUseData(file_path: string, tool: string = 'Edit'): string
   return JSON.stringify({
     tool_input: { file_path },
     tool_response: { output: `${tool} completed successfully` },
-    cwd: '/tmp'
+    cwd: '/tmp',
   });
 }
 
-function createUserPromptData(message: string): string {
+function _createUserPromptData(_message: string): string {
   return JSON.stringify({
-    prompt: message
+    prompt: _message,
   });
 }
 
@@ -145,7 +146,9 @@ describe('Integration Tests - End-to-End Flows', () => {
 
   describe('File Diagnostic Workflows', () => {
     test('TypeScript file with errors - complete diagnostic flow', async () => {
-      const tsFile = createTestFile('error.ts', `
+      const tsFile = createTestFile(
+        'error.ts',
+        `
 // TypeScript file with intentional errors
 function badFunction(): string {
   const unused = 'never used';
@@ -160,16 +163,17 @@ const obj: { name: string } = {
 // Missing semicolon and unused import
 import { nonExistent } from 'fake-module'
 badFunction()
-      `.trim());
+      `.trim()
+      );
 
       const result = await runCLI(['check', tsFile]);
       expect(result.exitCode).toBe(0); // Diagnostic mode returns 0
       expect(result.stdout).toContain('[[system-message]]:');
-      
+
       const output = result.stdout;
       expect(output).toMatch(/"diagnostics":\s*\[/);
       expect(output).toMatch(/"summary":\s*"\d+\s+(error|warning)s?/);
-      
+
       // Should contain actual TypeScript errors
       const jsonPart = output.split('[[system-message]]:')[1];
       const diagnostics = JSON.parse(jsonPart);
@@ -178,7 +182,9 @@ badFunction()
     }, 30000);
 
     test('Python file with errors - complete diagnostic flow', async () => {
-      const pyFile = createTestFile('error.py', `
+      const pyFile = createTestFile(
+        'error.py',
+        `
 # Python file with intentional errors
 import os
 import sys  # unused import
@@ -194,12 +200,13 @@ def another_function():
     
 # Missing parentheses for function call
 bad_function
-      `.trim());
+      `.trim()
+      );
 
       const result = await runCLI(['check', pyFile]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('[[system-message]]:');
-      
+
       const output = result.stdout;
       const jsonPart = output.split('[[system-message]]:')[1];
       const diagnostics = JSON.parse(jsonPart);
@@ -207,7 +214,9 @@ bad_function
     }, 30000);
 
     test('Go file with errors - complete diagnostic flow', async () => {
-      const goFile = createTestFile('error.go', `
+      const goFile = createTestFile(
+        'error.go',
+        `
 package main
 
 import (
@@ -225,12 +234,13 @@ func main() {
   // Undefined function
   undefinedFunction()
 }
-      `.trim());
+      `.trim()
+      );
 
       const result = await runCLI(['check', goFile]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('[[system-message]]:');
-      
+
       const output = result.stdout;
       const jsonPart = output.split('[[system-message]]:')[1];
       const diagnostics = JSON.parse(jsonPart);
@@ -238,7 +248,10 @@ func main() {
     }, 30000);
 
     test('Multiple files - batch processing', async () => {
-      const file1 = createTestFile('good.ts', 'const message: string = "Hello, world!"; console.log(message);');
+      const file1 = createTestFile(
+        'good.ts',
+        'const message: string = "Hello, world!"; console.log(message);'
+      );
       const file2 = createTestFile('bad.ts', 'const x: string = 42; // Type error');
 
       // Test checking multiple files
@@ -253,7 +266,7 @@ func main() {
       const diagnostics1 = JSON.parse(jsonPart1);
       expect(diagnostics1.summary).toContain('no errors');
 
-      // Bad file should have errors  
+      // Bad file should have errors
       const jsonPart2 = result2.stdout.split('[[system-message]]:')[1];
       const diagnostics2 = JSON.parse(jsonPart2);
       expect(diagnostics2.diagnostics.length).toBeGreaterThan(0);
@@ -284,32 +297,31 @@ func main() {
     test('status shown in help output (no separate status command)', async () => {
       // Disable a language first
       await runCLI(['disable', 'scala']);
-      
+
       const statusResult = await runCLI(['help']); // No status command, use help
       expect(statusResult.exitCode).toBe(0);
       expect(statusResult.stdout).toContain('Current Status:');
       expect(statusResult.stdout).toContain('scala'); // Should show in status
       expect(statusResult.stdout).toContain('DISABLED');
-      
+
       // Re-enable for cleanup
       await runCLI(['enable', 'scala']);
     }, 15000);
-
   });
 
   describe('Hook Event Handling End-to-End', () => {
     test('PostToolUse hook with file edit simulation', async () => {
       const testFile = createTestFile('hook-test.ts', 'const x: string = 42;'); // Has error
-      
+
       const hookData = createPostToolUseData(testFile, 'Edit');
 
       const result = await runCLI(['hook', 'PostToolUse'], {
-        stdin: hookData
+        stdin: hookData,
       });
 
       expect(result.exitCode).toBe(2); // Exit code 2 when errors found
       expect(result.stderr).toContain('[[system-message]]:');
-      
+
       const jsonPart = result.stderr.split('[[system-message]]:')[1];
       const diagnostics = JSON.parse(jsonPart);
       expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
@@ -317,11 +329,11 @@ func main() {
 
     test('PostToolUse hook with Write tool simulation', async () => {
       const testFile = createTestFile('write-test.py', 'print("hello world")'); // No errors
-      
+
       const hookData = createPostToolUseData(testFile, 'Write');
 
       const result = await runCLI(['hook', 'PostToolUse'], {
-        stdin: hookData
+        stdin: hookData,
       });
 
       expect(result.exitCode).toBe(0); // Exit code 0 when no errors
@@ -334,7 +346,7 @@ func main() {
   describe('Error Scenarios and Edge Cases', () => {
     test('malformed hook data handling', async () => {
       const result = await runCLI(['hook', 'PostToolUse'], {
-        stdin: 'invalid json'
+        stdin: 'invalid json',
       });
 
       expect(result.exitCode).toBe(0); // Exit code 0 for invalid JSON (silent exit)
@@ -343,7 +355,7 @@ func main() {
 
     test('missing hook data handling', async () => {
       const result = await runCLI(['hook', 'PostToolUse'], {
-        stdin: ''
+        stdin: '',
       });
 
       expect(result.exitCode).toBe(0); // Exit code 0 for empty input (silent exit)
@@ -366,20 +378,23 @@ func main() {
 
     test('very large file handling', async () => {
       // Create a large TypeScript file
-      const largeContent = Array(1000).fill(0).map((_, i) => 
-        `const var${i}: string = "value${i}";`
-      ).join('\n');
-      
+      const largeContent = Array(1000)
+        .fill(0)
+        .map((_, i) => `const var${i}: string = "value${i}";`)
+        .join('\n');
+
       const largeFile = createTestFile('large.ts', largeContent);
       const result = await runCLI(['check', largeFile], { timeout: 45000 });
-      
+
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('[[system-message]]:');
-      
+
       // Should handle large files without crashing
       const jsonPart = result.stdout.split('[[system-message]]:')[1];
       const diagnostics = JSON.parse(jsonPart);
-      expect(diagnostics.summary.includes('no errors') || diagnostics.summary.includes('error')).toBe(true);
+      expect(
+        diagnostics.summary.includes('no errors') || diagnostics.summary.includes('error')
+      ).toBe(true);
     }, 50000);
 
     test('concurrent file checking', async () => {
@@ -391,7 +406,7 @@ func main() {
       const [result1, result2, result3] = await Promise.all([
         runCLI(['check', file1]),
         runCLI(['check', file2]),
-        runCLI(['check', file3])
+        runCLI(['check', file3]),
       ]);
 
       expect(result1.exitCode).toBe(0);
@@ -399,20 +414,24 @@ func main() {
       expect(result3.exitCode).toBe(0);
 
       expect(result1.stdout).toContain('[[system-message]]:');
-      expect(result2.stdout.includes('[[system-message]]:') || result2.stdout.trim() === '').toBe(true); // Python might be empty
-      expect(result3.stdout.includes('[[system-message]]:') || result3.stdout.trim() === '').toBe(true); // Go might be empty
+      expect(result2.stdout.includes('[[system-message]]:') || result2.stdout.trim() === '').toBe(
+        true
+      ); // Python might be empty
+      expect(result3.stdout.includes('[[system-message]]:') || result3.stdout.trim() === '').toBe(
+        true
+      ); // Go might be empty
     }, 45000);
   });
 
   describe('Deduplication and State Management', () => {
     test('CLI check command does not use deduplication (hook-only feature)', async () => {
       const testFile = createTestFile('dedup-test.ts', 'const x: string = 42;');
-      
+
       // First check - should show diagnostics
       const result1 = await runCLI(['check', testFile]);
       expect(result1.exitCode).toBe(0);
       expect(result1.stdout).toContain('[[system-message]]:');
-      
+
       const jsonPart1 = result1.stdout.split('[[system-message]]:')[1];
       const diagnostics1 = JSON.parse(jsonPart1);
       expect(diagnostics1.diagnostics.length).toBeGreaterThan(0);
@@ -428,30 +447,30 @@ func main() {
 
     test('hook-based deduplication with file change', async () => {
       const testFile = createTestFile('hook-dedup-test.ts', 'const x: string = 42;');
-      
+
       // First hook call
       const hookData1 = createPostToolUseData(testFile);
       const result1 = await runCLI(['hook', 'PostToolUse'], {
-        stdin: hookData1
+        stdin: hookData1,
       });
       expect(result1.exitCode).toBe(2); // Has errors
       expect(result1.stderr).toContain('[[system-message]]:');
-      
+
       await sleep(100);
 
       // Second hook call with same file - should be deduplicated (no output)
       const result2 = await runCLI(['hook', 'PostToolUse'], {
-        stdin: hookData1
+        stdin: hookData1,
       });
       expect(result2.exitCode).toBe(0);
       expect(result2.stderr.trim()).toBe(''); // Should be deduplicated
-      
+
       // Change file content to have different number of errors to break deduplication
       writeFileSync(testFile, 'const y: number = "wrong"; const z: string = 123;');
-      
+
       // Third hook call - should show new diagnostics (different error count breaks deduplication)
       const result3 = await runCLI(['hook', 'PostToolUse'], {
-        stdin: hookData1
+        stdin: hookData1,
       });
       expect(result3.exitCode).toBe(2); // Has errors
       expect(result3.stderr).toContain('[[system-message]]:');
@@ -461,20 +480,26 @@ func main() {
   describe('Cross-Platform and Environment Tests', () => {
     test('handles files with different line endings', async () => {
       // Test with Windows-style line endings
-      const winFile = createTestFile('windows.ts', 'const x: string = 42;\r\nconst y: number = "wrong";\r\n');
+      const winFile = createTestFile(
+        'windows.ts',
+        'const x: string = 42;\r\nconst y: number = "wrong";\r\n'
+      );
       const result = await runCLI(['check', winFile]);
-      
+
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('[[system-message]]:');
     }, 20000);
 
     test('handles files with unicode content', async () => {
-      const unicodeFile = createTestFile('unicode.ts', 'const message: string = "Hello 世界 🌍"; console.log(message);');
+      const unicodeFile = createTestFile(
+        'unicode.ts',
+        'const message: string = "Hello 世界 🌍"; console.log(message);'
+      );
       const result = await runCLI(['check', unicodeFile]);
-      
+
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('[[system-message]]:');
-      
+
       const jsonPart = result.stdout.split('[[system-message]]:')[1];
       const diagnostics = JSON.parse(jsonPart);
       expect(diagnostics.summary).toContain('no errors');
@@ -484,7 +509,7 @@ func main() {
       mkdirSync(join(TEST_DIR, 'subdir'), { recursive: true });
       const subFile = join(TEST_DIR, 'subdir', 'nested.ts');
       writeFileSync(subFile, 'const x: string = "valid";');
-      
+
       const result = await runCLI(['check', subFile]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('[[system-message]]:');

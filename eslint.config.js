@@ -41,7 +41,14 @@ export default [
       'import': importPlugin,
     },
     rules: {
-      // TypeScript specific rules
+      // Configure base rule to ignore underscore-prefixed variables
+      'no-unused-vars': ['error', { 
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
+      
+      // TypeScript specific rules (same pattern)
       '@typescript-eslint/no-unused-vars': ['error', { 
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_',
@@ -82,6 +89,11 @@ export default [
   // Test files - relax some rules
   {
     files: ['**/*.test.ts', '**/*.spec.ts', 'tests/**/*.ts'],
+    languageOptions: {
+      globals: {
+        require: 'readonly',  // Tests may need require for mocking
+      },
+    },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       'max-lines': 'off',
@@ -125,9 +137,10 @@ export default [
       '*.min.js',
       'tmp/',
       '.git/',
-      'examples/**/*',  // Examples have intentional errors
-      '**/*.d.ts',      // Declaration files
-      '**/*.js',        // JavaScript files (this is a TypeScript project)
+      'examples/**/*',    // Examples have intentional errors
+      'benchmarks/**/*', // Benchmark files have intentional errors
+      '**/*.d.ts',       // Declaration files
+      '**/*.js',         // JavaScript files (this is a TypeScript project)
     ],
   },
 ];

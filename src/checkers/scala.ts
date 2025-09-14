@@ -4,17 +4,9 @@
 
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, basename, relative } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
-import { shouldSkipDiagnostic } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
+import { shouldSkipDiagnostic, stripAnsiCodes } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
-
-// Helper function to strip ANSI color codes
-const stripAnsiCodes = (str: string): string => {
-  // Use String.fromCharCode to avoid ESLint control character detection
-  const escapeChar = String.fromCharCode(27); // ESC character (0x1B)
-  const ansiPattern = new RegExp(`${escapeChar}\\[[0-9;]*m`, 'g');
-  return str.replace(ansiPattern, '');
-};
 
 // Helper to extract detailed error message from subsequent lines
 const extractDetailedMessage = (lines: string[], startIndex: number): string | null => {

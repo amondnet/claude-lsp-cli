@@ -39,7 +39,7 @@ cd claude-lsp-cli
 # Interactive installation (auto-detects best location)
 ./install.sh
 # - If ~/.local/bin is in PATH: installs there (no sudo)
-# - Otherwise: asks if you want system-wide (/usr/local/bin with sudo) 
+# - Otherwise: asks if you want system-wide (/usr/local/bin with sudo)
 #   or user-local (add to PATH manually)
 
 # Force user directory installation (no sudo, may need PATH setup)
@@ -160,7 +160,7 @@ To prevent spam, the system tracks diagnostics per project:
 | Language   | Tool Used                   | File Extensions | Status     |
 | ---------- | --------------------------- | --------------- | ---------- |
 | TypeScript | `tsc --noEmit`              | `.ts, .tsx`     | ✅ Enabled |
-| Python     | `pyright` or `mypy`         | `.py`           | ✅ Enabled |
+| Python     | `pyright`                   | `.py`           | ✅ Enabled |
 | Go         | `go build`                  | `.go`           | ✅ Enabled |
 | Rust       | `rustc --error-format json` | `.rs`           | ✅ Enabled |
 | Java       | `javac`                     | `.java`         | ✅ Enabled |

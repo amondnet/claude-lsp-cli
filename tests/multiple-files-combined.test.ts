@@ -10,6 +10,7 @@ import * as deduplication from '../src/cli/utils/deduplication';
 // Store original process.exit
 const originalExit = process.exit;
 let _exitCode: number | undefined;
+void _exitCode;
 
 // Helper to capture console output
 let consoleOutput: string[] = [];
@@ -18,7 +19,9 @@ const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
 // Helper function to run async hook and capture exit
-async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: number; output?: any }> {
+async function runHookAndCaptureExit(
+  fn: Promise<void>
+): Promise<{ exitCode?: number; output?: any }> {
   try {
     await fn;
     return { exitCode: undefined };
@@ -26,16 +29,16 @@ async function runHookAndCaptureExit(fn: Promise<void>): Promise<{ exitCode?: nu
     if (error.message && error.message.includes('process.exit')) {
       // Extract exit code from the error message
       const match = error.message.match(/process\.exit\((\d+)\)/);
-      const code = match ? parseInt(match[1]) : error.exitCode ?? 0;
-      
+      const code = match ? parseInt(match[1]) : (error.exitCode ?? 0);
+
       // Try to extract the JSON output if it was logged
-      const errorOutput = consoleErrorOutput.find(o => o.includes('[[system-message]]'));
+      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
       let output;
       if (errorOutput) {
         const jsonPart = errorOutput.split('[[system-message]]:')[1];
         output = JSON.parse(jsonPart);
       }
-      
+
       return { exitCode: code, output };
     }
     throw error;
@@ -57,10 +60,14 @@ describe('Multiple Files Combined Results', () => {
     consoleOutput = [];
     consoleErrorOutput = [];
     console.log = ((...args: any[]) => {
-      consoleOutput.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+      consoleOutput.push(
+        args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
+      );
     }) as any;
     console.error = ((...args: any[]) => {
-      consoleErrorOutput.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+      consoleErrorOutput.push(
+        args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
+      );
     }) as any;
   });
 
@@ -83,39 +90,43 @@ describe('Multiple Files Combined Results', () => {
           diagnostics: [
             {
               severity: 'error' as const,
-              message: 'Type \'number\' is not assignable to type \'string\'',
+              message: "Type 'number' is not assignable to type 'string'",
               line: 15,
-              column: 7
+              column: 7,
             },
             {
               severity: 'error' as const,
-              message: 'Cannot find name \'useState\'',
+              message: "Cannot find name 'useState'",
               line: 8,
-              column: 10
-            }
-          ]
+              column: 10,
+            },
+          ],
         };
       } else if (path.includes('utils.ts')) {
         return {
           file: 'src/utils.ts',
           tool: 'typescript',
-          diagnostics: [{
-            severity: 'warning' as const,
-            message: 'Unused variable \'temp\'',
-            line: 23,
-            column: 5
-          }]
+          diagnostics: [
+            {
+              severity: 'warning' as const,
+              message: "Unused variable 'temp'",
+              line: 23,
+              column: 5,
+            },
+          ],
         };
       } else if (path.includes('main.py')) {
         return {
           file: 'scripts/main.py',
           tool: 'python',
-          diagnostics: [{
-            severity: 'error' as const,
-            message: 'Undefined variable \'config\'',
-            line: 45,
-            column: 12
-          }]
+          diagnostics: [
+            {
+              severity: 'error' as const,
+              message: "Undefined variable 'config'",
+              line: 45,
+              column: 12,
+            },
+          ],
         };
       }
       return null;
@@ -124,43 +135,44 @@ describe('Multiple Files Combined Results', () => {
     const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
     mockShouldShow.mockReturnValue(true);
     const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    void _mockMarkShown;
 
     const hookData = {
       tool: 'MultiEdit',
       tool_response: {
-        output: 'Modified files: src/component.tsx src/utils.ts scripts/main.py'
+        output: 'Modified files: src/component.tsx src/utils.ts scripts/main.py',
       },
-      cwd: '/project'
+      cwd: '/project',
     };
 
     const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-    
+
     expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
     expect(result.output).toBeDefined();
-    
+
     // Check summary includes both errors and warnings
     expect(result.output.summary).toBe('3 error(s), 1 warning(s)');
-    
+
     // Check that diagnostics array contains items from all files (limited to 5)
     expect(result.output.diagnostics).toHaveLength(4); // We have 4 total diagnostics
-    
+
     // Verify each diagnostic has the file field added
     expect(result.output.diagnostics[0]).toHaveProperty('file');
     expect(result.output.diagnostics[1]).toHaveProperty('file');
     expect(result.output.diagnostics[2]).toHaveProperty('file');
     expect(result.output.diagnostics[3]).toHaveProperty('file');
-    
+
     // Verify diagnostics are from different files
     const files = result.output.diagnostics.map((d: any) => d.file);
     expect(files).toContain('src/component.tsx');
     expect(files).toContain('src/utils.ts');
     expect(files).toContain('scripts/main.py');
-    
+
     // Verify specific diagnostics content
     const tsErrors = result.output.diagnostics.filter((d: any) => d.file === 'src/component.tsx');
     expect(tsErrors).toHaveLength(2);
-    expect(tsErrors[0].message).toContain('Type \'number\' is not assignable');
-    
+    expect(tsErrors[0].message).toContain("Type 'number' is not assignable");
+
     const pyErrors = result.output.diagnostics.filter((d: any) => d.file === 'scripts/main.py');
     expect(pyErrors).toHaveLength(1);
     expect(pyErrors[0].message).toContain('Undefined variable');
@@ -178,8 +190,8 @@ describe('Multiple Files Combined Results', () => {
             severity: 'error' as const,
             message: `Error ${i + 1} in file1`,
             line: i + 1,
-            column: 1
-          }))
+            column: 1,
+          })),
         };
       } else if (path.includes('file2.ts')) {
         // Return 3 diagnostics
@@ -190,8 +202,8 @@ describe('Multiple Files Combined Results', () => {
             severity: 'error' as const,
             message: `Error ${i + 1} in file2`,
             line: i + 1,
-            column: 1
-          }))
+            column: 1,
+          })),
         };
       }
       return null;
@@ -200,28 +212,29 @@ describe('Multiple Files Combined Results', () => {
     const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
     mockShouldShow.mockReturnValue(true);
     const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    void _mockMarkShown;
 
     const hookData = {
       tool_response: {
-        output: 'Updated file1.ts and file2.ts'
-      }
+        output: 'Updated file1.ts and file2.ts',
+      },
     };
 
     const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-    
+
     expect(result.exitCode).toBe(2);
     expect(result.output).toBeDefined();
-    
+
     // Should show total count in summary
     expect(result.output.summary).toBe('7 error(s)');
-    
+
     // But diagnostics array should be limited to 5
     expect(result.output.diagnostics).toHaveLength(5);
-    
+
     // Verify we have diagnostics from both files in the limited set
     const file1Diags = result.output.diagnostics.filter((d: any) => d.file === 'file1.ts');
     const file2Diags = result.output.diagnostics.filter((d: any) => d.file === 'file2.ts');
-    
+
     expect(file1Diags.length + file2Diags.length).toBe(5);
     expect(file1Diags.length).toBeGreaterThan(0);
     expect(file2Diags.length).toBeGreaterThan(0);
@@ -234,18 +247,20 @@ describe('Multiple Files Combined Results', () => {
         return {
           file: 'error.ts',
           tool: 'typescript',
-          diagnostics: [{
-            severity: 'error' as const,
-            message: 'Type error',
-            line: 10,
-            column: 5
-          }]
+          diagnostics: [
+            {
+              severity: 'error' as const,
+              message: 'Type error',
+              line: 10,
+              column: 5,
+            },
+          ],
         };
       } else if (path.includes('clean.ts')) {
         return {
           file: 'clean.ts',
           tool: 'typescript',
-          diagnostics: [] // No errors
+          diagnostics: [], // No errors
         };
       } else if (path.includes('disabled.scala')) {
         return null; // Language disabled
@@ -253,25 +268,26 @@ describe('Multiple Files Combined Results', () => {
       return {
         file: 'unknown',
         tool: 'unknown',
-        diagnostics: []
+        diagnostics: [],
       };
     });
 
     const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
     mockShouldShow.mockReturnValue(true);
     const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    void _mockMarkShown;
 
     const hookData = {
       tool_response: {
-        output: 'Modified error.ts clean.ts disabled.scala'
-      }
+        output: 'Modified error.ts clean.ts disabled.scala',
+      },
     };
 
     const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-    
+
     expect(result.exitCode).toBe(2); // Has errors from error.ts
     expect(result.output).toBeDefined();
-    
+
     // Should only count the file with errors
     expect(result.output.summary).toBe('1 error(s)');
     expect(result.output.diagnostics).toHaveLength(1);
@@ -286,23 +302,27 @@ describe('Multiple Files Combined Results', () => {
         return {
           file: 'file1.ts',
           tool: 'typescript',
-          diagnostics: [{
-            severity: 'error' as const,
-            message: 'Error in file1',
-            line: 1,
-            column: 1
-          }]
+          diagnostics: [
+            {
+              severity: 'error' as const,
+              message: 'Error in file1',
+              line: 1,
+              column: 1,
+            },
+          ],
         };
       } else if (path.includes('file2.ts')) {
         return {
           file: 'file2.ts',
           tool: 'typescript',
-          diagnostics: [{
-            severity: 'error' as const,
-            message: 'Error in file2',
-            line: 1,
-            column: 1
-          }]
+          diagnostics: [
+            {
+              severity: 'error' as const,
+              message: 'Error in file2',
+              line: 1,
+              column: 1,
+            },
+          ],
         };
       }
       return null;
@@ -313,29 +333,31 @@ describe('Multiple Files Combined Results', () => {
     // First file should show, second file should not (already shown)
     let callCount = 0;
     mockShouldShow.mockImplementation((path: string, _count: number) => {
+      void _count;
       callCount++;
       // Only show file1.ts
       return path.includes('file1.ts');
     });
     const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    void _mockMarkShown;
     _mockMarkShown.mockClear();
 
     const hookData = {
       tool_response: {
-        output: 'Modified file1.ts and file2.ts'
-      }
+        output: 'Modified file1.ts and file2.ts',
+      },
     };
 
     const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-    
+
     expect(result.exitCode).toBe(2); // Has errors from file1.ts
     expect(result.output).toBeDefined();
-    
+
     // Should only show diagnostics from file1.ts (file2.ts was deduplicated)
     expect(result.output.summary).toBe('1 error(s)');
     expect(result.output.diagnostics).toHaveLength(1);
     expect(result.output.diagnostics[0].file).toBe('file1.ts');
-    
+
     // Verify deduplication was checked for both files
     expect(callCount).toBe(2);
     // But only file1 was marked as shown
@@ -349,12 +371,14 @@ describe('Multiple Files Combined Results', () => {
       return {
         file: path.includes('file1.ts') ? 'file1.ts' : 'file2.ts',
         tool: 'typescript',
-        diagnostics: [{
-          severity: 'error' as const,
-          message: 'Same error',
-          line: 1,
-          column: 1
-        }]
+        diagnostics: [
+          {
+            severity: 'error' as const,
+            message: 'Same error',
+            line: 1,
+            column: 1,
+          },
+        ],
       };
     });
 
@@ -363,20 +387,21 @@ describe('Multiple Files Combined Results', () => {
     // All files are deduplicated
     mockShouldShow.mockReturnValue(false);
     const _mockMarkShown = spyOn(deduplication, 'markResultShown');
+    void _mockMarkShown;
     _mockMarkShown.mockClear();
 
     const hookData = {
       tool_response: {
-        output: 'Modified file1.ts and file2.ts'
-      }
+        output: 'Modified file1.ts and file2.ts',
+      },
     };
 
     const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
-    
+
     // When all files are deduplicated, should exit 0 with no output
     expect(result.exitCode).toBe(0);
     expect(result.output).toBeUndefined();
-    
+
     // Verify deduplication was checked
     expect(mockShouldShow).toHaveBeenCalled();
     // Since shouldShow returned false, markShown should not be called

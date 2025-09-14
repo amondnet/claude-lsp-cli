@@ -74,7 +74,7 @@ result = add("hello", "world")  # Type error
 
   test('should format diagnostics correctly', () => {
     const result = {
-      _file: '/path/to/test.ts',
+      file: '/path/to/test.ts',
       tool: 'tsc',
       diagnostics: [
         {
@@ -105,6 +105,9 @@ result = add("hello", "world")  # Type error
   });
 
   test('should check multiple supported languages', async () => {
+    // Ensure test directory exists
+    mkdirSync(TEST_DIR, { recursive: true });
+
     // Test file extensions mapping for supported languages only
     const languages = [
       { ext: '.ts', content: 'const x: string = 42;' },
@@ -124,7 +127,7 @@ result = add("hello", "world")  # Type error
       // Some tools might not be installed, but should at least try to return a result
       expect(result).toBeTruthy();
     }
-  });
+  }, 10000);
 });
 
 // Cleanup after tests

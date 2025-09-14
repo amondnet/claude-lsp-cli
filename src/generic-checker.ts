@@ -1,90 +1,26 @@
 /**
  * Generic Language Checker - Registry-based implementation
- * 
+ *
  * This replaces the individual checkXXX functions with a single
  * generic checker that uses the language registry.
  */
 
 import { existsSync } from 'fs';
-import { extname , join } from 'path';
-import { spawn } from 'bun';
-import type { FileCheckResult } from './file-checker.js';
-import { LANGUAGE_REGISTRY, findLocalTool, createResult } from './language-checker-registry.js';
+import { extname } from 'path';
+import type { FileCheckResult } from './file-checker';
+import { LANGUAGE_REGISTRY, findLocalTool, createResult } from './language-checker-registry';
+import { runCommand, isLanguageDisabled } from './utils/common';
 
 // Import registry initialization (ensures all languages are registered)
-import './checkers/index.js';
+import './checkers/index';
 
-/**
- * Run command with timeout and automatic kill
- */
-async function runCommand(
-  args: string[],
-  env?: Record<string, string>,
-  cwd?: string
-): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
-  const proc = spawn(args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: env ? { ...process.env, ...env } : process.env,
-    cwd: cwd || process.cwd(),
-  });
-
-  try {
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-
-    await proc.exited;
-
-    return { stdout, stderr, timedOut: false };
-  } catch (error) {
-    return { stdout: '', stderr: String(error), timedOut: false };
-  }
-}
-
-// Import the config reading function from the main file-checker module
-import { readFileSync } from 'fs';
-import { homedir } from 'os';
-
-/**
- * Helper function to read global LSP config
- */
-function readLspConfig(_projectRoot?: string): any {
-  // Only use global config
-  const globalConfigPath = join(homedir(), '.claude', 'lsp-config.json');
-
-  if (existsSync(globalConfigPath)) {
-    try {
-      return JSON.parse(readFileSync(globalConfigPath, 'utf8'));
-    } catch (error) {
-      return {};
-    }
-  }
-
-  return {};
-}
-
-/**
- * Check if a language is disabled in the configuration
- */
-function isLanguageDisabled(projectRoot: string, language: string): boolean {
-  const config = readLspConfig(projectRoot);
-
-  // Check global disable
-  if (config.disable === true) {
-    return true;
-  }
-
-  // Check language-specific disable
-  const langKey = `disable${language}`;
-  return config[langKey] === true;
-}
+// runCommand, readLspConfig, and isLanguageDisabled are now imported from utils/common
 
 /**
  * Generic language checker that uses the registry
  */
 export async function checkFileWithRegistry(
-  filePath: string, 
+  filePath: string,
   projectRoot: string
 ): Promise<FileCheckResult | null> {
   if (!existsSync(filePath)) {
@@ -93,7 +29,7 @@ export async function checkFileWithRegistry(
 
   const ext = extname(filePath).toLowerCase();
   const langConfig = LANGUAGE_REGISTRY.get(ext);
-  
+
   if (!langConfig) {
     return null; // Unsupported file type
   }
@@ -125,18 +61,18 @@ export async function checkFileWithRegistry(
   try {
     // Build command arguments
     const buildResult = langConfig.buildArgs(filePath, projectRoot, toolCommand, setupContext);
-    
+
     // Handle both old array format and new object format
     let finalTool = toolCommand;
     let args: string[];
-    
+
     if (Array.isArray(buildResult)) {
       args = buildResult;
     } else {
       finalTool = buildResult.tool || toolCommand;
       args = buildResult.args;
     }
-    
+
     // Prepend the tool command to the arguments array
     const fullCommand = [finalTool, ...args];
 
@@ -156,7 +92,6 @@ export async function checkFileWithRegistry(
     result.diagnostics = langConfig.parseOutput(stdout, stderr, filePath, projectRoot);
 
     return result;
-
   } catch (error) {
     if (process.env.DEBUG) {
       console.error(`${langConfig.name} checker error:`, error);

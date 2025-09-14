@@ -5,51 +5,19 @@
  * Handles slow commands gracefully with configurable timeouts
  */
 
-import { spawn } from 'bun';
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { dirname, basename, extname, join, relative } from 'path';
 import { tmpdir } from 'os';
+import { getLanguageForExtension } from './language-extensions';
+import {
+  runCommand,
+  readLspConfig,
+  isLanguageDisabled,
+  findProjectRoot,
+  findTsconfigRoot,
+} from './utils/common';
 
-// Project root detection
-function findProjectRoot(filePath: string): string {
-  let dir = dirname(filePath);
-
-  while (dir !== '/' && dir.length > 1) {
-    // Check for common project markers (excluding tsconfig.json)
-    if (
-      existsSync(join(dir, '.git')) ||
-      existsSync(join(dir, 'package.json')) ||
-      existsSync(join(dir, 'bun.lockb')) || // Bun projects
-      existsSync(join(dir, 'pyproject.toml')) ||
-      existsSync(join(dir, 'go.mod')) ||
-      existsSync(join(dir, 'Cargo.toml')) ||
-      existsSync(join(dir, 'pom.xml')) ||
-      existsSync(join(dir, 'build.gradle')) ||
-      existsSync(join(dir, 'composer.json')) ||
-      existsSync(join(dir, 'mix.exs')) ||
-      existsSync(join(dir, 'main.tf'))
-    ) {
-      return dir;
-    }
-    dir = dirname(dir);
-  }
-
-  return dirname(filePath); // fallback to file directory
-}
-
-// Find the nearest tsconfig.json for TypeScript configuration
-function findTsconfigRoot(filePath: string): string | null {
-  let dir = dirname(filePath);
-
-  while (dir !== '/' && dir.length > 1) {
-    if (existsSync(join(dir, 'tsconfig.json'))) {
-      return dir;
-    }
-    dir = dirname(dir);
-  }
-
-  return null; // No tsconfig.json found
-}
+// Project root detection and findTsconfigRoot are now imported from utils/common
 
 // No timeout - let tools complete naturally
 
@@ -65,67 +33,12 @@ export interface FileCheckResult {
   timedOut?: boolean;
 }
 
-/**
- * Run command with timeout and automatic kill
- */
-async function runCommand(
-  args: string[],
-  env?: Record<string, string>,
-  cwd?: string
-): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
-  const proc = spawn(args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: env ? { ...process.env, ...env } : process.env,
-    cwd: cwd || process.cwd(),
-  });
-
-  try {
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-
-    await proc.exited;
-
-    return { stdout, stderr, timedOut: false };
-  } catch (error) {
-    return { stdout: '', stderr: String(error), timedOut: false };
-  }
-}
+// runCommand is now imported from utils/common
 
 /**
  * Check a single file with timeout protection
  */
-// Helper function to read global LSP config
-function readLspConfig(): any {
-  // Only use global config
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const globalConfigPath = join(homeDir, '.claude', 'lsp-config.json');
-
-  try {
-    if (existsSync(globalConfigPath)) {
-      return JSON.parse(readFileSync(globalConfigPath, 'utf8'));
-    }
-  } catch {
-    // Ignore config parsing errors
-  }
-
-  return {};
-}
-
-// Helper function to check if a language is disabled
-function isLanguageDisabled(projectRoot: string, language: string): boolean {
-  const config = readLspConfig();
-
-  // Check global disable
-  if (config.disable === true) {
-    return true;
-  }
-
-  // Check language-specific disable
-  const langKey = `disable${language}`;
-  return config[langKey] === true;
-}
+// readLspConfig and isLanguageDisabled are now imported from utils/common
 
 export async function checkFile(filePath: string): Promise<FileCheckResult | null> {
   if (!existsSync(filePath)) {
@@ -136,7 +49,7 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
 
   // Try registry-based checker first
   try {
-    const { checkFileWithRegistry } = await import('./generic-checker.js');
+    const { checkFileWithRegistry } = await import('./generic-checker');
     const result = await checkFileWithRegistry(filePath, projectRoot);
     if (result !== null) {
       return result;
@@ -148,51 +61,37 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
   }
 
   // Fallback to legacy implementation
-  // const relativePath = relative(projectRoot, filePath);
   const ext = extname(filePath).toLowerCase();
+  const language = getLanguageForExtension(ext);
 
-  switch (ext) {
-    case '.ts':
-    case '.tsx':
-    case '.mts':
-    case '.cts':
+  if (!language) {
+    return null;
+  }
+
+  // Map language to checker function
+  switch (language) {
+    case 'typescript':
       return await checkTypeScript(filePath);
-
-    case '.py':
-    case '.pyi':
+    case 'python':
       return await checkPython(filePath);
-
-    case '.go':
+    case 'go':
       return await checkGo(filePath);
-
-    case '.rs':
+    case 'rust':
       return await checkRust(filePath);
-
-    case '.java':
+    case 'java':
       return await checkJava(filePath);
-
-    case '.cpp':
-    case '.cxx':
-    case '.cc':
-    case '.c':
+    case 'cpp':
       return await checkCpp(filePath);
-
-    case '.php':
+    case 'php':
       return await checkPhp(filePath);
-
-    case '.scala':
+    case 'scala':
       return await checkScala(filePath);
-
-    case '.lua':
+    case 'lua':
       return await checkLua(filePath);
-
-    case '.ex':
-    case '.exs':
+    case 'elixir':
       return await checkElixir(filePath);
-
-    case '.tf':
+    case 'terraform':
       return await checkTerraform(filePath);
-
     default:
       return null;
   }
@@ -206,7 +105,7 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
  * Find local TypeScript compiler installation
  */
 function findTscCommand(projectRoot: string): string {
-  // Check in the project being analyzed
+  // Check in the project being analyzed (highest priority)
   const projectLocalTsc = join(projectRoot, 'node_modules', '.bin', 'tsc');
   if (existsSync(projectLocalTsc)) {
     return projectLocalTsc;
@@ -218,7 +117,9 @@ function findTscCommand(projectRoot: string): string {
     return cwdLocalTsc;
   }
 
-  return 'tsc'; // Fallback to global
+  // Return 'tsc' to attempt using global installation
+  // The actual availability check will happen when we try to run it
+  return 'tsc';
 }
 
 /**
@@ -290,7 +191,10 @@ function stripTsconfigComments(content: string): string {
 /**
  * Build TypeScript compiler arguments from tsconfig
  */
-function buildTscArgsFromConfig(compilerOptions: any, tscArgs: string[]): string {
+function buildTscArgsFromConfig(
+  compilerOptions: Record<string, unknown>,
+  tscArgs: string[]
+): string {
   let toolDescription = 'tsc';
 
   // Add module and target if they support modern features
@@ -313,7 +217,7 @@ function buildTscArgsFromConfig(compilerOptions: any, tscArgs: string[]): string
 
   // Add jsx if specified
   if (compilerOptions.jsx) {
-    tscArgs.push('--jsx', compilerOptions.jsx);
+    tscArgs.push('--jsx', compilerOptions.jsx as string);
   }
 
   // Add boolean flags
@@ -327,14 +231,14 @@ function buildTscArgsFromConfig(compilerOptions: any, tscArgs: string[]): string
 
   // Add baseUrl if specified (important for path resolution)
   if (compilerOptions.baseUrl) {
-    tscArgs.push('--baseUrl', compilerOptions.baseUrl);
+    tscArgs.push('--baseUrl', compilerOptions.baseUrl as string);
   }
 
   // Add advanced flags
   if (compilerOptions.noFallthroughCasesInSwitch) tscArgs.push('--noFallthroughCasesInSwitch');
   if (compilerOptions.noImplicitOverride) tscArgs.push('--noImplicitOverride');
   if (compilerOptions.moduleDetection)
-    tscArgs.push('--moduleDetection', compilerOptions.moduleDetection);
+    tscArgs.push('--moduleDetection', compilerOptions.moduleDetection as string);
 
   // Add flags that might be false (only add if explicitly true)
   if (compilerOptions.noUnusedLocals === true) tscArgs.push('--noUnusedLocals');
@@ -343,7 +247,7 @@ function buildTscArgsFromConfig(compilerOptions: any, tscArgs: string[]): string
   if (compilerOptions.verbatimModuleSyntax === true) tscArgs.push('--verbatimModuleSyntax');
 
   // Check for Bun types
-  const types = compilerOptions.types || [];
+  const types = (compilerOptions.types as string[]) || [];
   if (types.includes('bun')) {
     tscArgs.push('--types', 'bun');
     toolDescription = 'tsc (bun)';
@@ -529,6 +433,17 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
     return result;
   }
 
+  // Check if tsc command was not found
+  if (stderr.includes('command not found') || stderr.includes('not found')) {
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: 'error',
+      message: `TypeScript compiler (tsc) not found. Please install TypeScript: npm install -g typescript`,
+    });
+    return result;
+  }
+
   // Parse TypeScript output
   const output = stderr || stdout;
   result.diagnostics = parseTypeScriptOutput(output, file, relativePath, projectRoot);
@@ -598,7 +513,7 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
     .join(':');
 
   // Try pyright with longer timeout (it can be slow on first run)
-  const { stdout, timedOut } = await runCommand(
+  const { stdout, stderr, timedOut } = await runCommand(
     pyrightArgs,
     {
       PATH: `${process.env.HOME}/.bun/bin:${process.env.PATH}`,
@@ -608,37 +523,31 @@ async function checkPython(file: string): Promise<FileCheckResult | null> {
   );
 
   if (timedOut) {
-    // Try faster mypy as fallback
-    const mypyResult = await runCommand([
-      'mypy',
-      '--no-error-summary',
-      '--show-column-numbers',
-      file,
-    ]);
+    result.timedOut = true;
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: 'warning',
+      message:
+        'Python check with pyright timed out. Consider checking your Python environment or file complexity.',
+    });
+    return result;
+  }
 
-    if (!mypyResult.timedOut) {
-      result.tool = 'mypy';
-      const lines = mypyResult.stdout.split('\n');
-      for (const line of lines) {
-        const match = line.match(/^.+?:(\d+):(\d+): (error|warning): (.+)$/);
-        if (match) {
-          result.diagnostics.push({
-            line: parseInt(match[1]),
-            column: parseInt(match[2]),
-            severity: match[3] as 'error' | 'warning',
-            message: match[4],
-          });
-        }
-      }
-    } else {
-      result.timedOut = true;
-      result.diagnostics.push({
-        line: 1,
-        column: 1,
-        severity: 'warning',
-        message: 'Python check timed out',
-      });
-    }
+  // Check for command not found or other execution errors
+  if (
+    stderr &&
+    (stderr.includes('command not found') ||
+      stderr.includes('not found') ||
+      stderr.includes('ENOENT'))
+  ) {
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: 'error',
+      message:
+        'pyright is not installed or not found in PATH. Install with: npm install -g pyright',
+    });
     return result;
   }
 
@@ -968,7 +877,20 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
     try {
       const mvnResult = await runCommand(['mvn', 'compile', '-q'], undefined, projectRoot);
 
-      if (!mvnResult.timedOut && !mvnResult.stderr.includes('command not found')) {
+      if (!mvnResult.timedOut) {
+        // Check if Maven command was found
+        if (mvnResult.stderr.includes('command not found')) {
+          result.diagnostics.push({
+            line: 1,
+            column: 1,
+            severity: 'error',
+            message:
+              'Maven project detected but Maven is not installed. Please install Maven to check Java files in this project.',
+          });
+          result.tool = 'maven';
+          return result;
+        }
+
         // Parse Maven output for errors
         const lines = mvnResult.stdout.split('\n').concat(mvnResult.stderr.split('\n'));
 
@@ -986,16 +908,36 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
         }
 
         result.tool = 'maven';
-        // If Maven succeeded, return the result
-        if (!mvnResult.stderr.includes('[ERROR]') || result.diagnostics.length > 0) {
-          return result;
-        }
+        // Always return for Maven projects - no fallback
+        return result;
+      } else {
+        // Maven timed out
+        result.diagnostics.push({
+          line: 1,
+          column: 1,
+          severity: 'warning',
+          message:
+            'Maven compilation timed out. The project may be too large or Maven may be misconfigured.',
+        });
+        result.tool = 'maven';
+        result.timedOut = true;
+        return result;
       }
     } catch (e) {
-      // Maven not available or failed to run, fall back to javac
+      // Maven not available or failed
       if (process.env.DEBUG) {
         console.error('Maven failed:', e);
       }
+      // Return error for Maven projects without Maven
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message:
+          'Maven project detected but Maven is not available. Please install Maven to check Java files in this project.',
+      });
+      result.tool = 'maven';
+      return result;
     }
   }
 
@@ -1008,38 +950,88 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
         projectRoot
       );
 
-      if (!gradleResult.timedOut && !gradleResult.stderr.includes('command not found')) {
-        // Parse Gradle output for errors
-        const lines = gradleResult.stderr.split('\n');
-
-        for (const line of lines) {
-          // Gradle error format: /path/to/File.java:10: error: message
-          const match = line.match(/(.+?):(\d+):\s+(error|warning):\s+(.+)/);
-          if (match && match[1].endsWith(targetFileName)) {
-            result.diagnostics.push({
-              line: parseInt(match[2]),
-              column: 1,
-              severity: match[3] as 'error' | 'warning',
-              message: match[4],
-            });
-          }
-        }
-
+      // Check if Gradle command was not found
+      if (
+        gradleResult.stderr.includes('command not found') ||
+        gradleResult.stderr.includes('gradle: not found')
+      ) {
+        result.diagnostics.push({
+          line: 1,
+          column: 1,
+          severity: 'error',
+          message:
+            'Gradle project detected but Gradle is not available. Please install Gradle to check Java files in this project.',
+        });
         result.tool = 'gradle';
-        // If Gradle found errors, return the result
-        if (result.diagnostics.length > 0) {
-          return result;
+        return result;
+      }
+
+      // Handle timeout
+      if (gradleResult.timedOut) {
+        result.timedOut = true;
+        result.diagnostics.push({
+          line: 1,
+          column: 1,
+          severity: 'warning',
+          message:
+            'Gradle compilation timed out. The file may be too complex or the project may need additional setup.',
+        });
+        result.tool = 'gradle';
+        return result;
+      }
+
+      // Parse Gradle output for errors
+      const lines = gradleResult.stderr.split('\n');
+
+      for (const line of lines) {
+        // Gradle error format: /path/to/File.java:10: error: message
+        const match = line.match(/(.+?):(\d+):\s+(error|warning):\s+(.+)/);
+        if (match && match[1].endsWith(targetFileName)) {
+          result.diagnostics.push({
+            line: parseInt(match[2]),
+            column: 1,
+            severity: match[3] as 'error' | 'warning',
+            message: match[4],
+          });
         }
       }
+
+      result.tool = 'gradle';
+      // Always return after Gradle attempt - no fallback to javac
+      return result;
     } catch (e) {
-      // Gradle not available or failed to run, fall back to javac
+      // Gradle not available or failed
       if (process.env.DEBUG) {
         console.error('Gradle failed:', e);
       }
+      // Return error for Gradle projects without Gradle
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message:
+          'Gradle project detected but Gradle is not available. Please install Gradle to check Java files in this project.',
+      });
+      result.tool = 'gradle';
+      return result;
     }
   }
 
-  // Fall back to javac with classpath
+  // Use javac for standalone Java files (no build system)
+  // First check if javac is available
+  const javacCheckResult = await runCommand(['which', 'javac'], {}, projectRoot);
+  if (!javacCheckResult.stdout || javacCheckResult.stdout.trim() === '') {
+    // javac is not available - return clear error
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: 'error',
+      message:
+        'Java compiler (javac) not found. Please install JDK to check Java files. Install with: brew install openjdk (macOS) or apt-get install default-jdk (Linux)',
+    });
+    return result;
+  }
+
   const javacArgs = ['javac', '-Xlint:all', '-d', tmpdir()];
 
   // Add classpath for common directories if in a project
@@ -1048,7 +1040,7 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
     const targetDir = join(projectRoot, 'target', 'classes');
     const buildDir = join(projectRoot, 'build', 'classes', 'java', 'main');
 
-    const classpath = [];
+    const classpath: string[] = [];
     if (existsSync(targetDir)) classpath.push(targetDir); // Maven
     if (existsSync(buildDir)) classpath.push(buildDir); // Gradle
     if (existsSync(srcDir)) classpath.push(srcDir);
@@ -1094,14 +1086,20 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
       line: 1,
       column: 1,
       severity: 'warning',
-      message: 'Java check timed out',
+      message: 'Java compilation timed out. The file may be too complex or have many dependencies.',
     });
     return result;
   }
 
-  // Check if javac is not available
+  // Double-check if javac failed due to not being found (shouldn't happen after which check, but be defensive)
   if (stderr.includes('command not found') || stderr.includes('javac: not found')) {
-    return null; // Java compiler not available
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: 'error',
+      message: 'Java compiler (javac) not found. Please install JDK to check Java files.',
+    });
+    return result;
   }
 
   // Parse javac output - only show errors for the target file
@@ -1318,6 +1316,157 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     diagnostics: [],
   };
 
+  // Determine project type and use the appropriate tool
+  const hasBuildSbt = existsSync(join(projectRoot, 'build.sbt'));
+  const hasBloopConfig = existsSync(join(projectRoot, '.bloop'));
+  const useSbtCompile = readLspConfig().useScalaSbt === true;
+
+  // Clear tool selection priority:
+  // 1. SBT for SBT projects (if enabled)
+  // 2. Bloop for Bloop projects
+  // 3. Scalac for standalone files
+
+  if (hasBuildSbt && useSbtCompile) {
+    // Use sbt compile for full project context (slower but more accurate)
+
+    // First check if sbt is available
+    const sbtCheck = await runCommand(['which', 'sbt'], undefined, projectRoot);
+    if (sbtCheck.stderr.includes('not found') || sbtCheck.stdout.trim() === '') {
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message:
+          'SBT is not installed. Please install sbt to check Scala projects with build.sbt. Install with: brew install sbt (macOS) or see https://www.scala-sbt.org/download.html',
+      });
+      return result;
+    }
+
+    try {
+      const sbtResult = await runCommand(
+        ['sbt', '-no-colors', '-batch', 'compile'],
+        undefined,
+        projectRoot
+      );
+
+      if (sbtResult.timedOut) {
+        // SBT timed out - return clear error
+        result.diagnostics.push({
+          line: 1,
+          column: 1,
+          severity: 'error',
+          message:
+            'SBT compilation timed out. The project may be too large or there may be an issue with the build configuration.',
+        });
+        return result;
+      }
+
+      // Parse sbt output for errors
+      const lines = sbtResult.stdout.split('\n').concat(sbtResult.stderr.split('\n'));
+      const targetFileName = basename(file);
+
+      for (const line of lines) {
+        // SBT error format: [error] /path/to/file.scala:10:5: error message
+        const match = line.match(/\[error\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
+        if (match && match[1].endsWith(targetFileName)) {
+          result.diagnostics.push({
+            line: parseInt(match[2]),
+            column: parseInt(match[3]),
+            severity: 'error',
+            message: match[4],
+          });
+        }
+      }
+      result.tool = 'sbt';
+
+      // Always return for SBT projects - no fallback to scalac
+      return result;
+    } catch (e) {
+      // sbt failed to run - return error, no fallback
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message: `SBT failed to run: ${e instanceof Error ? e.message : String(e)}. Please check your SBT installation and project configuration.`,
+      });
+      return result;
+    }
+  }
+
+  // Use Bloop for projects with Bloop configuration
+  if (hasBloopConfig) {
+    // First check if bloop is available
+    const bloopCheck = await runCommand(['which', 'bloop'], undefined, projectRoot);
+    if (bloopCheck.stderr.includes('not found') || bloopCheck.stdout.trim() === '') {
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message:
+          'Bloop is not installed. Please install bloop to check Scala projects with .bloop configuration. Install with: brew install scalacenter/bloop/bloop (macOS) or see https://scalacenter.github.io/bloop/setup',
+      });
+      return result;
+    }
+
+    // Try to use bloop compile which understands the full project context
+    try {
+      const bloopResult = await runCommand(
+        ['bloop', 'compile', '--no-color', relativePath],
+        undefined,
+        projectRoot
+      );
+
+      if (bloopResult.timedOut) {
+        // Bloop timed out - return clear error
+        result.diagnostics.push({
+          line: 1,
+          column: 1,
+          severity: 'error',
+          message:
+            'Bloop compilation timed out. The project may be too large or there may be an issue with the Bloop configuration.',
+        });
+        return result;
+      }
+
+      // Parse bloop output
+      const lines = bloopResult.stderr.split('\n');
+      for (const line of lines) {
+        const match = line.match(/\[E\d+\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
+        if (match && match[1].includes(basename(file))) {
+          result.diagnostics.push({
+            line: parseInt(match[2]),
+            column: parseInt(match[3]),
+            severity: 'error',
+            message: match[4],
+          });
+        }
+      }
+      result.tool = 'bloop';
+
+      // Always return for Bloop projects - no fallback to scalac
+      return result;
+    } catch (e) {
+      // Bloop failed to run - return error, no fallback
+      result.diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message: `Bloop failed to run: ${e instanceof Error ? e.message : String(e)}. Please check your Bloop installation and project configuration.`,
+      });
+      return result;
+    }
+  }
+  // Use scalac for standalone files (no build tool configuration)
+  // This is the base case for simple Scala files
+  return await checkScalaWithScalac(file, projectRoot, relativePath, result);
+}
+
+async function checkScalaWithScalac(
+  file: string,
+  projectRoot: string,
+  relativePath: string,
+  result: FileCheckResult
+): Promise<FileCheckResult> {
   // For Scala projects, we need to compile files with their dependencies
   // to avoid false positives about missing types
   const fileDir = dirname(file);
@@ -1326,93 +1475,8 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
 
   const scalaArgs = ['scalac', '-explain', '-nowarn'];
 
+  // Check if this is an SBT project for classpath building
   const hasBuildSbt = existsSync(join(projectRoot, 'build.sbt'));
-  const hasMetalsBsp = existsSync(join(projectRoot, '.bsp'));
-
-  // Try to use better build tools if available for more accurate checking
-  const useSbtCompile = readLspConfig().useScalaSbt === true;
-
-  if (hasBuildSbt && useSbtCompile) {
-    // Use sbt compile for full project context (slower but more accurate)
-    try {
-      const sbtResult = await runCommand(
-        ['sbt', '-no-colors', '-batch', 'compile'],
-        undefined,
-        projectRoot
-      );
-
-      if (!sbtResult.timedOut) {
-        // Parse sbt output for errors
-        const lines = sbtResult.stdout.split('\n').concat(sbtResult.stderr.split('\n'));
-        const targetFileName = basename(file);
-
-        for (const line of lines) {
-          // SBT error format: [error] /path/to/file.scala:10:5: error message
-          const match = line.match(/\[error\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
-          if (match && match[1].endsWith(targetFileName)) {
-            result.diagnostics.push({
-              line: parseInt(match[2]),
-              column: parseInt(match[3]),
-              severity: 'error',
-              message: match[4],
-            });
-          }
-        }
-        result.tool = 'sbt';
-
-        // Only return if we found diagnostics or compilation succeeded
-        if (result.diagnostics.length > 0 || sbtResult.stdout.includes('[success]')) {
-          return result;
-        }
-      }
-    } catch (e) {
-      // sbt not available or failed to run, fall back to scalac
-      if (process.env.DEBUG) {
-        console.error('sbt failed:', e);
-      }
-    }
-  }
-
-  // Try to use Metals/BSP for better accuracy if available
-  if (hasMetalsBsp && existsSync(join(projectRoot, '.metals'))) {
-    // Check if we can use bloop for faster, incremental compilation
-    const bloopConfig = join(projectRoot, '.bloop');
-    if (existsSync(bloopConfig)) {
-      // Try to use bloop compile which understands the full project context
-      try {
-        const bloopResult = await runCommand(
-          ['bloop', 'compile', '--no-color', relativePath],
-          undefined,
-          projectRoot
-        );
-
-        // Check if bloop was found and executed successfully
-        if (!bloopResult.timedOut && !bloopResult.stderr.includes('Executable not found')) {
-          // Parse bloop output if successful
-          const lines = bloopResult.stderr.split('\n');
-          for (const line of lines) {
-            const match = line.match(/\[E\d+\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
-            if (match && match[1].includes(basename(file))) {
-              result.diagnostics.push({
-                line: parseInt(match[2]),
-                column: parseInt(match[3]),
-                severity: 'error',
-                message: match[4],
-              });
-            }
-          }
-          result.tool = 'bloop';
-          return result;
-        }
-        // If bloop is not available or failed, fall through to use scalac
-      } catch (e) {
-        // bloop not available or failed to run, fall back to scalac
-        if (process.env.DEBUG) {
-          console.error('bloop failed:', e);
-        }
-      }
-    }
-  }
 
   // Build classpath including compiled classes and dependencies
   const classpathParts: string[] = [];
@@ -1520,12 +1584,20 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
     stderr.includes('not found: scalac') ||
     stderr.includes('No such file or directory')
   ) {
-    return null; // Scala compiler not available
+    result.diagnostics.push({
+      line: 1,
+      column: 1,
+      severity: 'error',
+      message:
+        'Scala compiler (scalac) is not installed. Please install Scala to check Scala files. Install with: brew install scala (macOS) or see https://www.scala-lang.org/download/',
+    });
+    return result;
   }
 
   // If scalac ran but produced no output at all, it might be a version issue
   if (!stderr || stderr.trim() === '') {
-    return null; // Scala compiler didn't produce any output
+    // No errors means compilation was successful
+    return result;
   }
 
   // Parse Scala compiler output (format: "-- [E006] Not Found Error: file.scala:3:13")
@@ -1870,7 +1942,7 @@ export function formatDiagnostics(result: FileCheckResult): string {
   const warnings = result.diagnostics.filter((d) => d.severity === 'warning');
 
   // Build summary - only show non-zero counts (use (s) format for consistency)
-  const summaryParts = [];
+  const summaryParts: string[] = [];
   if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
   if (warnings.length > 0) summaryParts.push(`${warnings.length} warning(s)`);
 

@@ -4,8 +4,8 @@
 
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
+import { mapSeverity } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const rustConfig: LanguageConfig = {
@@ -20,7 +20,7 @@ export const rustConfig: LanguageConfig = {
 
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const hasCargoToml = context?.hasCargoToml;
-    
+
     if (hasCargoToml) {
       return { tool: 'cargo', args: ['check', '--message-format=json'] };
     } else {
@@ -33,20 +33,20 @@ export const rustConfig: LanguageConfig = {
     const diagnostics: DiagnosticResult[] = [];
     const output = stdout || stderr;
     const lines = output.split('\n');
-    
+
     for (const line of lines) {
       if (!line.trim()) continue;
-      
+
       try {
         const parsed = JSON.parse(line);
-        
+
         // Handle cargo's format (nested message structure)
         if (parsed.reason === 'compiler-message' && parsed.message && parsed.message.spans) {
           for (const span of parsed.message.spans) {
             // Check if this diagnostic is for our target file
             if (span.file_name && span.file_name.includes(file.split('/').pop())) {
               const severity = mapSeverity(parsed.message.level || 'error');
-              
+
               diagnostics.push({
                 line: span.line_start || 1,
                 column: span.column_start || 1,
@@ -62,7 +62,7 @@ export const rustConfig: LanguageConfig = {
             // Check if this diagnostic is for our target file
             if (span.file_name && span.file_name.includes(file.split('/').pop())) {
               const severity = mapSeverity(parsed.level || 'error');
-              
+
               diagnostics.push({
                 line: span.line_start || 1,
                 column: span.column_start || 1,
@@ -85,14 +85,14 @@ export const rustConfig: LanguageConfig = {
         }
       }
     }
-    
+
     return diagnostics;
   },
 
   setupCommand: async (_file: string, _projectRoot: string) => {
     const hasCargoToml = existsSync(join(_projectRoot, 'Cargo.toml'));
     return {
-      context: { hasCargoToml }
+      context: { hasCargoToml },
     };
-  }
+  },
 };

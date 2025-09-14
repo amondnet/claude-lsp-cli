@@ -4,7 +4,7 @@ import { checkFile, formatDiagnostics } from '../../file-checker';
 
 export async function runCheck(
   filePath: string,
-  log: (..._args: any) => any = console.log
+  log: (..._args: unknown[]) => unknown = console.log
 ): Promise<void> {
   if (!filePath) {
     return;

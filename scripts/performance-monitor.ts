@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
  * Performance monitoring and regression detection for claude-lsp-cli
- * 
+ *
  * This script runs performance tests and compares results against baselines
  * to detect performance regressions in CI/CD pipelines.
- * 
+ *
  * Usage:
  *   bun run scripts/performance-monitor.ts --baseline    # Create baseline
  *   bun run scripts/performance-monitor.ts --check      # Check against baseline
@@ -12,9 +12,9 @@
  */
 
 import { performance } from 'perf_hooks';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
 import { checkFile } from '../src/file-checker';
-import { join } from 'path';
+// import { join } from 'path'; // unused
 
 interface BaselineMetrics {
   timestamp: string;
@@ -71,9 +71,9 @@ class PerformanceMonitor {
 
       const memBefore = process.memoryUsage();
       const startTime = performance.now();
-      
+
       const result = await checkFile(testFile);
-      
+
       const endTime = performance.now();
       const memAfter = process.memoryUsage();
 
@@ -81,11 +81,11 @@ class PerformanceMonitor {
         testName,
         executionMs: endTime - startTime,
         memoryMB: (memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024,
-        diagnosticCount: (result && result.diagnostics) ? result.diagnostics.length : 0,
+        diagnosticCount: result && result.diagnostics ? result.diagnostics.length : 0,
       });
 
       // Small delay between runs to allow system to stabilize
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     return results;
@@ -96,7 +96,9 @@ class PerformanceMonitor {
 
     // TypeScript test file
     const tsFile = '/tmp/perf-test.ts';
-    writeFileSync(tsFile, `
+    writeFileSync(
+      tsFile,
+      `
 interface Config {
   apiUrl: string;
   timeout: number;
@@ -149,12 +151,15 @@ const invalidConfig: Config = {
 
 const client = new ApiClient(invalidConfig);
 console.log(undefinedVariable); // Undefined variable error
-`);
+`
+    );
     testFiles['typescript'] = tsFile;
 
     // Python test file
     const pyFile = '/tmp/perf-test.py';
-    writeFileSync(pyFile, `
+    writeFileSync(
+      pyFile,
+      `
 from typing import Dict, Optional, Any, List
 import json
 import time
@@ -205,7 +210,8 @@ invalid_config: Config = Config(
 
 client = ApiClient(invalid_config)
 print(undefined_variable)  # Undefined variable error
-`);
+`
+    );
     testFiles['python'] = pyFile;
 
     return testFiles;
@@ -213,17 +219,17 @@ print(undefined_variable)  # Undefined variable error
 
   async createBaseline(): Promise<BaselineMetrics> {
     console.log('Creating performance baseline...');
-    
+
     const testFiles = await this.createTestFiles();
     const metrics: BaselineMetrics['metrics'] = {};
 
     for (const [testName, testFile] of Object.entries(testFiles)) {
       console.log(`  Running ${testName} baseline tests...`);
-      
+
       const results = await this.runPerformanceTest(testName, testFile);
-      
-      const executionTimes = results.map(r => r.executionMs);
-      const memoryUsages = results.map(r => r.memoryMB);
+
+      const executionTimes = results.map((r) => r.executionMs);
+      const memoryUsages = results.map((r) => r.memoryMB);
       const diagnosticCount = results[0].diagnosticCount; // Should be consistent
 
       metrics[testName] = {
@@ -235,7 +241,9 @@ print(undefined_variable)  # Undefined variable error
         sampleSize: results.length,
       };
 
-      console.log(`    ${testName}: ${metrics[testName].avgExecutionMs.toFixed(2)}ms avg, ${metrics[testName].avgMemoryMB.toFixed(2)}MB avg`);
+      console.log(
+        `    ${testName}: ${metrics[testName].avgExecutionMs.toFixed(2)}ms avg, ${metrics[testName].avgMemoryMB.toFixed(2)}MB avg`
+      );
     }
 
     const baseline: BaselineMetrics = {
@@ -252,7 +260,7 @@ print(undefined_variable)  # Undefined variable error
 
     writeFileSync(this.BASELINE_FILE, JSON.stringify(baseline, null, 2));
     console.log(`Baseline created: ${this.BASELINE_FILE}`);
-    
+
     return baseline;
   }
 
@@ -262,7 +270,7 @@ print(undefined_variable)  # Undefined variable error
     }
 
     console.log('Checking for performance regressions...');
-    
+
     const baseline: BaselineMetrics = JSON.parse(readFileSync(this.BASELINE_FILE, 'utf-8'));
     const testFiles = await this.createTestFiles();
     const regressions: RegressionResult[] = [];
@@ -274,7 +282,7 @@ print(undefined_variable)  # Undefined variable error
       }
 
       console.log(`  Testing ${testName} for regressions...`);
-      
+
       const results = await this.runPerformanceTest(testName, testFile);
       const avgResult = {
         testName,
@@ -284,10 +292,15 @@ print(undefined_variable)  # Undefined variable error
       };
 
       const baselineMetrics = baseline.metrics[testName];
-      const executionIncrease = ((avgResult.executionMs - baselineMetrics.avgExecutionMs) / baselineMetrics.avgExecutionMs) * 100;
-      const memoryIncrease = ((avgResult.memoryMB - baselineMetrics.avgMemoryMB) / baselineMetrics.avgMemoryMB) * 100;
-      
-      const isRegression = executionIncrease > this.REGRESSION_THRESHOLD || memoryIncrease > this.MEMORY_THRESHOLD;
+      const executionIncrease =
+        ((avgResult.executionMs - baselineMetrics.avgExecutionMs) /
+          baselineMetrics.avgExecutionMs) *
+        100;
+      const memoryIncrease =
+        ((avgResult.memoryMB - baselineMetrics.avgMemoryMB) / baselineMetrics.avgMemoryMB) * 100;
+
+      const isRegression =
+        executionIncrease > this.REGRESSION_THRESHOLD || memoryIncrease > this.MEMORY_THRESHOLD;
 
       regressions.push({
         testName,
@@ -301,15 +314,17 @@ print(undefined_variable)  # Undefined variable error
       });
 
       const status = isRegression ? '❌ REGRESSION' : '✅ OK';
-      console.log(`    ${status}: ${avgResult.executionMs.toFixed(2)}ms (${executionIncrease.toFixed(1)}% change)`);
+      console.log(
+        `    ${status}: ${avgResult.executionMs.toFixed(2)}ms (${executionIncrease.toFixed(1)}% change)`
+      );
     }
 
     return regressions;
   }
 
   generateReport(regressions: RegressionResult[]): string {
-    const hasRegressions = regressions.some(r => r.regression.isRegression);
-    
+    const hasRegressions = regressions.some((r) => r.regression.isRegression);
+
     let report = `# Performance Report\n\n`;
     report += `Generated: ${new Date().toISOString()}\n`;
     report += `Status: ${hasRegressions ? '❌ REGRESSIONS DETECTED' : '✅ NO REGRESSIONS'}\n\n`;
@@ -321,16 +336,22 @@ print(undefined_variable)  # Undefined variable error
     for (const regression of regressions) {
       const { testName, current, baseline, regression: reg } = regression;
       const status = reg.isRegression ? '❌' : '✅';
-      const execChange = reg.executionTimeIncrease > 0 ? `+${reg.executionTimeIncrease.toFixed(1)}%` : `${reg.executionTimeIncrease.toFixed(1)}%`;
-      const memChange = reg.memoryIncrease > 0 ? `+${reg.memoryIncrease.toFixed(1)}%` : `${reg.memoryIncrease.toFixed(1)}%`;
+      const execChange =
+        reg.executionTimeIncrease > 0
+          ? `+${reg.executionTimeIncrease.toFixed(1)}%`
+          : `${reg.executionTimeIncrease.toFixed(1)}%`;
+      const memChange =
+        reg.memoryIncrease > 0
+          ? `+${reg.memoryIncrease.toFixed(1)}%`
+          : `${reg.memoryIncrease.toFixed(1)}%`;
 
       report += `| ${testName} | ${current.executionMs.toFixed(2)} | ${baseline.avgExecutionMs.toFixed(2)} | ${execChange} | ${memChange} | ${status} |\n`;
     }
 
     if (hasRegressions) {
       report += `\n## 🚨 Regressions Detected\n\n`;
-      const regressedTests = regressions.filter(r => r.regression.isRegression);
-      
+      const regressedTests = regressions.filter((r) => r.regression.isRegression);
+
       for (const regression of regressedTests) {
         report += `### ${regression.testName}\n`;
         report += `- Execution time: ${regression.current.executionMs.toFixed(2)}ms → ${regression.baseline.avgExecutionMs.toFixed(2)}ms (${regression.regression.executionTimeIncrease.toFixed(1)}% increase)\n`;
@@ -356,7 +377,7 @@ print(undefined_variable)  # Undefined variable error
     for (const file of tempFiles) {
       try {
         if (existsSync(file)) {
-          require('fs').unlinkSync(file);
+          unlinkSync(file);
         }
       } catch {
         // Ignore cleanup errors
@@ -377,17 +398,17 @@ async function main() {
         await monitor.createBaseline();
         break;
 
-      case '--check':
+      case '--check': {
         const regressions = await monitor.checkRegression();
         const report = monitor.generateReport(regressions);
         console.log('\n' + report);
-        
+
         // Write report to file
         writeFileSync('performance-report.md', report);
         console.log('Report saved to: performance-report.md');
-        
+
         // Exit with error code if regressions detected
-        const hasRegressions = regressions.some(r => r.regression.isRegression);
+        const hasRegressions = regressions.some((r) => r.regression.isRegression);
         if (hasRegressions) {
           console.error('\n❌ Performance regressions detected!');
           process.exit(1);
@@ -395,6 +416,7 @@ async function main() {
           console.log('\n✅ No performance regressions detected.');
         }
         break;
+      }
 
       case '--report':
         if (!existsSync('performance-report.md')) {
@@ -420,5 +442,5 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main();
+  void main();
 }

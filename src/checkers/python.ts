@@ -4,8 +4,8 @@
 
 import { existsSync } from 'fs';
 import { join } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity, shouldSkipDiagnostic } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
+import { mapSeverity, shouldSkipDiagnostic } from '../language-checker-registry';
 
 export const pythonConfig: LanguageConfig = {
   name: 'Python',
@@ -42,11 +42,11 @@ export const pythonConfig: LanguageConfig = {
     // Pyright outputs JSON when using --outputjson
     try {
       const result = JSON.parse(stdout);
-      
+
       if (result.generalDiagnostics) {
         for (const diag of result.generalDiagnostics) {
           const message = diag.message;
-          
+
           // Skip if this diagnostic should be filtered
           if (shouldSkipDiagnostic(message, _file)) {
             continue;
@@ -69,8 +69,10 @@ export const pythonConfig: LanguageConfig = {
           if (!trimmed) continue;
 
           // Skip common noise
-          if (trimmed.includes('Try "python -m pip install') || 
-              trimmed.includes('reportMissingImports')) {
+          if (
+            trimmed.includes('Try "python -m pip install') ||
+            trimmed.includes('reportMissingImports')
+          ) {
             continue;
           }
 
@@ -78,7 +80,7 @@ export const pythonConfig: LanguageConfig = {
           const match = trimmed.match(/(\d+):(\d+)\s+-\s+(error|warning|info):\s*(.+)/);
           if (match) {
             const [, lineStr, colStr, severity, message] = match;
-            
+
             if (shouldSkipDiagnostic(message, _file)) {
               continue;
             }
@@ -98,9 +100,11 @@ export const pythonConfig: LanguageConfig = {
   },
 
   detectConfig: (_projectRoot: string) => {
-    return existsSync(join(_projectRoot, 'pyrightconfig.json')) ||
-           existsSync(join(_projectRoot, 'pyproject.toml')) ||
-           existsSync(join(_projectRoot, 'requirements.txt')) ||
-           existsSync(join(_projectRoot, 'Pipfile'));
+    return (
+      existsSync(join(_projectRoot, 'pyrightconfig.json')) ||
+      existsSync(join(_projectRoot, 'pyproject.toml')) ||
+      existsSync(join(_projectRoot, 'requirements.txt')) ||
+      existsSync(join(_projectRoot, 'Pipfile'))
+    );
   },
 };

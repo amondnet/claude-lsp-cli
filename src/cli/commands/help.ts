@@ -1,7 +1,9 @@
 import { spawn } from 'bun';
 import { loadConfig } from './config';
 
-export async function showHelp(log: (..._args: any) => any = console.log): Promise<string> {
+export async function showHelp(
+  log: (..._args: unknown[]) => unknown = console.log
+): Promise<string> {
   const helpText = `Claude LSP CLI - File-based diagnostics for Claude Code
 
 Usage: claude-lsp-cli <command> [args]
@@ -22,7 +24,9 @@ Commands:
   return fullMessage;
 }
 
-export async function showStatus(log: (..._args: any) => any = console.log): Promise<string> {
+export async function showStatus(
+  log: (..._args: unknown[]) => unknown = console.log
+): Promise<string> {
   // Check if there's a config file and read disabled languages
   const disabledLanguages = new Set<string>();
   let globalDisabled = false;
@@ -41,7 +45,7 @@ export async function showStatus(log: (..._args: any) => any = console.log): Pro
     if (config.disableLua === true) disabledLanguages.add('Lua');
     if (config.disableElixir === true) disabledLanguages.add('Elixir');
     if (config.disableTerraform === true) disabledLanguages.add('Terraform');
-  } catch (_e) {
+  } catch {
     // Ignore config parsing errors
   }
 

@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { spawn } from 'bun';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { languageTestData } from './fixtures/cli-scenarios';
+import { languageTestData as _languageTestData } from './fixtures/cli-scenarios';
 
 const TEST_DIR = '/tmp/claude-lsp-lang-test';
 const CLI_PATH = './bin/claude-lsp-cli';
@@ -113,7 +113,7 @@ describe('Language Comprehensive Testing', () => {
 
           const stdout = await new Response(proc.stdout).text();
           const stderr = await new Response(proc.stderr).text();
-          const exitCode = await proc.exited;
+          const _exitCode = await proc.exited;
 
           // Should detect errors
           const output = stdout + stderr;
@@ -185,7 +185,7 @@ describe('Language Comprehensive Testing', () => {
               cwd: TEST_DIR,
             })
           );
-          proc.stdin.end();
+          void proc.stdin.end();
 
           const stderr = await new Response(proc.stderr).text();
           const exitCode = await proc.exited;
@@ -216,13 +216,16 @@ describe('Language Comprehensive Testing', () => {
               cwd: TEST_DIR,
             })
           );
-          proc.stdin.end();
+          void proc.stdin.end();
 
           const stderr = await new Response(proc.stderr).text();
           const exitCode = await proc.exited;
 
           // Should show no errors (Terraform, Java, and Scala may show warnings/errors due to project setup)
-          if ((ext === '.tf' || ext === '.tfvars' || ext === '.java') && stderr.includes('warning')) {
+          if (
+            (ext === '.tf' || ext === '.tfvars' || ext === '.java') &&
+            stderr.includes('warning')
+          ) {
             expect(exitCode).toBe(2); // Warnings still exit with 2
           } else if (ext === '.java' && stderr.includes('error')) {
             // Java may show errors if file name doesn't match class name

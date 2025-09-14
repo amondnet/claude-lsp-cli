@@ -3,7 +3,7 @@
  */
 
 import { relative } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const elixirConfig: LanguageConfig = {
@@ -20,10 +20,10 @@ export const elixirConfig: LanguageConfig = {
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      
+
       // Match the new error format: "error: message" followed by location
       if (line.trim().startsWith('error:') || line.trim().startsWith('warning:')) {
         const isError = line.trim().startsWith('error:');
@@ -46,7 +46,9 @@ export const elixirConfig: LanguageConfig = {
       }
 
       // Also match the old format for backward compatibility
-      const oldMatch = line.match(/\*\* \((CompileError|SyntaxError|warning)\) (.+?):(\d+):?\s*(.+)/);
+      const oldMatch = line.match(
+        /\*\* \((CompileError|SyntaxError|warning)\) (.+?):(\d+):?\s*(.+)/
+      );
       if (oldMatch) {
         const isError = oldMatch[1] !== 'warning';
         diagnostics.push({
@@ -57,7 +59,7 @@ export const elixirConfig: LanguageConfig = {
         });
       }
     }
-    
+
     return diagnostics;
-  }
+  },
 };

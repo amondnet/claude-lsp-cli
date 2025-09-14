@@ -46,7 +46,7 @@ async function handleHookEvent(eventType: string): Promise<void> {
 }
 
 // Main execution
-(async () => {
+void (async () => {
   if (command === 'hook') {
     await handleHookEvent(commandArgs[0]);
   } else if (command === 'check') {

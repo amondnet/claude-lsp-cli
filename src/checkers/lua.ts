@@ -3,7 +3,7 @@
  */
 
 import { relative } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const luaConfig: LanguageConfig = {
@@ -20,7 +20,7 @@ export const luaConfig: LanguageConfig = {
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
-    
+
     for (const line of lines) {
       // Parse luac output format: luac: file.lua:line: message
       const match = line.match(/luac: .+?:(\d+): (.+)/);
@@ -33,7 +33,7 @@ export const luaConfig: LanguageConfig = {
         });
       }
     }
-    
+
     return diagnostics;
-  }
+  },
 };

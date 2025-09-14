@@ -3,7 +3,7 @@
  */
 
 import { relative } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const terraformConfig: LanguageConfig = {
@@ -19,7 +19,7 @@ export const terraformConfig: LanguageConfig = {
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: DiagnosticResult[] = [];
-    
+
     // Terraform fmt outputs diff to stderr when formatting issues found
     if (stderr.trim() || stdout.trim()) {
       diagnostics.push({
@@ -29,7 +29,7 @@ export const terraformConfig: LanguageConfig = {
         message: 'Formatting issues detected',
       });
     }
-    
+
     return diagnostics;
-  }
+  },
 };

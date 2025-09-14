@@ -5,22 +5,11 @@
 import { existsSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import type { LanguageConfig } from '../language-checker-registry.js';
-import { mapSeverity, stripAnsiCodes, shouldSkipDiagnostic } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
+import { mapSeverity, stripAnsiCodes, shouldSkipDiagnostic } from '../language-checker-registry';
+import { findTsconfigRoot } from '../utils/common';
 
-// Find the nearest tsconfig.json for TypeScript configuration
-function findTsconfigRoot(filePath: string): string | null {
-  let dir = dirname(filePath);
-
-  while (dir !== '/' && dir.length > 1) {
-    if (existsSync(join(dir, 'tsconfig.json'))) {
-      return dir;
-    }
-    dir = dirname(dir);
-  }
-
-  return null; // No tsconfig.json found
-}
+// findTsconfigRoot is now imported from utils/common
 
 export const typescriptConfig: LanguageConfig = {
   name: 'TypeScript',
@@ -83,8 +72,8 @@ export const typescriptConfig: LanguageConfig = {
       cleanup: tempTsconfigPath
         ? () => {
             try {
-              if (existsSync(tempTsconfigPath!)) {
-                unlinkSync(tempTsconfigPath!);
+              if (existsSync(tempTsconfigPath)) {
+                unlinkSync(tempTsconfigPath);
                 if (process.env.DEBUG) {
                   console.error('Cleaned up temporary tsconfig:', tempTsconfigPath);
                 }

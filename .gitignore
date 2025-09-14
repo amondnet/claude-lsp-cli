@@ -19,6 +19,9 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Generated benchmark files
+benchmarks/
 *.swp
 *.swo
 

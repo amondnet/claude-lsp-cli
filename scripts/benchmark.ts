@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Performance benchmarking script for claude-lsp-cli
- * 
+ *
  * Usage:
  *   bun run scripts/benchmark.ts [language] [size]
  *   bun run scripts/benchmark.ts typescript small
@@ -65,7 +65,10 @@ const BENCHMARK_FILES: BenchmarkSuite = {
 class PerformanceBenchmark {
   private results: BenchmarkResult[] = [];
 
-  async runBenchmark(language: string, size: 'small' | 'medium' | 'large'): Promise<BenchmarkResult> {
+  async runBenchmark(
+    language: string,
+    size: 'small' | 'medium' | 'large'
+  ): Promise<BenchmarkResult> {
     const filePath = BENCHMARK_FILES[language]?.[size];
     if (!filePath) {
       throw new Error(`No benchmark file found for ${language} ${size}`);
@@ -95,7 +98,7 @@ class PerformanceBenchmark {
       fileName: filePath,
       fileSizeBytes,
       executionTimeMs: endTime - startTime,
-      diagnosticCount: result.diagnostics?.length || 0,
+      diagnosticCount: result?.diagnostics?.length || 0,
       memoryUsageMB: Math.max(0, memoryUsageMB),
       timestamp: new Date().toISOString(),
     };
@@ -104,9 +107,13 @@ class PerformanceBenchmark {
     return benchmarkResult;
   }
 
-  async ensureBenchmarkFile(language: string, size: 'small' | 'medium' | 'large', filePath: string): Promise<void> {
+  async ensureBenchmarkFile(
+    language: string,
+    size: 'small' | 'medium' | 'large',
+    filePath: string
+  ): Promise<void> {
     const dir = join(process.cwd(), filePath.split('/').slice(0, -1).join('/'));
-    
+
     try {
       mkdirSync(dir, { recursive: true });
     } catch {
@@ -114,7 +121,7 @@ class PerformanceBenchmark {
     }
 
     const fullPath = join(process.cwd(), filePath);
-    
+
     try {
       statSync(fullPath);
     } catch {
@@ -126,7 +133,7 @@ class PerformanceBenchmark {
 
   generateBenchmarkFile(language: string, size: 'small' | 'medium' | 'large'): string {
     const sizeMultiplier = size === 'small' ? 1 : size === 'medium' ? 5 : 20;
-    
+
     switch (language) {
       case 'typescript':
         return this.generateTypeScriptFile(sizeMultiplier);
@@ -144,7 +151,9 @@ class PerformanceBenchmark {
   }
 
   generateTypeScriptFile(multiplier: number): string {
-    const functions = Array.from({ length: multiplier * 10 }, (_, i) => `
+    const functions = Array.from(
+      { length: multiplier * 10 },
+      (_, i) => `
 function processData${i}(input: string): { result: string; count: number } {
   const lines = input.split('\\n');
   let count = 0;
@@ -168,7 +177,8 @@ class DataProcessor${i}Impl implements DataProcessor${i} {
     return processData${i}(data);
   }
 }
-`).join('\n');
+`
+    ).join('\n');
 
     return `// TypeScript benchmark file - ${multiplier}x complexity
 ${functions}
@@ -193,7 +203,9 @@ const undefinedProperty = someObject.nonExistentProperty;
   }
 
   generatePythonFile(multiplier: number): string {
-    const functions = Array.from({ length: multiplier * 8 }, (_, i) => `
+    const functions = Array.from(
+      { length: multiplier * 8 },
+      (_, i) => `
 def process_data_${i}(input_str: str) -> dict:
     """Process input string and return result dictionary."""
     lines = input_str.split('\\n')
@@ -213,7 +225,8 @@ class DataProcessor${i}:
     
     def process(self, data: str) -> dict:
         return process_data_${i}(data)
-`).join('\n');
+`
+    ).join('\n');
 
     return `# Python benchmark file - ${multiplier}x complexity
 from typing import Dict, List
@@ -236,7 +249,9 @@ undefined_variable = some_undefined_variable
   }
 
   generateJavaScriptFile(multiplier: number): string {
-    const functions = Array.from({ length: multiplier * 10 }, (_, i) => `
+    const functions = Array.from(
+      { length: multiplier * 10 },
+      (_, i) => `
 function processData${i}(input) {
   const lines = input.split('\\n');
   let count = 0;
@@ -257,7 +272,8 @@ class DataProcessor${i} {
     return processData${i}(data);
   }
 }
-`).join('\n');
+`
+    ).join('\n');
 
     return `// JavaScript benchmark file - ${multiplier}x complexity
 ${functions}
@@ -281,7 +297,9 @@ console.log(undefinedVariable);
   }
 
   generateGoFile(multiplier: number): string {
-    const functions = Array.from({ length: multiplier * 8 }, (_, i) => `
+    const functions = Array.from(
+      { length: multiplier * 8 },
+      (_, i) => `
 func processData${i}(input string) (map[string]interface{}, error) {
   lines := strings.Split(input, "\\n")
   count := 0
@@ -306,7 +324,8 @@ type DataProcessor${i} struct {
 func (dp *DataProcessor${i}) Process(data string) (map[string]interface{}, error) {
   return processData${i}(data)
 }
-`).join('\n');
+`
+    ).join('\n');
 
     return `package main
 
@@ -344,7 +363,9 @@ func invalidFunction() {
   }
 
   generateRustFile(multiplier: number): string {
-    const functions = Array.from({ length: multiplier * 6 }, (_, i) => `
+    const functions = Array.from(
+      { length: multiplier * 6 },
+      (_, i) => `
 fn process_data_${i}(input: &str) -> Result<(String, usize), String> {
   let lines: Vec<&str> = input.split('\\n').collect();
   let mut count = 0;
@@ -372,7 +393,8 @@ impl DataProcessor${i} {
     process_data_${i}(data)
   }
 }
-`).join('\n');
+`
+    ).join('\n');
 
     return `// Rust benchmark file - ${multiplier}x complexity
 use std::collections::HashMap;
@@ -412,33 +434,38 @@ fn invalid_function() {
 
   printResults(): void {
     console.log('\n=== Performance Benchmark Results ===\n');
-    
+
     if (this.results.length === 0) {
       console.log('No benchmark results to display.');
       return;
     }
 
     // Group results by language
-    const grouped = this.results.reduce((acc, result) => {
-      if (!acc[result.language]) {
-        acc[result.language] = [];
-      }
-      acc[result.language].push(result);
-      return acc;
-    }, {} as { [key: string]: BenchmarkResult[] });
+    const grouped = this.results.reduce(
+      (acc, result) => {
+        if (!acc[result.language]) {
+          acc[result.language] = [];
+        }
+        acc[result.language].push(result);
+        return acc;
+      },
+      {} as { [key: string]: BenchmarkResult[] }
+    );
 
     for (const [language, results] of Object.entries(grouped)) {
       console.log(`\n--- ${language.toUpperCase()} ---`);
       console.log('Size       | Time (ms) | Memory (MB) | Diagnostics | File Size');
       console.log('-----------|-----------|-------------|-------------|----------');
-      
-      results.forEach(result => {
+
+      results.forEach((result) => {
         const timeStr = result.executionTimeMs.toFixed(2).padStart(8);
         const memStr = result.memoryUsageMB.toFixed(2).padStart(10);
         const diagStr = result.diagnosticCount.toString().padStart(10);
         const sizeStr = (result.fileSizeBytes / 1024).toFixed(1) + ' KB';
-        
-        console.log(`${result.fileSize.padEnd(10)} | ${timeStr} | ${memStr} | ${diagStr} | ${sizeStr}`);
+
+        console.log(
+          `${result.fileSize.padEnd(10)} | ${timeStr} | ${memStr} | ${diagStr} | ${sizeStr}`
+        );
       });
     }
 
@@ -446,8 +473,8 @@ fn invalid_function() {
     console.log('\n=== Summary Statistics ===');
     const totalTime = this.results.reduce((sum, r) => sum + r.executionTimeMs, 0);
     const avgTime = totalTime / this.results.length;
-    const maxTime = Math.max(...this.results.map(r => r.executionTimeMs));
-    const minTime = Math.min(...this.results.map(r => r.executionTimeMs));
+    const maxTime = Math.max(...this.results.map((r) => r.executionTimeMs));
+    const minTime = Math.min(...this.results.map((r) => r.executionTimeMs));
 
     console.log(`Total execution time: ${totalTime.toFixed(2)}ms`);
     console.log(`Average time per check: ${avgTime.toFixed(2)}ms`);
@@ -462,8 +489,9 @@ fn invalid_function() {
       summary: {
         totalTests: this.results.length,
         totalTime: this.results.reduce((sum, r) => sum + r.executionTimeMs, 0),
-        averageTime: this.results.reduce((sum, r) => sum + r.executionTimeMs, 0) / this.results.length,
-        languages: [...new Set(this.results.map(r => r.language))],
+        averageTime:
+          this.results.reduce((sum, r) => sum + r.executionTimeMs, 0) / this.results.length,
+        languages: [...new Set(this.results.map((r) => r.language))],
       },
     };
 
@@ -483,10 +511,10 @@ async function main() {
   try {
     if (language === 'all') {
       console.log('Running comprehensive benchmarks for all languages...\n');
-      
-      for (const [lang, files] of Object.entries(BENCHMARK_FILES)) {
+
+      for (const [lang] of Object.entries(BENCHMARK_FILES)) {
         console.log(`\nBenchmarking ${lang}...`);
-        
+
         for (const sizeKey of ['small', 'medium', 'large'] as const) {
           try {
             console.log(`  Running ${sizeKey} test...`);
@@ -503,8 +531,8 @@ async function main() {
         process.exit(1);
       }
 
-      const sizes = size ? [size] : ['small', 'medium', 'large'] as const;
-      
+      const sizes = size ? [size] : (['small', 'medium', 'large'] as const);
+
       console.log(`Running ${language} benchmarks...`);
       for (const testSize of sizes) {
         console.log(`  Running ${testSize} test...`);
@@ -514,7 +542,6 @@ async function main() {
 
     benchmark.printResults();
     benchmark.saveResults(`benchmark-results-${Date.now()}.json`);
-
   } catch (error) {
     console.error('❌ Benchmark failed:', error);
     process.exit(1);
@@ -522,5 +549,5 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main();
+  void main();
 }

@@ -4,7 +4,7 @@
 
 import { existsSync } from 'fs';
 import { join } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const goConfig: LanguageConfig = {
@@ -25,7 +25,7 @@ export const goConfig: LanguageConfig = {
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
-    
+
     for (const line of lines) {
       const match = line.match(/^.+?:(\d+):(\d+): (.+)$/);
       if (match) {
@@ -37,14 +37,14 @@ export const goConfig: LanguageConfig = {
         });
       }
     }
-    
+
     return diagnostics;
   },
 
   setupCommand: async (_file: string, _projectRoot: string) => {
     const hasGoMod = existsSync(join(_projectRoot, 'go.mod'));
     return {
-      context: { hasGoMod }
+      context: { hasGoMod },
     };
-  }
+  },
 };

@@ -4,7 +4,7 @@
 
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
-import type { LanguageConfig } from '../language-checker-registry.js';
+import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const phpConfig: LanguageConfig = {
@@ -20,15 +20,15 @@ export const phpConfig: LanguageConfig = {
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const relativePath = relative(_projectRoot, _file);
     const args = [];
-    
+
     const hasComposerJson = context?.hasComposerJson;
     const hasVendorAutoload = context?.hasVendorAutoload;
-    
+
     if (hasComposerJson && hasVendorAutoload) {
       // Include Composer autoloader for better class resolution
       args.push('-d', `auto_prepend_file=${join(_projectRoot, 'vendor', 'autoload.php')}`);
     }
-    
+
     // Add lint flag and file
     args.push('-l', relativePath);
     return args;
@@ -38,7 +38,7 @@ export const phpConfig: LanguageConfig = {
     const diagnostics: DiagnosticResult[] = [];
     const output = stderr + stdout;
     const lines = output.split('\n');
-    
+
     for (const line of lines) {
       // Parse error format: "Parse error: message in file on line X"
       const parseMatch = line.match(/Parse error: (.+) in .+ on line (\d+)/);
@@ -73,16 +73,16 @@ export const phpConfig: LanguageConfig = {
         });
       }
     }
-    
+
     return diagnostics;
   },
 
   setupCommand: async (_file: string, _projectRoot: string) => {
     const hasComposerJson = existsSync(join(_projectRoot, 'composer.json'));
     const hasVendorAutoload = existsSync(join(_projectRoot, 'vendor', 'autoload.php'));
-    
+
     return {
-      context: { hasComposerJson, hasVendorAutoload }
+      context: { hasComposerJson, hasVendorAutoload },
     };
-  }
+  },
 };
