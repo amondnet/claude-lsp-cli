@@ -99,7 +99,7 @@ describe('Hook Handlers', () => {
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockResolvedValue({
         file: 'test.ts',
-        tool: 'typescript',
+        tool: 'tsc',
         diagnostics: [
           {
             severity: 'error' as const,
@@ -143,7 +143,7 @@ describe('Hook Handlers', () => {
         if (path.includes('test1.ts')) {
           return {
             file: 'test1.ts',
-            tool: 'typescript',
+            tool: 'tsc',
             diagnostics: [
               {
                 severity: 'error' as const,
@@ -212,7 +212,7 @@ describe('Hook Handlers', () => {
       mockCheckFile.mockClear();
       mockCheckFile.mockResolvedValue({
         file: 'test.ts',
-        tool: 'typescript',
+        tool: 'tsc',
         diagnostics: [
           {
             severity: 'error' as const,
@@ -260,7 +260,7 @@ describe('Hook Handlers', () => {
 
       mockCheckFile.mockResolvedValue({
         file: 'test.ts',
-        tool: 'typescript',
+        tool: 'tsc',
         diagnostics: manyDiagnostics,
       });
 
@@ -319,7 +319,7 @@ describe('Hook Handlers', () => {
       const mockCheckFile = spyOn(fileChecker, 'checkFile');
       mockCheckFile.mockResolvedValue({
         file: 'test.ts',
-        tool: 'typescript',
+        tool: 'tsc',
         diagnostics: [
           { severity: 'error' as const, message: 'Error', line: 1, column: 1 },
           { severity: 'warning' as const, message: 'Warning', line: 2, column: 1 },

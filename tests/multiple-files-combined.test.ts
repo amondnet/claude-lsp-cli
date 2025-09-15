@@ -86,7 +86,7 @@ describe('Multiple Files Combined Results', () => {
       if (path.includes('component.tsx')) {
         return {
           file: 'src/component.tsx',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: [
             {
               severity: 'error' as const,
@@ -105,7 +105,7 @@ describe('Multiple Files Combined Results', () => {
       } else if (path.includes('utils.ts')) {
         return {
           file: 'src/utils.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: [
             {
               severity: 'warning' as const,
@@ -176,6 +176,11 @@ describe('Multiple Files Combined Results', () => {
     const pyErrors = result.output.diagnostics.filter((d: any) => d.file === 'scripts/main.py');
     expect(pyErrors).toHaveLength(1);
     expect(pyErrors[0].message).toContain('Undefined variable');
+
+    // Restore mocks
+    mockCheckFile.mockRestore();
+    mockShouldShow.mockRestore();
+    _mockMarkShown.mockRestore();
   });
 
   test('should limit combined diagnostics to 5 items when there are many', async () => {
@@ -185,7 +190,7 @@ describe('Multiple Files Combined Results', () => {
         // Return 4 diagnostics
         return {
           file: 'file1.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: Array.from({ length: 4 }, (_, i) => ({
             severity: 'error' as const,
             message: `Error ${i + 1} in file1`,
@@ -197,7 +202,7 @@ describe('Multiple Files Combined Results', () => {
         // Return 3 diagnostics
         return {
           file: 'file2.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: Array.from({ length: 3 }, (_, i) => ({
             severity: 'error' as const,
             message: `Error ${i + 1} in file2`,
@@ -238,6 +243,9 @@ describe('Multiple Files Combined Results', () => {
     expect(file1Diags.length + file2Diags.length).toBe(5);
     expect(file1Diags.length).toBeGreaterThan(0);
     expect(file2Diags.length).toBeGreaterThan(0);
+
+    // Restore mocks
+    mockCheckFile.mockRestore();
   });
 
   test('should handle mix of files with and without diagnostics', async () => {
@@ -246,7 +254,7 @@ describe('Multiple Files Combined Results', () => {
       if (path.includes('error.ts')) {
         return {
           file: 'error.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: [
             {
               severity: 'error' as const,
@@ -259,7 +267,7 @@ describe('Multiple Files Combined Results', () => {
       } else if (path.includes('clean.ts')) {
         return {
           file: 'clean.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: [], // No errors
         };
       } else if (path.includes('disabled.scala')) {
@@ -292,6 +300,9 @@ describe('Multiple Files Combined Results', () => {
     expect(result.output.summary).toBe('1 error(s)');
     expect(result.output.diagnostics).toHaveLength(1);
     expect(result.output.diagnostics[0].file).toBe('error.ts');
+
+    // Restore mocks
+    mockCheckFile.mockRestore();
   });
 
   test('should handle deduplication correctly for multiple files', async () => {
@@ -301,7 +312,7 @@ describe('Multiple Files Combined Results', () => {
       if (path.includes('file1.ts')) {
         return {
           file: 'file1.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: [
             {
               severity: 'error' as const,
@@ -314,7 +325,7 @@ describe('Multiple Files Combined Results', () => {
       } else if (path.includes('file2.ts')) {
         return {
           file: 'file2.ts',
-          tool: 'typescript',
+          tool: 'tsc',
           diagnostics: [
             {
               severity: 'error' as const,
@@ -362,6 +373,11 @@ describe('Multiple Files Combined Results', () => {
     expect(callCount).toBe(2);
     // But only file1 was marked as shown
     expect(_mockMarkShown).toHaveBeenCalledTimes(1);
+
+    // Restore mocks
+    mockCheckFile.mockRestore();
+    mockShouldShow.mockRestore();
+    _mockMarkShown.mockRestore();
   });
 
   test('should handle all files being deduplicated', async () => {
@@ -370,7 +386,7 @@ describe('Multiple Files Combined Results', () => {
     mockCheckFile.mockImplementation(async (path: string) => {
       return {
         file: path.includes('file1.ts') ? 'file1.ts' : 'file2.ts',
-        tool: 'typescript',
+        tool: 'tsc',
         diagnostics: [
           {
             severity: 'error' as const,

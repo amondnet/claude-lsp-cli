@@ -54,6 +54,7 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
     if (result !== null) {
       return result;
     }
+    // Registry returned null - fall through to legacy
   } catch (_error) {
     // Silent fallback to legacy implementation
   }
@@ -1462,7 +1463,7 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
 async function checkScalaWithScalac(
   file: string,
   projectRoot: string,
-  relativePath: string,
+  _relativePath: string,
   result: FileCheckResult
 ): Promise<FileCheckResult> {
   // For Scala projects, we need to compile files with their dependencies
