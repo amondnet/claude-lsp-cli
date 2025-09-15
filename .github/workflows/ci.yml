@@ -114,14 +114,27 @@ jobs:
           name: performance-baseline
           path: .
       
-      - name: Create performance baseline (if not exists)
+      - name: Create or validate performance baseline
         run: |
-          if [ ! -f performance-baseline.json ]; then
-            echo "Creating new performance baseline..."
-            source ~/.cargo/env
-            bun run scripts/performance-monitor.ts --baseline
+          source ~/.cargo/env
+          
+          # Check if baseline exists and is valid
+          if [ -f performance-baseline.json ]; then
+            # Check if baseline has reasonable values (Python should take > 100ms)
+            python_time=$(jq '.metrics.python.avgExecutionMs' performance-baseline.json)
+            typescript_time=$(jq '.metrics.typescript.avgExecutionMs' performance-baseline.json)
+            
+            if (( $(echo "$python_time < 100" | bc -l) )) || (( $(echo "$typescript_time < 100" | bc -l) )); then
+              echo "⚠️ Baseline appears corrupted (Python: ${python_time}ms, TypeScript: ${typescript_time}ms)"
+              echo "Recreating baseline..."
+              rm performance-baseline.json
+              bun run scripts/performance-monitor.ts --baseline
+            else
+              echo "✅ Using existing performance baseline (Python: ${python_time}ms, TypeScript: ${typescript_time}ms)"
+            fi
           else
-            echo "Using existing performance baseline"
+            echo "Creating new performance baseline..."
+            bun run scripts/performance-monitor.ts --baseline
           fi
       
       - name: Run performance tests
