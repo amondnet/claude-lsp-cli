@@ -69,6 +69,7 @@ jobs:
         which bloop && echo "Bloop found at $(which bloop)" || echo "Bloop not found"
         which lua && lua -v || echo "Lua not found"
         which elixir && elixir --version || echo "Elixir not found"
+        which mix && mix --version || echo "Mix not found"
         which terraform && terraform --version || echo "Terraform not found"
     
     - name: Verify local tools installed

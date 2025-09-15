@@ -11,7 +11,16 @@ export const elixirConfig: LanguageConfig = {
   name: 'Elixir',
   tool: 'mix',
   extensions: ['.ex', '.exs'],
-  localPaths: [], // Elixir is usually system-installed
+  localPaths: [
+    // Common system paths
+    '/usr/local/bin/mix',
+    '/usr/bin/mix',
+    // CI GitHub Actions setup-beam paths
+    process.env.INSTALL_DIR_FOR_ELIXIR ? `${process.env.INSTALL_DIR_FOR_ELIXIR}/bin/mix` : '',
+    // Common local Elixir installation paths
+    '~/.asdf/shims/mix',
+    '~/.kiex/elixirs/*/bin/mix',
+  ].filter(Boolean), // Remove empty strings
 
   detectConfig: (projectRoot: string) => {
     return existsSync(join(projectRoot, 'mix.exs'));
