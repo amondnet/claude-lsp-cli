@@ -21,14 +21,10 @@ export async function runCheck(
     // Checking was disabled - exit silently with no output
     return;
   } else if (result) {
-    if (result.diagnostics.length > 0) {
-      const formatted = formatDiagnostics(result);
-      if (formatted) {
-        log(formatted);
-      }
-    } else {
-      // Only say "no errors or warnings" if we actually checked the file
-      log('[[system-message]]:{"summary":"no errors or warnings"}');
+    // Use formatDiagnostics for both cases (with errors and without)
+    const formatted = formatDiagnostics(result, true); // showNoErrors=true
+    if (formatted) {
+      log(formatted);
     }
   } else {
     // File type not supported - also exit silently

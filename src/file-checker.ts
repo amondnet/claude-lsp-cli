@@ -8,23 +8,39 @@
 import { existsSync } from 'fs';
 import { findProjectRoot } from './utils/common';
 
+export interface Diagnostic {
+  line: number;
+  column: number;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  file?: string; // Optional file field for when combining multiple files
+}
+
 export interface FileCheckResult {
   file: string;
   tool: string;
-  diagnostics: Array<{
-    line: number;
-    column: number;
-    severity: 'error' | 'warning' | 'info';
-    message: string;
-  }>;
+  diagnostics: Array<Diagnostic>;
   timedOut?: boolean;
 }
 
 /**
  * Format diagnostics for CLI output
  */
-export function formatDiagnostics(result: FileCheckResult): string {
-  if (!result || result.diagnostics.length === 0) {
+export function formatDiagnostics(
+  result: FileCheckResult | null,
+  showNoErrors: boolean = false
+): string {
+  // Handle null result
+  if (!result) {
+    return '';
+  }
+
+  // Handle no diagnostics case
+  if (result.diagnostics.length === 0) {
+    if (showNoErrors) {
+      // Show "no errors or warnings" message
+      return '[[system-message]]:{"summary":"no errors or warnings"}';
+    }
     return '';
   }
 
@@ -32,11 +48,14 @@ export function formatDiagnostics(result: FileCheckResult): string {
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   const warnings = diagnostics.filter((d) => d.severity === 'warning').length;
 
-  // Create system message with diagnostics
-  const summary = `${errors} errors, ${warnings} warnings`;
+  // Create system message with diagnostics (always use (s) format for consistency)
+  const summaryParts = [];
+  if (errors > 0) summaryParts.push(`${errors} error(s)`);
+  if (warnings > 0) summaryParts.push(`${warnings} warning(s)`);
+  const summary = summaryParts.join(', ');
   const output = {
     diagnostics: diagnostics.map((d) => ({
-      file: result.file,
+      file: d.file || result.file, // Use diagnostic's file if set, otherwise use result's file
       line: d.line,
       column: d.column,
       severity: d.severity,

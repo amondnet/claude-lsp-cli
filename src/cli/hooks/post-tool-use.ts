@@ -1,5 +1,6 @@
 import { join } from 'path';
 import { checkFile } from '../../file-checker';
+import type { Diagnostic } from '../../file-checker';
 import { extractFilePaths } from '../utils/file-extraction';
 import { shouldShowResult, markResultShown } from '../utils/deduplication';
 
@@ -35,7 +36,7 @@ export async function handlePostToolUse(input: string): Promise<void> {
 
     const results = await Promise.all(absolutePaths.map((absolutePath) => checkFile(absolutePath)));
 
-    const allDiagnostics = [];
+    const allDiagnostics: Diagnostic[] = [];
     let hasErrors = false;
 
     for (let i = 0; i < results.length; i++) {
@@ -69,6 +70,7 @@ export async function handlePostToolUse(input: string): Promise<void> {
 
     // Show combined results if any errors found
     if (hasErrors && allDiagnostics.length > 0) {
+      // Count all diagnostics for summary
       const errors = allDiagnostics.filter((d) => d.severity === 'error');
       const warnings = allDiagnostics.filter((d) => d.severity === 'warning');
 
@@ -76,12 +78,13 @@ export async function handlePostToolUse(input: string): Promise<void> {
       if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
       if (warnings.length > 0) summaryParts.push(`${warnings.length} warning(s)`);
 
-      const combinedResult = {
+      // Format output with limited diagnostics but full count
+      const output = {
         diagnostics: allDiagnostics.slice(0, 5), // Show at most 5 items
         summary: summaryParts.join(', '),
       };
 
-      console.error(`[[system-message]]:${JSON.stringify(combinedResult)}`);
+      console.error(`[[system-message]]:${JSON.stringify(output)}`);
       process.exit(2);
       return; // For testing
     }
