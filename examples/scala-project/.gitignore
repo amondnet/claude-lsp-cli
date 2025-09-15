@@ -11,7 +11,10 @@ dist/*
 
 # Metals
 .metals/
-.bloop/
+# Include .bloop config for CI (exclude build outputs)
+.bloop/*
+!.bloop/*.json
+!.bloop/bloop.settings.json
 project/metals.sbt
 
 # IDE
