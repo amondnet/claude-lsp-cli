@@ -21,6 +21,34 @@ export interface FileCheckResult {
 }
 
 /**
+ * Format diagnostics for CLI output
+ */
+export function formatDiagnostics(result: FileCheckResult): string {
+  if (!result || result.diagnostics.length === 0) {
+    return '';
+  }
+
+  const diagnostics = result.diagnostics;
+  const errors = diagnostics.filter((d) => d.severity === 'error').length;
+  const warnings = diagnostics.filter((d) => d.severity === 'warning').length;
+
+  // Create system message with diagnostics
+  const summary = `${errors} errors, ${warnings} warnings`;
+  const output = {
+    diagnostics: diagnostics.map((d) => ({
+      file: result.file,
+      line: d.line,
+      column: d.column,
+      severity: d.severity,
+      message: d.message,
+    })),
+    summary: summary,
+  };
+
+  return `[[system-message]]:${JSON.stringify(output)}`;
+}
+
+/**
  * Check a single file using the language registry
  */
 export async function checkFile(filePath: string): Promise<FileCheckResult | null> {
