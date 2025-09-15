@@ -2,22 +2,37 @@
  * Elixir Language Checker Configuration
  */
 
-import { relative } from 'path';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import type { LanguageConfig } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const elixirConfig: LanguageConfig = {
   name: 'Elixir',
-  tool: 'elixir',
+  tool: 'mix',
   extensions: ['.ex', '.exs'],
   localPaths: [], // Elixir is usually system-installed
 
-  buildArgs: (file: string, projectRoot: string, _toolCommand: string) => {
-    const relativePath = relative(projectRoot, file);
-    return [relativePath];
+  detectConfig: (projectRoot: string) => {
+    return existsSync(join(projectRoot, 'mix.exs'));
   },
 
-  parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
+  setupCommand: async (_file: string, projectRoot: string) => {
+    // Clean the project first to ensure we catch all errors
+    const { runCommand } = await import('../utils/common');
+    await runCommand(['mix', 'clean'], undefined, projectRoot);
+    return { context: {} };
+  },
+
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string) => {
+    // Use mix compile to check the whole project, which catches more errors
+    return {
+      tool: 'mix',
+      args: ['compile', '--warnings-as-errors'],
+    };
+  },
+
+  parseOutput: (_stdout: string, stderr: string, _file: string, _projectRoot: string) => {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
 
@@ -32,7 +47,7 @@ export const elixirConfig: LanguageConfig = {
         // Look for location info in subsequent lines
         for (let j = i + 1; j < lines.length && j < i + 10; j++) {
           const locationLine = lines[j];
-          const locationMatch = locationLine.match(/└─\s+(.+?):(\d+):(\d+):/);
+          const locationMatch = locationLine.match(/└─\s+(.+?):(\d+):(\d+)/);
           if (locationMatch) {
             diagnostics.push({
               line: parseInt(locationMatch[2]),

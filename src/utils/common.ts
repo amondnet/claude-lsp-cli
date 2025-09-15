@@ -123,7 +123,8 @@ export function findProjectRoot(filePath: string): string {
       existsSync(join(searchDir, 'pyproject.toml')) ||
       existsSync(join(searchDir, 'pom.xml')) ||
       existsSync(join(searchDir, 'build.gradle')) ||
-      existsSync(join(searchDir, 'build.sbt')) // Scala SBT projects
+      existsSync(join(searchDir, 'build.sbt')) || // Scala SBT projects
+      existsSync(join(searchDir, 'mix.exs')) // Elixir Mix projects
     ) {
       return searchDir;
     }
