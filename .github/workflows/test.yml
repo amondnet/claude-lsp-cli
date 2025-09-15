@@ -30,8 +30,8 @@ jobs:
         # Update package list
         sudo apt-get update
         
-        # Install commonly available language tools
-        sudo apt-get install -y golang-go default-jdk lua5.3 lua5.3-dev elixir
+        # Install commonly available language tools (non-interactive)
+        DEBIAN_FRONTEND=noninteractive sudo apt-get install -y golang-go default-jdk lua5.3 lua5.3-dev elixir
         
         # Install Bloop for Scala (we only use Bloop, not scalac)
         curl -L https://github.com/scalacenter/bloop/releases/download/v1.5.17/install.py | python3 -
