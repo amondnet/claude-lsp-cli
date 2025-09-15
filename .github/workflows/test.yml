@@ -30,8 +30,9 @@ jobs:
         # Update package list
         sudo apt-get update
         
-        # Install only essential tools to avoid timeout - focus on Scala/Bloop testing
+        # Install only essential tools to avoid timeout - focus on Scala/Bloop testing  
         # Skip other languages for now to isolate Bloop issue
+        # Force workflow refresh - the CI was running old cached version
         DEBIAN_FRONTEND=noninteractive sudo apt-get install -y default-jdk
         
         # Install Bloop for Scala (we only use Bloop, not scalac)
