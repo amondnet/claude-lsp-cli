@@ -2,6 +2,8 @@ import { describe, test, expect, afterAll } from 'bun:test';
 import { checkFile, formatDiagnostics } from '../src/file-checker';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
+// Ensure language registry is initialized
+import '../src/checkers/index';
 
 const TEST_DIR = '/tmp/claude-lsp-file-test';
 
@@ -21,6 +23,19 @@ describe('File-Based Type Checker', () => {
 
     const result = await checkFile(testFile);
     expect(result).toBeTruthy();
+
+    // Debug info for CI failures
+    if (result && result.tool !== 'tsc') {
+      const debugInfo = {
+        tool: result.tool,
+        cwd: process.cwd(),
+        testFile,
+        PATH: process.env.PATH,
+        nodeModulesExists: require('fs').existsSync(join(process.cwd(), 'node_modules/.bin/tsc')),
+      };
+      writeFileSync('/tmp/debug-test-failure.json', JSON.stringify(debugInfo, null, 2));
+    }
+
     expect(result!.tool).toBe('tsc');
     expect(result!.diagnostics.length).toBeGreaterThan(0);
 

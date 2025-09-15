@@ -31,6 +31,8 @@ export async function checkFileWithRegistry(
   const langConfig = LANGUAGE_REGISTRY.get(ext);
 
   if (!langConfig) {
+    // If registry is empty or doesn't have this extension, return null
+    // This will cause fallback to legacy implementation
     return null; // Unsupported file type
   }
 

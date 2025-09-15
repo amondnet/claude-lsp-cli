@@ -54,10 +54,8 @@ export async function checkFile(filePath: string): Promise<FileCheckResult | nul
     if (result !== null) {
       return result;
     }
-  } catch (error) {
-    if (process.env.DEBUG) {
-      console.error('Registry checker failed, falling back to legacy:', error);
-    }
+  } catch (_error) {
+    // Silent fallback to legacy implementation
   }
 
   // Fallback to legacy implementation
