@@ -61,7 +61,13 @@ export async function checkFileWithRegistry(
 
     // Check if we should skip checking (e.g., Scala without Bloop)
     if (setupContext?.skipChecking) {
-      return null; // Return null to indicate no checking performed
+      // Return a valid result with empty diagnostics instead of null
+      // This ensures formatDiagnostics will produce "no errors or warnings" message
+      return {
+        file: filePath,
+        tool: langConfig.name.toLowerCase(), // Use language name as tool
+        diagnostics: [],
+      };
     }
   }
 
