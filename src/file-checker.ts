@@ -148,10 +148,8 @@ async function createTempTsconfig(file: string, tsconfigPath: string): Promise<s
     }
 
     return tempTsconfigPath;
-  } catch (e) {
-    if (process.env.DEBUG) {
-      console.error('Failed to create temp tsconfig:', e);
-    }
+  } catch (_e) {
+    // Debug output removed - would interfere with CLI stdin/stdout
     return null;
   }
 }
@@ -317,14 +315,10 @@ function parseTypeScriptOutput(
 async function cleanupTempTsconfig(tempTsconfigPath: string): Promise<void> {
   try {
     await Bun.spawn(['rm', '-f', tempTsconfigPath]).exited;
-    if (process.env.DEBUG) {
-      console.error('Cleaned up temp tsconfig:', tempTsconfigPath);
-    }
-  } catch (e) {
+    // Debug output removed - would interfere with CLI stdin/stdout
+  } catch (_e) {
     // Ignore cleanup errors
-    if (process.env.DEBUG) {
-      console.error('Failed to cleanup temp tsconfig:', e);
-    }
+    // Debug output removed - would interfere with CLI stdin/stdout
   }
 }
 
@@ -351,10 +345,7 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
   // Find the nearest tsconfig.json
   const tsconfigRoot = findTsconfigRoot(file);
 
-  if (process.env.DEBUG) {
-    console.error('Project root:', projectRoot);
-    console.error('Tsconfig root:', tsconfigRoot);
-  }
+  // Debug output removed - would interfere with CLI stdin/stdout
 
   let tempTsconfigPath: string | null = null;
 
@@ -372,9 +363,7 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
   // If temp tsconfig creation failed, manually parse and apply config
   if (tsconfigRoot && !tempTsconfigPath) {
     const tsconfigPath = join(tsconfigRoot, 'tsconfig.json');
-    if (process.env.DEBUG) {
-      console.error('Attempting to read tsconfig from:', tsconfigPath);
-    }
+    // Debug output removed - would interfere with CLI stdin/stdout
 
     try {
       const tsconfigContent = readFileSync(tsconfigPath, 'utf-8');
@@ -382,18 +371,12 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
       const tsconfig = JSON.parse(cleanedContent);
       const compilerOptions = tsconfig.compilerOptions || {};
 
-      if (process.env.DEBUG) {
-        console.error('Found tsconfig.json at:', tsconfigPath);
-        console.error('Module:', compilerOptions.module, 'Target:', compilerOptions.target);
-        console.error('Types:', compilerOptions.types);
-      }
+      // Debug output removed - would interfere with CLI stdin/stdout
 
       result.tool = buildTscArgsFromConfig(compilerOptions, tscArgs);
-    } catch (e) {
+    } catch (_e) {
       // If we can't parse tsconfig, just use defaults
-      if (process.env.DEBUG) {
-        console.error('Error reading tsconfig:', e);
-      }
+      // Debug output removed - would interfere with CLI stdin/stdout
     }
   }
 
@@ -408,10 +391,7 @@ async function checkTypeScript(file: string): Promise<FileCheckResult | null> {
   }
 
   // Debug: Log the command being run
-  if (process.env.DEBUG) {
-    console.error('Running:', tscArgs.join(' '));
-    console.error('From directory:', workingDir);
-  }
+  // Debug output removed - would interfere with CLI stdin/stdout
 
   // Run tsc from the directory containing tsconfig.json if found, otherwise from project root
   const { stdout, stderr, timedOut } = await runCommand(tscArgs, { NO_COLOR: '1' }, workingDir);
@@ -922,11 +902,9 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
         result.timedOut = true;
         return result;
       }
-    } catch (e) {
+    } catch (_e) {
       // Maven not available or failed
-      if (process.env.DEBUG) {
-        console.error('Maven failed:', e);
-      }
+      // Debug output removed - would interfere with CLI stdin/stdout
       // Return error for Maven projects without Maven
       result.diagnostics.push({
         line: 1,
@@ -998,11 +976,9 @@ async function checkJava(file: string): Promise<FileCheckResult | null> {
       result.tool = 'gradle';
       // Always return after Gradle attempt - no fallback to javac
       return result;
-    } catch (e) {
+    } catch (_e) {
       // Gradle not available or failed
-      if (process.env.DEBUG) {
-        console.error('Gradle failed:', e);
-      }
+      // Debug output removed - would interfere with CLI stdin/stdout
       // Return error for Gradle projects without Gradle
       result.diagnostics.push({
         line: 1,
@@ -1380,13 +1356,13 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
 
       // Always return for SBT projects - no fallback to scalac
       return result;
-    } catch (e) {
+    } catch (_e) {
       // sbt failed to run - return error, no fallback
       result.diagnostics.push({
         line: 1,
         column: 1,
         severity: 'error',
-        message: `SBT failed to run: ${e instanceof Error ? e.message : String(e)}. Please check your SBT installation and project configuration.`,
+        message: `SBT failed to run: ${_e instanceof Error ? _e.message : String(_e)}. Please check your SBT installation and project configuration.`,
       });
       return result;
     }
@@ -1444,13 +1420,13 @@ async function checkScala(file: string): Promise<FileCheckResult | null> {
 
       // Always return for Bloop projects - no fallback to scalac
       return result;
-    } catch (e) {
+    } catch (_e) {
       // Bloop failed to run - return error, no fallback
       result.diagnostics.push({
         line: 1,
         column: 1,
         severity: 'error',
-        message: `Bloop failed to run: ${e instanceof Error ? e.message : String(e)}. Please check your Bloop installation and project configuration.`,
+        message: `Bloop failed to run: ${_e instanceof Error ? _e.message : String(_e)}. Please check your Bloop installation and project configuration.`,
       });
       return result;
     }
@@ -1551,10 +1527,7 @@ async function checkScalaWithScalac(
       filesToCompile.push(join(fileDir, f));
     });
 
-    if (process.env.DEBUG) {
-      console.error(`Compiling ${filesToCompile.length} Scala files together from ${fileDir}`);
-      console.error('Files:', filesToCompile.map((f) => basename(f)).join(', '));
-    }
+    // Debug output removed - would interfere with CLI stdin/stdout
   } else {
     filesToCompile.push(file);
   }

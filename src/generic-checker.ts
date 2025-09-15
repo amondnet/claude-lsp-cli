@@ -78,9 +78,7 @@ export async function checkFileWithRegistry(
     // Prepend the tool command to the arguments array
     const fullCommand = [finalTool, ...args];
 
-    if (process.env.DEBUG) {
-      console.error(`Running ${langConfig.name} checker:`, fullCommand.join(' '));
-    }
+    // Debug output removed - would interfere with CLI stdin/stdout
 
     // Run the tool
     const { stdout, stderr, timedOut } = await runCommand(fullCommand, undefined, projectRoot);
@@ -94,10 +92,8 @@ export async function checkFileWithRegistry(
     result.diagnostics = langConfig.parseOutput(stdout, stderr, filePath, projectRoot);
 
     return result;
-  } catch (error) {
-    if (process.env.DEBUG) {
-      console.error(`${langConfig.name} checker error:`, error);
-    }
+  } catch (_error) {
+    // Debug output removed - would interfere with CLI stdin/stdout
     return result; // Return empty result on error
   } finally {
     // Cleanup if needed

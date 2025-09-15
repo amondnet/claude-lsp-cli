@@ -50,30 +50,7 @@ describe('File-Based Type Checker', () => {
 
     const result = await checkFile(testFile);
 
-    // Debug logging for CI failure
-    if (result && result.file !== 'test.ts') {
-      console.error('ERROR: Unexpected file in result:', {
-        expected: 'test.ts',
-        actual: result.file,
-        fullPath: testFile,
-        TEST_DIR,
-        result: JSON.stringify(result),
-      });
-    }
-
     expect(result).toBeTruthy();
-
-    // Debug info for CI failures
-    if (result && result.tool !== 'tsc') {
-      const debugInfo = {
-        tool: result.tool,
-        cwd: process.cwd(),
-        testFile,
-        PATH: process.env.PATH,
-        nodeModulesExists: require('fs').existsSync(join(process.cwd(), 'node_modules/.bin/tsc')),
-      };
-      writeFileSync('/tmp/debug-test-failure.json', JSON.stringify(debugInfo, null, 2));
-    }
 
     expect(result!.tool).toBe('tsc');
     expect(result!.diagnostics.length).toBeGreaterThan(0);

@@ -58,11 +58,9 @@ export const typescriptConfig: LanguageConfig = {
         );
         writeFileSync(tempTsconfigPath, JSON.stringify(tempTsconfig, null, 2));
 
-        if (process.env.DEBUG) {
-          console.error('Created temporary tsconfig:', tempTsconfigPath);
-        }
+        // Debug output removed - would interfere with CLI stdin/stdout
       } catch (error) {
-        console.error('Failed to create temporary tsconfig:', error);
+        // Error logging removed - would interfere with CLI stdin/stdout
         tempTsconfigPath = null;
       }
     }
@@ -74,12 +72,10 @@ export const typescriptConfig: LanguageConfig = {
             try {
               if (existsSync(tempTsconfigPath)) {
                 unlinkSync(tempTsconfigPath);
-                if (process.env.DEBUG) {
-                  console.error('Cleaned up temporary tsconfig:', tempTsconfigPath);
-                }
+                // Debug output removed - would interfere with CLI stdin/stdout
               }
             } catch (error) {
-              console.error('Failed to clean up temporary tsconfig:', error);
+              // Error logging removed - would interfere with CLI stdin/stdout
             }
           }
         : undefined,

@@ -31,11 +31,7 @@ export async function handlePostToolUse(input: string): Promise<void> {
         : join((hookData as { cwd?: string })?.cwd || process.cwd(), filePath)
     );
 
-    // Debug: log files being checked
-    if (process.env.DEBUG === 'true' || process.env.DEBUG_EXTRACTION === 'true') {
-      console.error('Extracted file paths:', filePaths);
-      console.error('Absolute paths to check:', absolutePaths);
-    }
+    // Debug output removed - would interfere with CLI stdin/stdout
 
     const results = await Promise.all(absolutePaths.map((absolutePath) => checkFile(absolutePath)));
 
