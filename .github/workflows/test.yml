@@ -31,7 +31,11 @@ jobs:
         sudo apt-get update
         
         # Install commonly available language tools
-        sudo apt-get install -y golang-go scala default-jdk lua5.3 lua5.3-dev elixir
+        sudo apt-get install -y golang-go default-jdk lua5.3 lua5.3-dev elixir
+        
+        # Install Bloop for Scala (we only use Bloop, not scalac)
+        curl -L https://github.com/scalacenter/bloop/releases/download/v1.5.17/install.py | python3 -
+        export PATH="$HOME/.bloop:$PATH"
         
         # Install Rust via rustup (official way)
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -47,7 +51,7 @@ jobs:
         which go && go version || echo "Go not found"
         which javac && javac -version || echo "Java not found"
         which rustc && rustc --version || echo "Rust not found" 
-        which scalac && scalac -version || echo "Scala not found"
+        which bloop && bloop --version || echo "Bloop not found"
         which lua5.3 && lua5.3 -v || echo "Lua not found"
         which luac && luac -v || echo "Luac not found"
         which elixir && elixir --version || echo "Elixir not found"
@@ -86,8 +90,9 @@ jobs:
       
     - name: Run tests
       run: |
-        # Ensure Rust is available in PATH
+        # Ensure Rust and Bloop are available in PATH
         source ~/.cargo/env
+        export PATH="$HOME/.bloop:$PATH"
         bun test --timeout 30000
       
     - name: Check test coverage

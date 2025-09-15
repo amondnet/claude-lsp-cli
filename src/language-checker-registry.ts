@@ -31,7 +31,8 @@ export interface LanguageConfig {
     _stdout: string,
     _stderr: string,
     _file: string,
-    _projectRoot: string
+    _projectRoot: string,
+    _context?: any
   ) => FileCheckResult['diagnostics'];
   /** Optional: project configuration detection */
   detectConfig?: (_projectRoot: string) => boolean;

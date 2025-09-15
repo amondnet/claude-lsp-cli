@@ -58,6 +58,11 @@ export async function checkFileWithRegistry(
     const setupResult = await langConfig.setupCommand(filePath, projectRoot);
     cleanup = setupResult.cleanup;
     setupContext = setupResult.context;
+
+    // Check if we should skip checking (e.g., Scala without Bloop)
+    if (setupContext?.skipChecking) {
+      return null; // Return null to indicate no checking performed
+    }
   }
 
   try {
@@ -80,16 +85,23 @@ export async function checkFileWithRegistry(
 
     // Debug output removed - would interfere with CLI stdin/stdout
 
-    // Run the tool
-    const { stdout, stderr, timedOut } = await runCommand(fullCommand, undefined, projectRoot);
+    // Run the tool with optional environment from context
+    const env = setupContext?.env || undefined;
+    const { stdout, stderr, timedOut } = await runCommand(fullCommand, env, projectRoot);
 
     if (timedOut) {
       result.timedOut = true;
       return result;
     }
 
-    // Parse output into diagnostics
-    result.diagnostics = langConfig.parseOutput(stdout, stderr, filePath, projectRoot);
+    // Parse output into diagnostics (pass context for tool-specific parsing)
+    result.diagnostics = langConfig.parseOutput(
+      stdout,
+      stderr,
+      filePath,
+      projectRoot,
+      setupContext
+    );
 
     return result;
   } catch (_error) {

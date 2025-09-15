@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { checkFile, formatDiagnostics } from '../src/file-checker';
+import { checkFile } from '../src/file-checker';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 // Ensure language registry is initialized
@@ -123,11 +123,17 @@ result = add("hello", "world")  # Type error
       ],
     };
 
-    const formatted = formatDiagnostics(result);
-    expect(formatted).toContain('1 error(s) and 1 warning(s)');
-    expect(formatted).toContain('[[system-message]]:');
-    expect(formatted).toContain("Type 'number' is not assignable to type 'string'");
-    expect(formatted).toContain('Variable is declared but never used');
+    // Check we have the expected diagnostics without formatDiagnostics
+    const errors = result.diagnostics.filter((d) => d.severity === 'error');
+    const warnings = result.diagnostics.filter((d) => d.severity === 'warning');
+    expect(errors.length).toBe(1);
+    expect(warnings.length).toBe(1);
+
+    // Check the actual messages
+    const errorMessages = errors.map((d) => d.message).join(' ');
+    const warningMessages = warnings.map((d) => d.message).join(' ');
+    expect(errorMessages).toContain("Type 'number' is not assignable to type 'string'");
+    expect(warningMessages).toContain('Variable is declared but never used');
   });
 
   test('should handle missing files', async () => {

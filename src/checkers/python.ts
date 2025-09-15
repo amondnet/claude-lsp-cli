@@ -13,7 +13,7 @@ export const pythonConfig: LanguageConfig = {
   extensions: ['.py', '.pyi'],
   localPaths: ['node_modules/.bin/pyright'],
 
-  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, _context?: any) => {
     const args = ['--outputjson'];
 
     // Check for Python project configuration
@@ -106,5 +106,26 @@ export const pythonConfig: LanguageConfig = {
       existsSync(join(_projectRoot, 'requirements.txt')) ||
       existsSync(join(_projectRoot, 'Pipfile'))
     );
+  },
+
+  setupCommand: async (_file: string, _projectRoot: string) => {
+    // Set up PYTHONPATH to help resolve local imports
+    const pythonPath = [
+      _projectRoot,
+      join(_projectRoot, 'src'),
+      join(_projectRoot, 'lib'),
+      process.env.PYTHONPATH || '',
+    ]
+      .filter((p) => p)
+      .join(':');
+
+    return {
+      context: {
+        env: {
+          PATH: process.env.PATH || '',
+          PYTHONPATH: pythonPath,
+        },
+      },
+    };
   },
 };
