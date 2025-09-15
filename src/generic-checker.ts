@@ -109,8 +109,9 @@ export async function checkFileWithRegistry(
 
     return result;
   } catch (_error) {
-    // Debug output removed - would interfere with CLI stdin/stdout
-    return result; // Return empty result on error
+    // Tool not available or command failed - return null (no checking performed)
+    // This ensures consistent behavior across all languages
+    return null;
   } finally {
     // Cleanup if needed
     if (cleanup) {
