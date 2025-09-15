@@ -4,13 +4,31 @@ import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 // Ensure language registry is initialized
 import '../src/checkers/index';
+// Also import and verify the registry is populated
+import { LANGUAGE_REGISTRY } from '../src/language-checker-registry';
 
 const TEST_DIR = '/tmp/claude-lsp-file-test';
 
 // Create test directory
 mkdirSync(TEST_DIR, { recursive: true });
 
+// Force initialization check
+if (LANGUAGE_REGISTRY.size === 0) {
+  throw new Error('Language registry not initialized! This should not happen.');
+}
+
 describe('File-Based Type Checker', () => {
+  test('registry should be initialized', () => {
+    // Verify the registry has TypeScript config with correct tool name
+    expect(LANGUAGE_REGISTRY.size).toBeGreaterThan(0);
+    const tsConfig = LANGUAGE_REGISTRY.get('.ts');
+    expect(tsConfig).toBeTruthy();
+    expect(tsConfig?.tool).toBe('tsc');
+
+    const pyConfig = LANGUAGE_REGISTRY.get('.py');
+    expect(pyConfig).toBeTruthy();
+    expect(pyConfig?.tool).toMatch(/pyright/);
+  });
   test('should check TypeScript files', async () => {
     const testFile = join(TEST_DIR, 'test.ts');
     writeFileSync(
