@@ -36,10 +36,14 @@ jobs:
         # Install Bloop for Scala (we only use Bloop, not scalac)
         curl -L https://github.com/scalacenter/bloop/releases/download/v1.5.17/install.py | python3 -
         echo "$HOME/.bloop" >> $GITHUB_PATH
+        # Also add to current PATH for verification
+        export PATH="$HOME/.bloop:$PATH"
         
         # Install Rust via rustup (official way)
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        # Also add to current PATH for verification
+        source ~/.cargo/env
         
         # Install Terraform
         wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
@@ -51,11 +55,25 @@ jobs:
         which go && go version || echo "Go not found"
         which javac && javac -version || echo "Java not found"
         which rustc && rustc --version || echo "Rust not found" 
-        which bloop && bloop --version || echo "Bloop not found"
         which lua5.3 && lua5.3 -v || echo "Lua not found"
         which luac && luac -v || echo "Luac not found"
         which elixir && elixir --version || echo "Elixir not found"
         which terraform && terraform --version || echo "Terraform not found"
+        
+        # CRITICAL: Test if Bloop is working before continuing
+        echo "Testing Bloop installation:"
+        if which bloop > /dev/null 2>&1; then
+          echo "✅ Bloop found in PATH"
+          if bloop --version; then
+            echo "✅ Bloop version command works"
+          else
+            echo "❌ Bloop version command failed"
+            exit 1
+          fi
+        else
+          echo "❌ Bloop not found in PATH - installation failed"
+          exit 1
+        fi
         
         # TypeScript and pyright will be installed locally via package.json
         echo "Local tools will be installed via 'bun install'"
