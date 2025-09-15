@@ -95,25 +95,37 @@ export function findTsconfigRoot(filePath: string): string | null {
  * Consolidated from file-checker.ts
  */
 export function findProjectRoot(filePath: string): string {
-  let dir = dirname(filePath);
+  const dir = dirname(filePath);
 
-  while (dir !== '/' && dir.length > 1) {
-    // Check for common project markers (excluding tsconfig.json)
+  // First look for language-specific project files (more specific)
+  let searchDir = dir;
+  while (searchDir !== '/' && searchDir.length > 1) {
     if (
-      existsSync(join(dir, '.git')) ||
-      existsSync(join(dir, 'package.json')) ||
-      existsSync(join(dir, 'Cargo.toml')) ||
-      existsSync(join(dir, 'go.mod')) ||
-      existsSync(join(dir, 'pyproject.toml')) ||
-      existsSync(join(dir, 'pom.xml')) ||
-      existsSync(join(dir, 'build.gradle'))
+      existsSync(join(searchDir, 'package.json')) ||
+      existsSync(join(searchDir, 'Cargo.toml')) ||
+      existsSync(join(searchDir, 'go.mod')) ||
+      existsSync(join(searchDir, 'pyproject.toml')) ||
+      existsSync(join(searchDir, 'pom.xml')) ||
+      existsSync(join(searchDir, 'build.gradle')) ||
+      existsSync(join(searchDir, 'build.sbt')) // Scala SBT projects
     ) {
-      return dir;
+      return searchDir;
+    }
+    const parentDir = dirname(searchDir);
+    if (parentDir === searchDir) break;
+    searchDir = parentDir;
+  }
+
+  // Fall back to .git if no language-specific project found
+  searchDir = dir;
+  while (searchDir !== '/' && searchDir.length > 1) {
+    if (existsSync(join(searchDir, '.git'))) {
+      return searchDir;
     }
 
-    const parentDir = dirname(dir);
-    if (parentDir === dir) break;
-    dir = parentDir;
+    const parentDir = dirname(searchDir);
+    if (parentDir === searchDir) break;
+    searchDir = parentDir;
   }
 
   // Return the file's directory if no project root found

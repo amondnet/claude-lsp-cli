@@ -78,6 +78,10 @@ export async function checkFileWithRegistry(
     } else {
       finalTool = buildResult.tool || toolCommand;
       args = buildResult.args;
+      // Update result tool if a different tool is being used
+      if (buildResult.tool) {
+        result.tool = buildResult.tool;
+      }
     }
 
     // Prepend the tool command to the arguments array

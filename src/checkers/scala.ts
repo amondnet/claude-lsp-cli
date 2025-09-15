@@ -44,15 +44,30 @@ export const scalaConfig: LanguageConfig = {
     const lines = stderr.split('\n');
     const targetFileName = basename(_file);
 
-    // Only parse Bloop output format: [E001] /path/to/file.scala:10:5: error message
-    for (const line of lines) {
-      const match = line.match(/\[E\d+\]\s+(.+?):(\d+):(\d+):\s+(.+)/);
+    // Parse Bloop output format: [E] [E15] file.scala:10:5
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match: [E] [E15] src/main/scala/Main.scala:46:32
+      const match = line.match(/\[E\]\s+\[E\d+\]\s+(.+?):(\d+):(\d+)/);
       if (match && match[1].includes(targetFileName)) {
+        // The error message is on line 2 after the [E] marker
+        let message = 'Scala compilation error';
+
+        // Bloop format has error on the line starting with [E] followed by spaces
+        if (i + 1 < lines.length) {
+          const errorLine = lines[i + 1];
+          // Match lines like: [E]       value process is not a member of User
+          const errorMatch = errorLine.match(/\[E\]\s+(.+)/);
+          if (errorMatch) {
+            message = errorMatch[1].trim();
+          }
+        }
+
         diagnostics.push({
           line: parseInt(match[2]),
           column: parseInt(match[3]),
           severity: 'error',
-          message: match[4],
+          message: message,
         });
       }
     }
