@@ -35,9 +35,9 @@ jobs:
         
         # Install Bloop for Scala using modern Coursier method
         # First install Coursier
-        curl -fL https://get-coursier.io/coursier-linux > coursier
-        chmod +x coursier
-        sudo mv coursier /usr/local/bin/
+        curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
+        chmod +x cs
+        sudo mv cs /usr/local/bin/
         
         # Install Bloop using Coursier  
         cs install bloop --only-prebuilt=true
