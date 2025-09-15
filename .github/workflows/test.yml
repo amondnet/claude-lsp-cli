@@ -30,8 +30,9 @@ jobs:
         # Update package list
         sudo apt-get update
         
-        # Install commonly available language tools (non-interactive)
-        DEBIAN_FRONTEND=noninteractive sudo apt-get install -y golang-go default-jdk lua5.3 lua5.3-dev elixir
+        # Install only essential tools to avoid timeout - focus on Scala/Bloop testing
+        # Skip other languages for now to isolate Bloop issue
+        DEBIAN_FRONTEND=noninteractive sudo apt-get install -y default-jdk
         
         # Install Bloop for Scala (we only use Bloop, not scalac)
         curl -L https://github.com/scalacenter/bloop/releases/download/v1.5.17/install.py | python3 -
@@ -39,26 +40,11 @@ jobs:
         # Also add to current PATH for verification
         export PATH="$HOME/.bloop:$PATH"
         
-        # Install Rust via rustup (official way)
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        # Also add to current PATH for verification
-        source ~/.cargo/env
-        
-        # Install Terraform
-        wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-        sudo apt-get update && sudo apt-get install -y terraform
+        # Skip Rust and Terraform installation for now to focus on Scala/Bloop issue
         
         # Show what's available
         echo "Checking installed system tools:"
-        which go && go version || echo "Go not found"
         which javac && javac -version || echo "Java not found"
-        which rustc && rustc --version || echo "Rust not found" 
-        which lua5.3 && lua5.3 -v || echo "Lua not found"
-        which luac && luac -v || echo "Luac not found"
-        which elixir && elixir --version || echo "Elixir not found"
-        which terraform && terraform --version || echo "Terraform not found"
         
         # CRITICAL: Test if Bloop is working before continuing
         echo "Testing Bloop installation:"
