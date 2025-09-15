@@ -139,6 +139,7 @@ export default [
       '.git/',
       'examples/**/*',    // Examples have intentional errors
       'benchmarks/**/*', // Benchmark files have intentional errors
+      'hooks/**/*',      // Legacy hook files
       '**/*.d.ts',       // Declaration files
       '**/*.js',         // JavaScript files (this is a TypeScript project)
     ],
