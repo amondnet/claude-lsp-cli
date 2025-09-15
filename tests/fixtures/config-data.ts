@@ -198,7 +198,7 @@ export const directoryStructures = {
 /**
  * Helper to create test configuration objects
  */
-export function createTestConfig(scenario: keyof typeof lspConfigs): LspConfig {
+export function createTestConfig(scenario: keyof typeof lspConfigs): LspConfig | string {
   const config = lspConfigs[scenario];
   return typeof config === 'function' ? config() : config;
 }

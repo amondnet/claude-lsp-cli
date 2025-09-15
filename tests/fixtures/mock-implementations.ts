@@ -432,7 +432,7 @@ export const mockUtils = {
   ): any {
     const spy = spyOn(object, method);
     if (implementation) {
-      spy.mockImplementation(implementation);
+      spy.mockImplementation(implementation as any);
     }
     return spy;
   },
