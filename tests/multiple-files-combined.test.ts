@@ -185,6 +185,7 @@ describe('Multiple Files Combined Results', () => {
 
   test('should limit combined diagnostics to 5 items when there are many', async () => {
     const mockCheckFile = spyOn(fileChecker, 'checkFile');
+    mockCheckFile.mockClear();
     mockCheckFile.mockImplementation(async (path: string) => {
       if (path.includes('file1.ts')) {
         // Return 4 diagnostics

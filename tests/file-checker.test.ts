@@ -1,4 +1,4 @@
-import { describe, test, expect, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { checkFile, formatDiagnostics } from '../src/file-checker';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -18,6 +18,15 @@ if (LANGUAGE_REGISTRY.size === 0) {
 }
 
 describe('File-Based Type Checker', () => {
+  // Ensure we're testing the real implementation, not mocked
+  beforeEach(() => {
+    // If checkFile has been mocked by another test, restore it
+    const fileChecker = require('../src/file-checker');
+    if (fileChecker.checkFile?.mockRestore) {
+      fileChecker.checkFile.mockRestore();
+    }
+  });
+
   test('registry should be initialized', () => {
     // Verify the registry has TypeScript config with correct tool name
     expect(LANGUAGE_REGISTRY.size).toBeGreaterThan(0);
@@ -40,6 +49,18 @@ describe('File-Based Type Checker', () => {
     );
 
     const result = await checkFile(testFile);
+
+    // Debug logging for CI failure
+    if (result && result.file !== 'test.ts') {
+      console.error('ERROR: Unexpected file in result:', {
+        expected: 'test.ts',
+        actual: result.file,
+        fullPath: testFile,
+        TEST_DIR,
+        result: JSON.stringify(result),
+      });
+    }
+
     expect(result).toBeTruthy();
 
     // Debug info for CI failures
