@@ -35,11 +35,11 @@ jobs:
         
         # Install Bloop for Scala (we only use Bloop, not scalac)
         curl -L https://github.com/scalacenter/bloop/releases/download/v1.5.17/install.py | python3 -
-        export PATH="$HOME/.bloop:$PATH"
+        echo "$HOME/.bloop" >> $GITHUB_PATH
         
         # Install Rust via rustup (official way)
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source ~/.cargo/env
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
         
         # Install Terraform
         wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
@@ -90,9 +90,7 @@ jobs:
       
     - name: Run tests
       run: |
-        # Ensure Rust and Bloop are available in PATH
-        source ~/.cargo/env
-        export PATH="$HOME/.bloop:$PATH"
+        # PATH already includes Rust and Bloop from previous step
         bun test --timeout 30000
       
     - name: Check test coverage
