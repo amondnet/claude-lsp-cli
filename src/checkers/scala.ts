@@ -30,6 +30,7 @@ export const scalaConfig: LanguageConfig = {
     return {
       tool: 'bloop',
       args: ['compile', '--no-color', projectName],
+      timeout: 15000, // 15 seconds timeout for Bloop
     };
   },
 
@@ -43,6 +44,17 @@ export const scalaConfig: LanguageConfig = {
     const diagnostics: DiagnosticResult[] = [];
     const lines = stderr.split('\n');
     const targetFileName = basename(_file);
+
+    // Check for timeout
+    if (stderr.includes('Command timed out')) {
+      diagnostics.push({
+        line: 1,
+        column: 1,
+        severity: 'warning',
+        message: 'Scala compilation timed out - consider running `bloop server` in background',
+      });
+      return diagnostics;
+    }
 
     // Parse Bloop output format: [E] [E15] file.scala:10:5
     for (let i = 0; i < lines.length; i++) {
@@ -86,7 +98,7 @@ export const scalaConfig: LanguageConfig = {
     }
 
     // Check if bloop command is available
-    const bloopCheck = await runCommand(['which', 'bloop'], undefined, _projectRoot);
+    const bloopCheck = await runCommand(['which', 'bloop'], undefined, _projectRoot, 5000);
     if (bloopCheck.stderr.includes('not found') || bloopCheck.stdout.trim() === '') {
       // Bloop not installed - skip checking
       return {

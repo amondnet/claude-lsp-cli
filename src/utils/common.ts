@@ -15,24 +15,40 @@ import { homedir } from 'os';
 export async function runCommand(
   args: string[],
   env?: Record<string, string>,
-  cwd?: string
+  cwd?: string,
+  timeoutMs?: number // Optional timeout parameter
 ): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
+  const actualTimeout = timeoutMs ?? 30000; // Default 30 second timeout
   const proc = spawn(args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: env ? { ...process.env, ...env } : process.env,
     cwd: cwd || process.cwd(),
   });
 
+  // Set up timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error('Command timed out'));
+    }, actualTimeout);
+  });
+
   try {
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+    const result = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]),
+      timeoutPromise,
     ]);
 
-    await proc.exited;
-
+    const [stdout, stderr] = result as [string, string, number];
     return { stdout, stderr, timedOut: false };
   } catch (error) {
+    if (error instanceof Error && error.message === 'Command timed out') {
+      return { stdout: '', stderr: 'Command timed out', timedOut: true };
+    }
     return { stdout: '', stderr: String(error), timedOut: false };
   }
 }

@@ -33,21 +33,10 @@ jobs:
         DEBIAN_FRONTEND=noninteractive sudo apt-get install -y golang-go default-jdk lua5.3 lua5.3-dev elixir
         echo "APT packages installed successfully"
     
-    - name: Install Scala tooling (Coursier + Bloop)
-      timeout-minutes: 3
-      run: |
-        echo "Installing Coursier..."
-        curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
-        chmod +x cs
-        sudo mv cs /usr/local/bin/
-        echo "Coursier installed"
-        
-        echo "Installing Bloop..."
-        cs install bloop --only-prebuilt=true
-        echo "$HOME/.local/share/coursier/bin" >> $GITHUB_PATH
-        export PATH="$HOME/.local/share/coursier/bin:$PATH"
-        which bloop || echo "Bloop not found after installation"
-        echo "Bloop installation complete"
+    - name: Setup Scala with Coursier
+      uses: coursier/setup-action@v1
+      with:
+        apps: bloop
     
     - name: Install Rust
       timeout-minutes: 3
@@ -72,7 +61,7 @@ jobs:
         which go && go version || echo "Go not found"
         which javac && javac -version || echo "Java not found"
         which rustc && rustc --version || echo "Rust not found" 
-        which bloop || echo "Bloop not found"
+        which bloop && echo "Bloop found at $(which bloop)" || echo "Bloop not found"
         which lua5.3 && lua5.3 -v || echo "Lua not found"
         which luac && luac -v || echo "Luac not found"
         which elixir && elixir --version || echo "Elixir not found"

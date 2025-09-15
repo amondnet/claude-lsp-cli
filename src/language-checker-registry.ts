@@ -25,7 +25,7 @@ export interface LanguageConfig {
     _projectRoot: string,
     _toolCommand: string,
     _context?: unknown
-  ) => { tool?: string; args: string[] } | string[];
+  ) => { tool?: string; args: string[]; timeout?: number } | string[];
   /** Function to parse tool output into diagnostics */
   parseOutput: (
     _stdout: string,

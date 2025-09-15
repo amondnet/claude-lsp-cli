@@ -72,12 +72,14 @@ export async function checkFileWithRegistry(
     // Handle both old array format and new object format
     let finalTool = toolCommand;
     let args: string[];
+    let timeout: number | undefined;
 
     if (Array.isArray(buildResult)) {
       args = buildResult;
     } else {
       finalTool = buildResult.tool || toolCommand;
       args = buildResult.args;
+      timeout = buildResult.timeout;
       // Update result tool if a different tool is being used
       if (buildResult.tool) {
         result.tool = buildResult.tool;
@@ -91,7 +93,7 @@ export async function checkFileWithRegistry(
 
     // Run the tool with optional environment from context
     const env = setupContext?.env as Record<string, string> | undefined;
-    const { stdout, stderr, timedOut } = await runCommand(fullCommand, env, projectRoot);
+    const { stdout, stderr, timedOut } = await runCommand(fullCommand, env, projectRoot, timeout);
 
     if (timedOut) {
       result.timedOut = true;
