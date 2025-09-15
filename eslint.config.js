@@ -137,6 +137,7 @@ export default [
       '*.min.js',
       'tmp/',
       '.git/',
+      '.source/',        // Generated files from language setup actions
       'examples/**/*',    // Examples have intentional errors
       'benchmarks/**/*', // Benchmark files have intentional errors
       'hooks/**/*',      // Legacy hook files
