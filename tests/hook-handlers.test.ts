@@ -279,7 +279,7 @@ describe('Hook Handlers', () => {
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
       const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      const parsed = JSON.parse(errorOutput!.replace('[[system-message]]:', ''));
+      const parsed = JSON.parse(errorOutput?.replace('[[system-message]]:', '') || '{}');
       expect(parsed.diagnostics.length).toBe(5); // Limited to 5
       expect(parsed.summary).toBe('10 error(s)'); // But summary shows all
     });
@@ -340,7 +340,7 @@ describe('Hook Handlers', () => {
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
       const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      const parsed = JSON.parse(errorOutput!.replace('[[system-message]]:', ''));
+      const parsed = JSON.parse(errorOutput?.replace('[[system-message]]:', '') || '{}');
       expect(parsed.diagnostics.length).toBe(2); // Only error and warning
       expect(
         parsed.diagnostics.every((d: any) => d.severity === 'error' || d.severity === 'warning')

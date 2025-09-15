@@ -52,11 +52,11 @@ describe('File-Based Type Checker', () => {
 
     expect(result).toBeTruthy();
 
-    expect(result!.tool).toBe('tsc');
-    expect(result!.diagnostics.length).toBeGreaterThan(0);
+    expect(result?.tool).toBe('tsc');
+    expect(result?.diagnostics.length).toBeGreaterThan(0);
 
     // Should find type errors
-    const errors = result!.diagnostics.filter((d) => d.severity === 'error');
+    const errors = result?.diagnostics.filter((d) => d.severity === 'error') || [];
     expect(errors.length).toBeGreaterThanOrEqual(2);
   });
 

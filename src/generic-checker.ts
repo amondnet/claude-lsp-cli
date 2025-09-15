@@ -53,7 +53,7 @@ export async function checkFileWithRegistry(
 
   // Setup command if needed
   let cleanup: (() => void) | undefined;
-  let setupContext: any = undefined;
+  let setupContext: Record<string, unknown> | undefined = undefined;
   if (langConfig.setupCommand) {
     const setupResult = await langConfig.setupCommand(filePath, projectRoot);
     cleanup = setupResult.cleanup;
