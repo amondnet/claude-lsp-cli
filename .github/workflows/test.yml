@@ -46,7 +46,7 @@ jobs:
         cs install bloop --only-prebuilt=true
         echo "$HOME/.local/share/coursier/bin" >> $GITHUB_PATH
         export PATH="$HOME/.local/share/coursier/bin:$PATH"
-        which bloop && bloop --version || echo "Bloop not found after installation"
+        which bloop || echo "Bloop not found after installation"
         echo "Bloop installation complete"
     
     - name: Install Rust
@@ -72,7 +72,7 @@ jobs:
         which go && go version || echo "Go not found"
         which javac && javac -version || echo "Java not found"
         which rustc && rustc --version || echo "Rust not found" 
-        which bloop && bloop --version || echo "Bloop not found"
+        which bloop || echo "Bloop not found"
         which lua5.3 && lua5.3 -v || echo "Lua not found"
         which luac && luac -v || echo "Luac not found"
         which elixir && elixir --version || echo "Elixir not found"
