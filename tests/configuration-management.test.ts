@@ -446,6 +446,20 @@ describe('Configuration Management', () => {
       await configModule.enableLanguage('typescript');
       await configModule.disableLanguage('C++');
       config = configModule.loadConfig();
+
+      // Debug output for CI failure - write to file
+      if (config.disableCpp !== true) {
+        const fs = require('fs');
+        const debugData = {
+          expected: true,
+          received: config.disableCpp,
+          type: typeof config.disableCpp,
+          fullConfig: config,
+          timestamp: new Date().toISOString(),
+        };
+        fs.writeFileSync('/tmp/claude-lsp-cpp-debug.json', JSON.stringify(debugData, null, 2));
+      }
+
       expect(config.disableCpp).toBe(true);
     });
   });
