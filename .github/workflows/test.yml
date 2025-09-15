@@ -25,37 +25,49 @@ jobs:
     - name: Install dependencies
       run: bun install
     
-    - name: Install system packages for testing
+    - name: Install APT packages
+      timeout-minutes: 5
       run: |
-        # Update package list
+        echo "Installing APT packages..."
         sudo apt-get update
-        
-        # Install commonly available language tools (non-interactive)
         DEBIAN_FRONTEND=noninteractive sudo apt-get install -y golang-go default-jdk lua5.3 lua5.3-dev elixir
-        
-        # Install Bloop for Scala using modern Coursier method
-        # First install Coursier
+        echo "APT packages installed successfully"
+    
+    - name: Install Scala tooling (Coursier + Bloop)
+      timeout-minutes: 3
+      run: |
+        echo "Installing Coursier..."
         curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
         chmod +x cs
         sudo mv cs /usr/local/bin/
+        echo "Coursier installed"
         
-        # Install Bloop using Coursier  
+        echo "Installing Bloop..."
         cs install bloop --only-prebuilt=true
-        
-        # Add Coursier binary directory to PATH
         echo "$HOME/.local/share/coursier/bin" >> $GITHUB_PATH
         export PATH="$HOME/.local/share/coursier/bin:$PATH"
-        
-        # Install Rust via rustup (official way)
+        which bloop && bloop --version || echo "Bloop not found after installation"
+        echo "Bloop installation complete"
+    
+    - name: Install Rust
+      timeout-minutes: 3
+      run: |
+        echo "Installing Rust..."
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        
-        # Install Terraform
+        echo "Rust installed successfully"
+    
+    - name: Install Terraform
+      timeout-minutes: 2
+      run: |
+        echo "Installing Terraform..."
         wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
         echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
         sudo apt-get update && sudo apt-get install -y terraform
-        
-        # Show what's available
+        echo "Terraform installed successfully"
+    
+    - name: Verify installed tools
+      run: |
         echo "Checking installed system tools:"
         which go && go version || echo "Go not found"
         which javac && javac -version || echo "Java not found"
@@ -65,9 +77,6 @@ jobs:
         which luac && luac -v || echo "Luac not found"
         which elixir && elixir --version || echo "Elixir not found"
         which terraform && terraform --version || echo "Terraform not found"
-        
-        # TypeScript and pyright will be installed locally via package.json
-        echo "Local tools will be installed via 'bun install'"
     
     - name: Verify local tools installed
       run: |
