@@ -35,11 +35,18 @@ jobs:
         # Force workflow refresh - the CI was running old cached version
         DEBIAN_FRONTEND=noninteractive sudo apt-get install -y default-jdk
         
-        # Install Bloop for Scala (we only use Bloop, not scalac)
-        curl -L https://github.com/scalacenter/bloop/releases/download/v1.5.17/install.py | python3 -
-        echo "$HOME/.bloop" >> $GITHUB_PATH
-        # Also add to current PATH for verification
-        export PATH="$HOME/.bloop:$PATH"
+        # Install Bloop for Scala using modern Coursier method
+        # First install Coursier
+        curl -fL https://get-coursier.io/coursier-linux > coursier
+        chmod +x coursier
+        sudo mv coursier /usr/local/bin/
+        
+        # Install Bloop using Coursier  
+        cs install bloop --only-prebuilt=true
+        
+        # Add Coursier binary directory to PATH
+        echo "$HOME/.local/share/coursier/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.local/share/coursier/bin:$PATH"
         
         # Skip Rust and Terraform installation for now to focus on Scala/Bloop issue
         
