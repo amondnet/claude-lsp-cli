@@ -1,7 +1,6 @@
 import { join, dirname } from 'path';
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, statSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
-import { createHash } from 'crypto';
 
 // Cache project roots to avoid repeated filesystem traversal
 const projectRootCache = new Map<string, string>();
@@ -38,36 +37,34 @@ export function getStateFile(projectRoot: string): string {
 }
 
 interface CacheEntry {
-  file: string;
-  diagnosticsCount: number;
-  timestamp: number;
-  fileModTime: number;
-  fileHash: string;
+  modTime: number;
+  lastCheck: number;
 }
 
-export function shouldShowResult(filePath: string, diagnosticsCount: number): boolean {
+interface CacheState {
+  files: Record<string, CacheEntry>;
+}
+
+export function shouldShowResult(filePath: string): boolean {
   const projectRoot = getProjectRoot(filePath);
   const stateFile = getStateFile(projectRoot);
 
   try {
+    // Get current file modification time
+    const fileStats = statSync(filePath);
+    const currentModTime = fileStats.mtimeMs;
+
     if (existsSync(stateFile)) {
-      const lastResult: CacheEntry = JSON.parse(readFileSync(stateFile, 'utf-8'));
+      const state: CacheState = JSON.parse(readFileSync(stateFile, 'utf-8'));
+      const cached = state.files?.[filePath];
 
-      // Check if file has been modified since last check
-      const fileStats = statSync(filePath);
-      const currentModTime = fileStats.mtimeMs;
+      if (!cached) {
+        return true; // File not in cache
+      }
 
-      // Generate simple hash for content validation
-      const fileContent = readFileSync(filePath, 'utf-8');
-      const currentHash = createHash('md5').update(fileContent).digest('hex');
-
-      if (
-        lastResult.file === filePath &&
-        lastResult.diagnosticsCount === diagnosticsCount &&
-        lastResult.fileModTime === currentModTime &&
-        lastResult.fileHash === currentHash &&
-        Date.now() - lastResult.timestamp < 5000 // Increased cache time to 5 seconds
-      ) {
+      // Skip if file hasn't been modified AND we checked recently
+      if (cached.modTime === currentModTime && Date.now() - cached.lastCheck < 300000) {
+        // 5 minute window
         return false;
       }
     }
@@ -78,26 +75,81 @@ export function shouldShowResult(filePath: string, diagnosticsCount: number): bo
   return true;
 }
 
-export function markResultShown(filePath: string, diagnosticsCount: number): void {
+export function markResultShown(filePath: string): void {
   const projectRoot = getProjectRoot(filePath);
   const stateFile = getStateFile(projectRoot);
+  const lockFile = stateFile + '.lock';
 
-  try {
-    // Get file stats and hash for caching
-    const fileStats = statSync(filePath);
-    const fileContent = readFileSync(filePath, 'utf-8');
-    const fileHash = createHash('md5').update(fileContent).digest('hex');
+  // Simple retry mechanism for concurrent access
+  const maxRetries = 10;
+  const retryDelay = 10; // ms
 
-    const cacheEntry: CacheEntry = {
-      file: filePath,
-      diagnosticsCount,
-      timestamp: Date.now(),
-      fileModTime: fileStats.mtimeMs,
-      fileHash,
-    };
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Try to create lock file atomically
+      if (existsSync(lockFile)) {
+        // Lock exists, wait and retry
+        const now = Date.now();
+        const lockAge = now - statSync(lockFile).mtimeMs;
 
-    writeFileSync(stateFile, JSON.stringify(cacheEntry));
-  } catch {
-    // Continue with empty state if file doesn't exist or is invalid
+        // If lock is stale (>1 second), remove it
+        if (lockAge > 1000) {
+          try {
+            unlinkSync(lockFile);
+          } catch {
+            // Someone else removed it, that's fine
+          }
+        } else if (attempt < maxRetries - 1) {
+          // Wait before retry
+          Bun.sleepSync(retryDelay);
+          continue;
+        }
+      }
+
+      // Create lock file
+      writeFileSync(lockFile, Date.now().toString());
+
+      try {
+        // Get file stats for caching
+        const fileStats = statSync(filePath);
+
+        // Read existing state or create new one
+        let state: CacheState = { files: {} };
+        if (existsSync(stateFile)) {
+          try {
+            state = JSON.parse(readFileSync(stateFile, 'utf-8'));
+            if (!state.files) {
+              state = { files: {} };
+            }
+          } catch {
+            // Use empty state if parse fails
+          }
+        }
+
+        // Store modification time and check time
+        state.files[filePath] = {
+          modTime: fileStats.mtimeMs,
+          lastCheck: Date.now(),
+        };
+
+        writeFileSync(stateFile, JSON.stringify(state, null, 2));
+      } finally {
+        // Always remove lock file
+        try {
+          unlinkSync(lockFile);
+        } catch {
+          // Lock already removed, that's fine
+        }
+      }
+
+      // Success, exit loop
+      return;
+    } catch {
+      // Failed, will retry
+      if (attempt === maxRetries - 1) {
+        // Last attempt, give up gracefully
+        return;
+      }
+    }
   }
 }

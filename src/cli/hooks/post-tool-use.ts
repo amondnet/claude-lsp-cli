@@ -53,7 +53,7 @@ export async function handlePostToolUse(input: string): Promise<void> {
           (d) => d.severity === 'error' || d.severity === 'warning'
         );
 
-        if (importantIssues.length > 0 && shouldShowResult(absolutePath, importantIssues.length)) {
+        if (importantIssues.length > 0 && shouldShowResult(absolutePath)) {
           // Add file context to diagnostics
           const fileRelativePath = result.file || filePaths[i];
           for (const diag of importantIssues) {
@@ -62,7 +62,7 @@ export async function handlePostToolUse(input: string): Promise<void> {
               file: fileRelativePath,
             });
           }
-          markResultShown(absolutePath, importantIssues.length);
+          markResultShown(absolutePath);
           hasErrors = true;
         }
       }

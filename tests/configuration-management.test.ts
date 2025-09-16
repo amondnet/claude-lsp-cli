@@ -79,26 +79,28 @@ describe('Configuration Management', () => {
       expect(config).toEqual(testConfig);
     });
 
-    test('should throw error for invalid JSON (no error handling in loadConfig)', () => {
+    test('should return empty config for invalid JSON (graceful error handling)', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
 
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, '{ invalid json }');
 
-      // loadConfig doesn't handle JSON parse errors, so it should throw
-      expect(() => configModule.loadConfig()).toThrow();
+      // loadConfig now handles JSON parse errors gracefully
+      const config = configModule.loadConfig();
+      expect(config).toEqual({});
     });
 
-    test('should throw error for empty file (no error handling in loadConfig)', () => {
+    test('should return empty config for empty file (graceful error handling)', () => {
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configDir = join(mockHomeDir, '.claude');
 
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, '');
 
-      // loadConfig doesn't handle empty file errors, so it should throw
-      expect(() => configModule.loadConfig()).toThrow();
+      // loadConfig now handles empty file errors gracefully
+      const config = configModule.loadConfig();
+      expect(config).toEqual({});
     });
 
     test('should handle USERPROFILE on Windows', () => {
@@ -515,9 +517,10 @@ describe('Configuration Management', () => {
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, '{ "invalid": json }');
 
-      // The actual implementation doesn't have try-catch around JSON.parse
-      // This documents the current behavior - it will throw
-      expect(() => configModule.loadConfig()).toThrow();
+      // The actual implementation now has try-catch around JSON.parse
+      // This documents the current behavior - it returns empty object
+      const config = configModule.loadConfig();
+      expect(config).toEqual({});
     });
 
     test('should demonstrate updateConfig has error handling but loadConfig does not', async () => {

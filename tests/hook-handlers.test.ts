@@ -127,8 +127,8 @@ describe('Hook Handlers', () => {
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
       expect(mockCheckFile).toHaveBeenCalledWith('/test/dir/test.ts');
-      expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts', 1);
-      expect(_mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts', 1);
+      expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts');
+      expect(_mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts');
 
       // Check output format
       const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));

@@ -1,7 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { spawn } from 'bun';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 
 const CLI_PATH = join(import.meta.dir, '..', 'bin', 'claude-lsp-cli');
 const EXAMPLES_DIR = join(import.meta.dir, '..', 'examples');
@@ -200,6 +201,16 @@ describe('CLI Hook Mode', () => {
   // - Output with "[[system-message]]:" when diagnostics found
 
   test('Hook mode with diagnostics returns exit code 2', async () => {
+    // Clear the deduplication cache for the typescript-project directory
+    // This ensures the test always shows diagnostics
+    const projectRoot = join(EXAMPLES_DIR, 'typescript-project').replace(/[^a-zA-Z0-9]/g, '_');
+    const cacheFile = join(tmpdir(), `claude-lsp-last-${projectRoot}.json`);
+    try {
+      rmSync(cacheFile, { force: true });
+    } catch {
+      // Ignore if file doesn't exist
+    }
+
     const hookData = JSON.stringify({
       tool_name: 'Edit',
       tool_input: {

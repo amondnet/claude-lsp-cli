@@ -10,7 +10,7 @@ import { homedir } from 'os';
 
 /**
  * Run command with timeout and automatic kill
- * Consolidated from file-checker.ts and generic-checker.ts
+ * Optimized with spawn for best performance
  */
 export async function runCommand(
   args: string[],
@@ -19,6 +19,8 @@ export async function runCommand(
   timeoutMs?: number // Optional timeout parameter
 ): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
   const actualTimeout = timeoutMs ?? 30000; // Default 30 second timeout
+
+  // Use spawn which is already optimized in Bun
   const proc = spawn(args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: env ? { ...process.env, ...env } : process.env,

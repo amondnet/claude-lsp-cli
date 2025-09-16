@@ -133,47 +133,57 @@ describe('Deduplication Utilities', () => {
 
   describe('shouldShowResult', () => {
     test('should show result when no state file exists', () => {
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(true);
     });
 
     test('should show result when file path differs', () => {
       // Mark a different file as shown
-      markResultShown('/different/file.ts', 5);
+      markResultShown('/different/file.ts');
 
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(true);
     });
 
-    test('should show result when diagnostics count differs', () => {
-      // Mark with different count
-      markResultShown(TEST_FILE, 3);
+    test('should show result when file has been modified', () => {
+      // Mark file as checked
+      markResultShown(TEST_FILE);
 
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      // Modify the file by changing its modification time
+      const fs = require('fs');
+      const newTime = new Date(Date.now() + 1000); // 1 second in future
+      fs.utimesSync(TEST_FILE, newTime, newTime);
+
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(true);
     });
 
-    test('should not show result when same file and count within time window', () => {
-      markResultShown(TEST_FILE, 5);
+    test('should not show result when same file not modified within time window', () => {
+      markResultShown(TEST_FILE);
 
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(false);
     });
 
     test('should show result when time window expires', async () => {
-      markResultShown(TEST_FILE, 5);
+      markResultShown(TEST_FILE);
 
-      // Wait for time window to expire (5 seconds)
-      await new Promise((resolve) => setTimeout(resolve, 5100));
+      // Mock time passing by modifying the cache directly
+      const projectRoot = getProjectRoot(TEST_FILE);
+      const stateFile = getStateFile(projectRoot);
+      const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
+      // Set lastCheck to over 5 minutes ago
+      state.files[TEST_FILE].lastCheck = Date.now() - 301000;
+      writeFileSync(stateFile, JSON.stringify(state));
 
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(true);
-    }, 10000); // 10 second timeout for this test
+    });
 
-    test('should handle zero diagnostics count', () => {
-      markResultShown(TEST_FILE, 0);
+    test('should handle unmodified file', () => {
+      markResultShown(TEST_FILE);
 
-      const shouldShow = shouldShowResult(TEST_FILE, 0);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(false);
     });
 
@@ -184,7 +194,7 @@ describe('Deduplication Utilities', () => {
       // Write invalid JSON
       writeFileSync(stateFile, 'invalid json{');
 
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(true);
     });
 
@@ -195,14 +205,14 @@ describe('Deduplication Utilities', () => {
       // Write JSON with missing fields
       writeFileSync(stateFile, JSON.stringify({ _file: TEST_FILE }));
 
-      const shouldShow = shouldShowResult(TEST_FILE, 5);
+      const shouldShow = shouldShowResult(TEST_FILE);
       expect(shouldShow).toBe(true);
     });
   });
 
   describe('markResultShown', () => {
     test('should create state file with correct structure', () => {
-      markResultShown(TEST_FILE, 10);
+      markResultShown(TEST_FILE);
 
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
@@ -210,20 +220,22 @@ describe('Deduplication Utilities', () => {
       expect(existsSync(stateFile)).toBe(true);
 
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state.file).toBe(TEST_FILE);
-      expect(state.diagnosticsCount).toBe(10);
-      expect(state.timestamp).toBeCloseTo(Date.now(), -2); // Within 100ms
+      expect(state.files).toBeDefined();
+      expect(state.files[TEST_FILE]).toBeDefined();
+      expect(state.files[TEST_FILE].modTime).toBeDefined();
+      expect(state.files[TEST_FILE].lastCheck).toBeCloseTo(Date.now(), -2); // Within 100ms
     });
 
     test('should overwrite existing state file', () => {
-      markResultShown(TEST_FILE, 5);
-      markResultShown(TEST_FILE, 10);
+      markResultShown(TEST_FILE);
+      markResultShown(TEST_FILE);
 
       const projectRoot = getProjectRoot(TEST_FILE);
       const stateFile = getStateFile(projectRoot);
 
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state.diagnosticsCount).toBe(10);
+      expect(state.files[TEST_FILE]).toBeDefined();
+      expect(state.files[TEST_FILE].modTime).toBeDefined();
     });
 
     test('should handle write errors gracefully', () => {
@@ -240,7 +252,7 @@ describe('Deduplication Utilities', () => {
       }
 
       // Should not throw even if write fails
-      expect(() => markResultShown(TEST_FILE, 5)).not.toThrow();
+      expect(() => markResultShown(TEST_FILE)).not.toThrow();
 
       // Clean up if directory was created
       try {
@@ -256,7 +268,7 @@ describe('Deduplication Utilities', () => {
       for (let i = 0; i < 10; i++) {
         promises.push(
           new Promise<void>((resolve) => {
-            markResultShown(TEST_FILE, i);
+            markResultShown(TEST_FILE);
             resolve();
           })
         );
@@ -270,26 +282,29 @@ describe('Deduplication Utilities', () => {
       // Should have some value written
       expect(existsSync(stateFile)).toBe(true);
       const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      expect(state.file).toBe(TEST_FILE);
-      expect(typeof state.diagnosticsCount).toBe('number');
+      expect(state.files[TEST_FILE]).toBeDefined();
+      expect(typeof state.files[TEST_FILE].modTime).toBe('number');
     });
   });
 
   describe('Integration scenarios', () => {
     test('should deduplicate repeated checks correctly', () => {
       // First check - should show
-      expect(shouldShowResult(TEST_FILE, 5)).toBe(true);
-      markResultShown(TEST_FILE, 5);
+      expect(shouldShowResult(TEST_FILE)).toBe(true);
+      markResultShown(TEST_FILE);
 
       // Second check immediately - should not show
-      expect(shouldShowResult(TEST_FILE, 5)).toBe(false);
+      expect(shouldShowResult(TEST_FILE)).toBe(false);
 
-      // Different count - should show
-      expect(shouldShowResult(TEST_FILE, 3)).toBe(true);
-      markResultShown(TEST_FILE, 3);
+      // Modify file by changing its modification time - should show
+      const fs = require('fs');
+      const newTime = new Date(Date.now() + 1000); // 1 second in future
+      fs.utimesSync(TEST_FILE, newTime, newTime);
+      expect(shouldShowResult(TEST_FILE)).toBe(true);
+      markResultShown(TEST_FILE);
 
-      // Same new count - should not show
-      expect(shouldShowResult(TEST_FILE, 3)).toBe(false);
+      // Same file not modified - should not show
+      expect(shouldShowResult(TEST_FILE)).toBe(false);
     });
 
     test('should handle multiple files in same project', () => {
@@ -303,9 +318,9 @@ describe('Deduplication Utilities', () => {
       expect(getProjectRoot(file1)).toBe(getProjectRoot(file2));
 
       // But maintain separate deduplication
-      markResultShown(file1, 5);
-      expect(shouldShowResult(file1, 5)).toBe(false);
-      expect(shouldShowResult(file2, 5)).toBe(true);
+      markResultShown(file1);
+      expect(shouldShowResult(file1)).toBe(false);
+      expect(shouldShowResult(file2)).toBe(true);
     });
 
     test('should handle project without any markers', () => {
@@ -318,9 +333,9 @@ describe('Deduplication Utilities', () => {
       expect(root).toBe(tmpdir());
 
       // Should still work for deduplication
-      expect(shouldShowResult(orphanFile, 5)).toBe(true);
-      markResultShown(orphanFile, 5);
-      expect(shouldShowResult(orphanFile, 5)).toBe(false);
+      expect(shouldShowResult(orphanFile)).toBe(true);
+      markResultShown(orphanFile);
+      expect(shouldShowResult(orphanFile)).toBe(false);
 
       // Clean up
       rmSync(orphanDir, { recursive: true });
