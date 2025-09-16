@@ -1,5 +1,13 @@
 import { join, dirname } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  fsyncSync,
+  openSync,
+  closeSync,
+} from 'fs';
 import { showStatus } from './help';
 
 export function loadConfig(): Record<string, unknown> {
@@ -37,6 +45,17 @@ function updateConfig(updates: Record<string, unknown>): void {
 
   // Write updated config
   writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  // Force file system sync to prevent race conditions in Node 20
+  try {
+    if (fsyncSync) {
+      const fd = openSync(configPath, 'r');
+      fsyncSync(fd);
+      closeSync(fd);
+    }
+  } catch {
+    // Fallback: just continue if fsync fails
+  }
 }
 
 export async function disableLanguage(
