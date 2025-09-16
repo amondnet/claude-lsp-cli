@@ -4,6 +4,8 @@
 
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
+import { tmpdir } from 'os';
+import { createHash } from 'crypto';
 import type { LanguageConfig } from '../language-checker-registry';
 import { mapSeverity } from '../language-checker-registry';
 import type { DiagnosticResult } from '../types/DiagnosticResult';
@@ -21,11 +23,32 @@ export const rustConfig: LanguageConfig = {
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const hasCargoToml = context?.hasCargoToml;
 
+    // Create safe cache directory in temp folder based on project path
+    const projectHash = createHash('md5').update(_projectRoot).digest('hex');
+
     if (hasCargoToml) {
-      return { tool: 'cargo', args: ['check', '--message-format=json'] };
+      // Use cargo check with incremental compilation in temp directory
+      const cargoTargetDir = join(tmpdir(), 'claude-lsp-rust', projectHash, 'cargo-target');
+      return {
+        tool: 'cargo',
+        args: ['check', '--message-format=json', '--target-dir', cargoTargetDir],
+      };
     } else {
       const relativePath = relative(_projectRoot, _file);
-      return { tool: 'rustc', args: ['--error-format=json', '--edition', '2021', relativePath] };
+      // Use incremental compilation directory in temp folder
+      const rustcOutDir = join(tmpdir(), 'claude-lsp-rust', projectHash, 'rustc-out');
+      return {
+        tool: 'rustc',
+        args: [
+          '--error-format=json',
+          '--edition',
+          '2021',
+          '--incremental',
+          '--out-dir',
+          rustcOutDir,
+          relativePath,
+        ],
+      };
     }
   },
 

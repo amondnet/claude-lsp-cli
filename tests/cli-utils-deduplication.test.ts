@@ -163,12 +163,12 @@ describe('Deduplication Utilities', () => {
     test('should show result when time window expires', async () => {
       markResultShown(TEST_FILE, 5);
 
-      // Wait for time window to expire (2 seconds)
-      await new Promise((resolve) => setTimeout(resolve, 2100));
+      // Wait for time window to expire (5 seconds)
+      await new Promise((resolve) => setTimeout(resolve, 5100));
 
       const shouldShow = shouldShowResult(TEST_FILE, 5);
       expect(shouldShow).toBe(true);
-    });
+    }, 10000); // 10 second timeout for this test
 
     test('should handle zero diagnostics count', () => {
       markResultShown(TEST_FILE, 0);

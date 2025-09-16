@@ -5,6 +5,7 @@
 import { existsSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
+import { createHash } from 'crypto';
 import type { LanguageConfig } from '../language-checker-registry';
 import { mapSeverity, stripAnsiCodes, shouldSkipDiagnostic } from '../language-checker-registry';
 import { findTsconfigRoot } from '../utils/common';
@@ -20,11 +21,21 @@ export const typescriptConfig: LanguageConfig = {
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['--noEmit', '--pretty', 'false'];
 
+    // Enable incremental compilation for faster subsequent checks
+    args.push('--incremental');
+
+    // Create project-specific cache directory in temp folder
+    const projectHash = createHash('md5').update(_projectRoot).digest('hex');
+    const tsBuildInfoDir = join(tmpdir(), 'claude-lsp-ts', projectHash);
+
     // If we have a temporary tsconfig from setupCommand, use it
     if (context?.tempTsconfigPath) {
       args.push('--project', context.tempTsconfigPath);
+      args.push('--tsBuildInfoFile', join(tsBuildInfoDir, 'project.tsbuildinfo'));
     } else {
-      // Just check the single file
+      // Just check the single file with incremental info
+      const fileHash = createHash('md5').update(_file).digest('hex').substring(0, 8);
+      args.push('--tsBuildInfoFile', join(tsBuildInfoDir, `file-${fileHash}.tsbuildinfo`));
       args.push(_file);
     }
 

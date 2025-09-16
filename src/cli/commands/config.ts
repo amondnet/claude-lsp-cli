@@ -7,6 +7,8 @@ import {
   fsyncSync,
   openSync,
   closeSync,
+  rmSync,
+  renameSync,
 } from 'fs';
 import { showStatus } from './help';
 
@@ -23,6 +25,7 @@ export function loadConfig(): Record<string, unknown> {
 function updateConfig(updates: Record<string, unknown>): void {
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   const configPath = join(homeDir, '.claude', 'lsp-config.json');
+  const tempPath = configPath + '.tmp';
   let config: Record<string, unknown> = {};
 
   // Read existing config
@@ -43,18 +46,35 @@ function updateConfig(updates: Record<string, unknown>): void {
     mkdirSync(dir, { recursive: true });
   }
 
-  // Write updated config
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
-
-  // Force file system sync to prevent race conditions in Node 20
+  // Atomic write: write to temporary file first, then rename
+  const configContent = JSON.stringify(config, null, 2);
   try {
-    if (fsyncSync) {
-      const fd = openSync(configPath, 'r');
-      fsyncSync(fd);
-      closeSync(fd);
+    // Write to temporary file
+    writeFileSync(tempPath, configContent);
+
+    // Force sync the temporary file to disk
+    const fd = openSync(tempPath, 'r+');
+    fsyncSync(fd);
+    closeSync(fd);
+
+    // Atomically move temporary file to final location
+    // This is atomic on most filesystems and prevents race conditions
+    if (existsSync(configPath)) {
+      rmSync(configPath);
     }
-  } catch {
-    // Fallback: just continue if fsync fails
+    renameSync(tempPath, configPath);
+  } catch (_error) {
+    // Clean up temp file if something went wrong
+    try {
+      if (existsSync(tempPath)) {
+        rmSync(tempPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    // Fallback to direct write (original behavior)
+    writeFileSync(configPath, configContent);
   }
 }
 

@@ -444,11 +444,7 @@ describe('Configuration Management', () => {
 
       // Clear and test next
       await configModule.enableLanguage('typescript');
-      // Small delay to prevent race conditions in Node 20
-      await new Promise((resolve) => setTimeout(resolve, 10));
       await configModule.disableLanguage('C++');
-      // Small delay to ensure file is written before reading
-      await new Promise((resolve) => setTimeout(resolve, 10));
       config = configModule.loadConfig();
       expect(config.disableCpp).toBe(true);
     });
@@ -488,11 +484,7 @@ describe('Configuration Management', () => {
 
     test('should write properly formatted JSON', async () => {
       await configModule.disableLanguage('python');
-      // Small delay to prevent race conditions in Node 20
-      await new Promise((resolve) => setTimeout(resolve, 10));
       await configModule.disableLanguage('typescript');
-      // Small delay to ensure file is written before reading
-      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const configPath = join(mockHomeDir, '.claude', 'lsp-config.json');
       const configContent = readFileSync(configPath, 'utf8');

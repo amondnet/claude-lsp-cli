@@ -14,7 +14,13 @@
  *   help                  - Show help
  */
 
-import { runCheck, enableLanguage, disableLanguage, showHelp } from './cli/commands';
+import {
+  runCheck,
+  runCheckMultiple,
+  enableLanguage,
+  disableLanguage,
+  showHelp,
+} from './cli/commands';
 import { handlePostToolUse } from './cli/hooks/post-tool-use';
 
 // Parse command line arguments
@@ -50,7 +56,12 @@ void (async () => {
   if (command === 'hook') {
     await handleHookEvent(commandArgs[0]);
   } else if (command === 'check') {
-    await runCheck(commandArgs[0]);
+    // Support checking multiple files for better performance
+    if (commandArgs.length > 1) {
+      await runCheckMultiple(commandArgs);
+    } else {
+      await runCheck(commandArgs[0]);
+    }
   } else if (command === 'disable') {
     const result = await disableLanguage(commandArgs[0]);
     console.log(result);
