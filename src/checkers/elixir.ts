@@ -56,11 +56,25 @@ export const elixirConfig: LanguageConfig = {
         // Look for location info in subsequent lines
         for (let j = i + 1; j < lines.length && j < i + 10; j++) {
           const locationLine = lines[j];
-          const locationMatch = locationLine.match(/└─\s+(.+?):(\d+):(\d+)/);
-          if (locationMatch) {
+
+          // Try new format with tree characters: └─ path:line:column
+          const newLocationMatch = locationLine.match(/└─\s+(.+?):(\d+):(\d+)/);
+          if (newLocationMatch) {
             diagnostics.push({
-              line: parseInt(locationMatch[2]),
-              column: parseInt(locationMatch[3]),
+              line: parseInt(newLocationMatch[2]),
+              column: parseInt(newLocationMatch[3]),
+              severity: isError ? ('error' as const) : ('warning' as const),
+              message: message,
+            });
+            break;
+          }
+
+          // Try standard format: "  path:line: context"
+          const standardLocationMatch = locationLine.match(/^\s+(.+?):(\d+):\s/);
+          if (standardLocationMatch) {
+            diagnostics.push({
+              line: parseInt(standardLocationMatch[2]),
+              column: 1,
               severity: isError ? ('error' as const) : ('warning' as const),
               message: message,
             });
