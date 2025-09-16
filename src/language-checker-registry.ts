@@ -55,19 +55,26 @@ export function registerLanguage(extensions: string[], config: LanguageConfig): 
 
 // Helper function to find local tool installation
 export function findLocalTool(projectRoot: string, localPaths: string[]): string | null {
-  // Check in the project being analyzed
+  // Check each path
   for (const localPath of localPaths) {
-    const projectLocalTool = join(projectRoot, localPath);
-    if (existsSync(projectLocalTool)) {
-      return projectLocalTool;
-    }
-  }
+    // Check if it's an absolute path
+    if (localPath.startsWith('/')) {
+      // Check absolute path directly
+      if (existsSync(localPath)) {
+        return localPath;
+      }
+    } else {
+      // Check relative to project root
+      const projectLocalTool = join(projectRoot, localPath);
+      if (existsSync(projectLocalTool)) {
+        return projectLocalTool;
+      }
 
-  // Check relative to current working directory (where the binary is run from)
-  for (const localPath of localPaths) {
-    const cwdLocalTool = join(process.cwd(), localPath);
-    if (existsSync(cwdLocalTool)) {
-      return cwdLocalTool;
+      // Check relative to current working directory (where the binary is run from)
+      const cwdLocalTool = join(process.cwd(), localPath);
+      if (existsSync(cwdLocalTool)) {
+        return cwdLocalTool;
+      }
     }
   }
 
