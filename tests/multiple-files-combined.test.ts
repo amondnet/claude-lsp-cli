@@ -344,8 +344,7 @@ describe('Multiple Files Combined Results', () => {
     mockShouldShow.mockClear();
     // First file should show, second file should not (already shown)
     let callCount = 0;
-    mockShouldShow.mockImplementation((path: string, _count: number) => {
-      void _count;
+    mockShouldShow.mockImplementation((path: string) => {
       callCount++;
       // Only show file1.ts
       return path.includes('file1.ts');
