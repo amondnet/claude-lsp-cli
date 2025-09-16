@@ -69,7 +69,10 @@ jobs:
         which bloop && echo "Bloop found at $(which bloop)" || echo "Bloop not found"
         which lua && lua -v || echo "Lua not found"
         which elixir && elixir --version || echo "Elixir not found"
+        echo "Mix location: $(which mix)"
         which mix && mix --version || echo "Mix not found"
+        echo "INSTALL_DIR_FOR_ELIXIR: ${INSTALL_DIR_FOR_ELIXIR}"
+        ls -la "${INSTALL_DIR_FOR_ELIXIR}/bin/" 2>/dev/null || echo "Elixir bin dir not found"
         which terraform && terraform --version || echo "Terraform not found"
     
     - name: Verify local tools installed
@@ -86,6 +89,17 @@ jobs:
       run: |
         test -f bin/claude-lsp-cli
         echo "✅ Single unified binary built successfully"
+    
+    - name: Debug Elixir test
+      run: |
+        echo "Testing Elixir checker directly:"
+        echo "PATH: $PATH"
+        echo "Running CLI check on Elixir file:"
+        ./bin/claude-lsp-cli check examples/elixir-project/lib/main.ex || true
+        echo "Checking if mix.exs exists:"
+        ls -la examples/elixir-project/mix.exs
+        echo "Trying to run mix compile manually:"
+        cd examples/elixir-project && mix compile --warnings-as-errors 2>&1 || true
     
     - name: Run quality checks
       run: |
