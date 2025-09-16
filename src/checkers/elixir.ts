@@ -15,12 +15,12 @@ export const elixirConfig: LanguageConfig = {
     // Common system paths
     '/usr/local/bin/mix',
     '/usr/bin/mix',
-    // CI GitHub Actions setup-beam paths
-    process.env.INSTALL_DIR_FOR_ELIXIR ? `${process.env.INSTALL_DIR_FOR_ELIXIR}/bin/mix` : '',
+    // GitHub Actions setup-beam default paths
+    '/home/runner/work/_temp/.setup-beam/elixir/bin/mix',
     // Common local Elixir installation paths
     '~/.asdf/shims/mix',
     '~/.kiex/elixirs/*/bin/mix',
-  ].filter(Boolean), // Remove empty strings
+  ],
 
   detectConfig: (projectRoot: string) => {
     return existsSync(join(projectRoot, 'mix.exs'));
