@@ -41,7 +41,7 @@
   "scripts": {
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:coverage": "c8 --reporter=text --reporter=lcov bun test",
+    "test:coverage": "c8 --reporter=text --reporter=lcov bun test --timeout 30000",
     "coverage": "c8 --reporter=text --reporter=html bun test",
     "coverage:check": "c8 --check-coverage --lines 80 --functions 80 --branches 80 bun test",
     "build:cli": "mkdir -p bin && bun build src/cli.ts --compile --outfile bin/claude-lsp-cli",

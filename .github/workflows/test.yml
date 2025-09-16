@@ -115,14 +115,10 @@ jobs:
         
         echo "✅ All quality checks passed!"
       
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
+        echo "Running tests with coverage analysis..."
         # PATH already includes Rust and Bloop from previous step
-        bun test --timeout 30000
-      
-    - name: Check test coverage
-      run: |
-        echo "Running coverage analysis..."
         bun run test:coverage
         
         echo "Test files: $(ls tests/*.test.ts | wc -l)"
