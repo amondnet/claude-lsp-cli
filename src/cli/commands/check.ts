@@ -45,7 +45,7 @@ export async function runCheckMultiple(
   }
 
   // Filter to existing files first
-  const validFiles = filePaths.map(resolve).filter(existsSync);
+  const validFiles = filePaths.map((filePath) => resolve(filePath)).filter(existsSync);
 
   if (validFiles.length === 0) {
     return;

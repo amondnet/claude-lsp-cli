@@ -36,16 +36,17 @@ export const rustConfig: LanguageConfig = {
     } else {
       const relativePath = relative(_projectRoot, _file);
       // Use incremental compilation directory in temp folder
-      const rustcOutDir = join(tmpdir(), 'claude-lsp-rust', projectHash, 'rustc-out');
+      const rustcIncrementalDir = join(tmpdir(), 'claude-lsp-rust', projectHash, 'incremental');
       return {
         tool: 'rustc',
         args: [
           '--error-format=json',
           '--edition',
           '2021',
-          '--incremental',
-          '--out-dir',
-          rustcOutDir,
+          '-C',
+          `incremental=${rustcIncrementalDir}`,
+          '--emit=metadata',
+          '--crate-type=bin',
           relativePath,
         ],
       };
