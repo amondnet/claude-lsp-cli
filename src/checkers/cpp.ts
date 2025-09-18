@@ -22,7 +22,7 @@ export const cppConfig: LanguageConfig = {
     for (const line of lines) {
       // Match both regular errors/warnings and fatal errors
       const match = line.match(/^.+?:(\d+):(\d+): (error|warning|fatal error): (.+)$/);
-      if (match) {
+      if (match && match[1] && match[2] && match[3] && match[4]) {
         diagnostics.push({
           line: parseInt(match[1]),
           column: parseInt(match[2]),

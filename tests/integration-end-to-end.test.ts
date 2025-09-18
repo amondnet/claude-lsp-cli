@@ -4,6 +4,7 @@ import { join } from 'path';
 import { existsSync, writeFileSync, rmSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { setTimeout as sleep } from 'timers/promises';
+import { setupTestConfig, cleanupTestConfig } from './helpers/config-manager';
 
 const CLI_PATH = join(import.meta.dir, '..', 'bin', 'claude-lsp-cli');
 const _EXAMPLES_DIR = join(import.meta.dir, '..', 'examples');
@@ -83,6 +84,9 @@ function _createUserPromptData(_message: string): string {
 
 describe('Integration Tests - End-to-End Flows', () => {
   beforeAll(() => {
+    // Save user config and enable all languages for testing
+    setupTestConfig();
+
     // Create test directory
     if (!existsSync(TEST_DIR)) {
       mkdirSync(TEST_DIR, { recursive: true });
@@ -90,6 +94,9 @@ describe('Integration Tests - End-to-End Flows', () => {
   });
 
   afterAll(() => {
+    // Restore user config
+    cleanupTestConfig();
+
     // Clean up test directory
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });

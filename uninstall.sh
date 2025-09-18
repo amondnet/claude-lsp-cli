@@ -187,7 +187,22 @@ if [ -f "$CLAUDE_MD" ]; then
 fi
 
 echo ""
-echo "✅ Uninstallation complete!"
+
+# Final verification - check if claude-lsp-cli is truly gone
+echo "🔍 Verifying uninstallation..."
+if command -v claude-lsp-cli &> /dev/null; then
+    REMAINING_PATH=$(which claude-lsp-cli)
+    echo "❌ Warning: claude-lsp-cli still found at: $REMAINING_PATH"
+    echo "   You may need to manually remove it:"
+    echo "   sudo rm -f $REMAINING_PATH"
+    echo ""
+    echo "⚠️  Uninstallation incomplete - manual cleanup required"
+else
+    echo "✅ Verified: claude-lsp-cli successfully removed from system"
+    echo ""
+    echo "✅ Uninstallation complete!"
+fi
+
 echo ""
 echo "Note: If you had claude-lsp-cli in your PATH, you may need to restart"
 echo "your terminal or run 'hash -r' to clear the command cache."

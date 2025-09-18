@@ -1,5 +1,5 @@
-import { spawn } from 'bun';
 import { loadConfig } from './config';
+import { execCommand } from '../../utils/common';
 
 export async function showHelp(
   log: (..._args: unknown[]) => unknown = console.log
@@ -130,12 +130,12 @@ Current Status:
   // Check all languages in parallel, then display in order
   const checks = languages.map(async (lang) => {
     try {
-      const proc = spawn([lang.command, lang.versionArg], { stdout: 'ignore', stderr: 'ignore' });
-      await proc.exited;
+      // Use utility function to prevent zombies
+      const { exitCode } = await execCommand([lang.command, lang.versionArg]);
       return {
         name: lang.name,
         code: lang.code,
-        available: proc.exitCode === 0,
+        available: exitCode === 0,
         install: lang.install,
       };
     } catch {

@@ -76,7 +76,7 @@ export const javaConfig: LanguageConfig = {
     for (const line of lines) {
       // Java compiler format: "filename:line: error/warning: message"
       const match = line.match(/^(.+?):(\d+): (error|warning): (.+)$/);
-      if (match) {
+      if (match && match[1] && match[2] && match[3] && match[4]) {
         const matchedFile = match[1];
 
         // Check if this error is for our target file

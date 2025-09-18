@@ -5,7 +5,7 @@
  * Intercepts /lsp commands and runs claude-lsp-cli directly
  */
 
-import { spawn } from 'bun';
+import { execCommand } from '../src/utils/common';
 
 const input = await Bun.stdin.text();
 const message = JSON.parse(input);
@@ -17,17 +17,15 @@ if (message.prompt?.startsWith('/lsp ')) {
   const args = parts.slice(2); // language name if any
 
   try {
-    // Run the CLI command
-    const proc = spawn(['claude-lsp-cli', command, ...args], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    const output = await new Response(proc.stdout).text();
-    const error = await new Response(proc.stderr).text();
+    // Run the CLI command using utility function to prevent zombies
+    const { stdout, stderr, exitCode } = await execCommand(['claude-lsp-cli', command, ...args]);
 
     // Replace the prompt with the result
-    message.prompt = `Result of 'claude-lsp-cli ${command} ${args.join(' ')}':\n\n${output}${error}`;
+    if (exitCode === 0) {
+      message.prompt = `Result of 'claude-lsp-cli ${command} ${args.join(' ')}':\n\n${stdout}${stderr}`;
+    } else {
+      message.prompt = `Error: claude-lsp-cli ${command} ${args.join(' ')} failed with exit code ${exitCode}:\n\n${stderr || stdout}`;
+    }
   } catch (err) {
     message.prompt = `Error running LSP command: ${err}`;
   }

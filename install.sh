@@ -69,6 +69,29 @@ if ls /tmp/claude-lsp-last-*.json >/dev/null 2>&1; then
     rm -f /tmp/claude-lsp-last-*.json
     echo "  ✓ Removed old state files"
 fi
+
+# Remove any existing claude-lsp-cli installations
+echo "🔍 Checking for existing installations..."
+if command -v claude-lsp-cli &> /dev/null; then
+    EXISTING_PATH=$(which claude-lsp-cli)
+    echo "  Found existing installation at: $EXISTING_PATH"
+    
+    # Stop any running instances
+    echo "  Stopping running claude-lsp-cli instances..."
+    pkill -f claude-lsp-cli 2>/dev/null || true
+    
+    # Remove the existing binary
+    if [[ "$EXISTING_PATH" == "/usr/local/bin/claude-lsp-cli" ]]; then
+        echo "  Removing system installation (requires sudo)..."
+        sudo rm -f "$EXISTING_PATH"
+    else
+        echo "  Removing user installation..."
+        rm -f "$EXISTING_PATH"
+    fi
+    echo "  ✓ Removed existing installation"
+else
+    echo "  No existing installation found"
+fi
 echo ""
 
 # Build binaries first

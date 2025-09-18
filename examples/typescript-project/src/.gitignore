@@ -1,0 +1,9 @@
+# Additional src-specific ignores
+*.tmp
+*.temp
+test-*.ts
+!test-important.ts
+
+# Local development files
+.env.local
+debug.log

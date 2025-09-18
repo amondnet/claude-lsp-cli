@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, beforeAll } from 'bun:test';
 import { checkFile } from '../src/file-checker';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -6,6 +6,7 @@ import { join } from 'path';
 import '../src/checkers/index';
 // Also import and verify the registry is populated
 import { LANGUAGE_REGISTRY } from '../src/language-checker-registry';
+import { setupTestConfig, cleanupTestConfig } from './helpers/config-manager';
 
 const TEST_DIR = '/tmp/claude-lsp-file-test';
 
@@ -18,6 +19,15 @@ if (LANGUAGE_REGISTRY.size === 0) {
 }
 
 describe('File-Based Type Checker', () => {
+  // Save user config and enable all languages for testing
+  beforeAll(() => {
+    setupTestConfig();
+  });
+
+  // Restore user config after all tests
+  afterAll(() => {
+    cleanupTestConfig();
+  });
   // Ensure we're testing the real implementation, not mocked
   beforeEach(() => {
     // If checkFile has been mocked by another test, restore it
@@ -165,6 +175,225 @@ result = add("hello", "world")  # Type error
       expect(result).toBeTruthy();
     }
   }, 10000);
+
+  test('should honor simple .gitignore in TypeScript project', async () => {
+    // Create a project directory with .gitignore
+    const projectDir = join(TEST_DIR, 'ts-gitignore-test');
+    const srcDir = join(projectDir, 'src');
+    const distDir = join(projectDir, 'dist');
+
+    mkdirSync(srcDir, { recursive: true });
+    mkdirSync(distDir, { recursive: true });
+
+    // Create .gitignore that excludes dist/ and *.js files
+    writeFileSync(
+      join(projectDir, '.gitignore'),
+      `# Build outputs
+dist/
+*.js
+*.js.map
+`
+    );
+
+    // Create tsconfig.json
+    writeFileSync(
+      join(projectDir, 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'es2020',
+            module: 'commonjs',
+            strict: true,
+            outDir: './dist',
+          },
+          include: ['src/**/*'],
+          exclude: ['dist', '**/*.js'],
+        },
+        null,
+        2
+      )
+    );
+
+    // Create TypeScript files
+    writeFileSync(join(srcDir, 'index.ts'), `const x: string = 42; // Type error`);
+    writeFileSync(join(distDir, 'index.js'), `const x = 42; // Should be ignored`);
+    writeFileSync(join(projectDir, 'build.js'), `const y = "hello"; // Should be ignored`);
+
+    // Check the TypeScript file - should find errors
+    const tsResult = await checkFile(join(srcDir, 'index.ts'));
+    expect(tsResult).toBeTruthy();
+    expect(tsResult?.diagnostics.length).toBeGreaterThan(0);
+    expect(tsResult?.diagnostics.some((d) => d.severity === 'error')).toBe(true);
+
+    // Check files that should be ignored - should return null or no diagnostics
+    const distResult = await checkFile(join(distDir, 'index.js'));
+    expect(distResult).toBeNull(); // JavaScript files are not supported
+
+    const buildResult = await checkFile(join(projectDir, 'build.js'));
+    expect(buildResult).toBeNull(); // JavaScript files are not supported
+  });
+
+  test('should only report diagnostics for the target file, not imported files', async () => {
+    // Create a project with multiple TypeScript files that import each other
+    const projectDir = join(TEST_DIR, 'ts-single-file-test');
+    const srcDir = join(projectDir, 'src');
+    mkdirSync(srcDir, { recursive: true });
+
+    // Create tsconfig.json with strict settings
+    writeFileSync(
+      join(projectDir, 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'es2020',
+            module: 'commonjs',
+            strict: true,
+            noUncheckedIndexedAccess: true, // This causes array access to be possibly undefined
+          },
+          include: ['src/**/*'],
+        },
+        null,
+        2
+      )
+    );
+
+    // Create a file with errors that imports another file
+    writeFileSync(
+      join(srcDir, 'utils.ts'),
+      `
+export function getValue(arr: string[], index: number): string {
+  return arr[index];  // With noUncheckedIndexedAccess, this is string | undefined
+}
+`
+    );
+
+    // Create main file that imports utils
+    writeFileSync(
+      join(srcDir, 'main.ts'),
+      `
+import { getValue } from './utils';
+
+const myArray = ['a', 'b', 'c'];
+const value: string = 42;  // Type error in main.ts
+const result = getValue(myArray, 1);
+`
+    );
+
+    // Check main.ts - should only get errors from main.ts, not from utils.ts
+    const mainResult = await checkFile(join(srcDir, 'main.ts'));
+    expect(mainResult).toBeTruthy();
+
+    // Should have errors
+    const mainErrors = mainResult?.diagnostics.filter((d) => d.severity === 'error') || [];
+    expect(mainErrors.length).toBeGreaterThan(0);
+
+    // All errors should be from main.ts line numbers (line 5 has the type error)
+    // Should NOT have line 3 error from utils.ts
+    const hasUtilsError = mainErrors.some(
+      (err) => err.message.includes('string | undefined') && err.line === 3
+    );
+    expect(hasUtilsError).toBe(false);
+
+    // Check utils.ts separately - should get its own error
+    const utilsResult = await checkFile(join(srcDir, 'utils.ts'));
+    expect(utilsResult).toBeTruthy();
+
+    const utilsErrors = utilsResult?.diagnostics.filter((d) => d.severity === 'error') || [];
+    expect(utilsErrors.length).toBeGreaterThan(0);
+
+    // Utils should have the string | undefined error at line 3
+    const hasCorrectUtilsError = utilsErrors.some(
+      (err) => err.message.includes('string | undefined') && err.line === 3
+    );
+    expect(hasCorrectUtilsError).toBe(true);
+  });
+
+  test('should honor nested .gitignore with parent and current directory ignores', async () => {
+    // Create nested project structure
+    const projectDir = join(TEST_DIR, 'ts-nested-gitignore-test');
+    const srcDir = join(projectDir, 'src');
+    const libDir = join(srcDir, 'lib');
+    const tempDir = join(srcDir, 'temp');
+
+    mkdirSync(libDir, { recursive: true });
+    mkdirSync(tempDir, { recursive: true });
+
+    // Create parent .gitignore
+    writeFileSync(
+      join(projectDir, '.gitignore'),
+      `# Global ignores
+*.log
+temp/
+node_modules/
+`
+    );
+
+    // Create nested .gitignore in src/
+    writeFileSync(
+      join(srcDir, '.gitignore'),
+      `# Additional ignores in src
+*.tmp
+!temp/important.ts
+`
+    );
+
+    // Create tsconfig.json
+    writeFileSync(
+      join(projectDir, 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'es2020',
+            module: 'commonjs',
+            strict: true,
+          },
+          include: ['src/**/*'],
+          exclude: ['**/temp', '**/*.log', '**/*.tmp'],
+        },
+        null,
+        2
+      )
+    );
+
+    // Create TypeScript files with intentional errors
+    writeFileSync(join(srcDir, 'main.ts'), `const a: number = "wrong"; // Type error`);
+    writeFileSync(join(libDir, 'utils.ts'), `const b: string = 123; // Type error`);
+    writeFileSync(
+      join(tempDir, 'temporary.ts'),
+      `const c: boolean = "false"; // Should be checked despite temp/`
+    );
+    writeFileSync(
+      join(tempDir, 'important.ts'),
+      `const d: number[] = "array"; // Should be checked due to !temp/important.ts`
+    );
+    writeFileSync(join(srcDir, 'debug.tmp'), `const e: any = broken; // Should be ignored`);
+    writeFileSync(join(projectDir, 'error.log'), `const f: void = 42; // Should be ignored`);
+
+    // Check files that should have errors
+    const mainResult = await checkFile(join(srcDir, 'main.ts'));
+    expect(mainResult).toBeTruthy();
+    expect(mainResult?.diagnostics.some((d) => d.severity === 'error')).toBe(true);
+
+    const utilsResult = await checkFile(join(libDir, 'utils.ts'));
+    expect(utilsResult).toBeTruthy();
+    expect(utilsResult?.diagnostics.some((d) => d.severity === 'error')).toBe(true);
+
+    // Check temp files - TypeScript should check them based on tsconfig exclude patterns
+    const tempResult = await checkFile(join(tempDir, 'temporary.ts'));
+    expect(tempResult).toBeTruthy();
+    // Even though it's in temp/, tsc will still check it if we explicitly pass the file
+
+    const importantResult = await checkFile(join(tempDir, 'important.ts'));
+    expect(importantResult).toBeTruthy();
+    expect(importantResult?.diagnostics.some((d) => d.severity === 'error')).toBe(true);
+
+    // Files that should not be checked (non-TS files)
+    const tmpResult = await checkFile(join(srcDir, 'debug.tmp'));
+    expect(tmpResult).toBeNull(); // .tmp is not a supported extension
+
+    const logResult = await checkFile(join(projectDir, 'error.log'));
+    expect(logResult).toBeNull(); // .log is not a supported extension
+  });
 });
 
 // Cleanup after tests

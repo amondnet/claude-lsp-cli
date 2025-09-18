@@ -9,6 +9,41 @@ import { dirname, join } from 'path';
 import { homedir } from 'os';
 
 /**
+ * Execute a command safely and wait for it to exit to prevent zombie processes
+ */
+export async function execCommand(
+  cmd: string[],
+  options: Record<string, unknown> = {}
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const proc = spawn(cmd, {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    ...options,
+  });
+
+  // Read streams in parallel
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  // CRITICAL: Wait for process to exit to prevent zombies
+  const exitCode = await proc.exited;
+
+  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+}
+
+/**
+ * Execute a shell command safely (for complex shell operations)
+ */
+export async function execShell(
+  command: string,
+  options: Record<string, unknown> = {}
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return execCommand(['sh', '-c', command], options);
+}
+
+/**
  * Run command with timeout and automatic kill
  * Optimized with spawn for best performance
  */
@@ -17,37 +52,34 @@ export async function runCommand(
   env?: Record<string, string>,
   cwd?: string,
   timeoutMs?: number // Optional timeout parameter
-): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
+): Promise<{ stdout: string; stderr: string; timedOut: boolean; exitCode?: number }> {
   const actualTimeout = timeoutMs ?? 30000; // Default 30 second timeout
 
-  // Use spawn which is already optimized in Bun
-  const proc = spawn(args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: env ? { ...process.env, ...env } : process.env,
-    cwd: cwd || process.cwd(),
-  });
-
   // Set up timeout
+  let timeoutId: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      proc.kill('SIGTERM');
+    timeoutId = setTimeout(() => {
       reject(new Error('Command timed out'));
     }, actualTimeout);
   });
 
   try {
-    const result = await Promise.race([
-      Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]),
-      timeoutPromise,
-    ]);
+    // Use execCommand with options
+    const resultPromise = execCommand(args, {
+      env: env ? { ...process.env, ...env } : process.env,
+      cwd: cwd || process.cwd(),
+    });
 
-    const [stdout, stderr] = result as [string, string, number];
-    return { stdout, stderr, timedOut: false };
+    const result = await Promise.race([resultPromise, timeoutPromise]);
+
+    // Clear timeout if command completed
+    if (timeoutId) clearTimeout(timeoutId);
+
+    return { ...result, timedOut: false };
   } catch (error) {
+    // Clear timeout on error
+    if (timeoutId) clearTimeout(timeoutId);
+
     if (error instanceof Error && error.message === 'Command timed out') {
       return { stdout: '', stderr: 'Command timed out', timedOut: true };
     }

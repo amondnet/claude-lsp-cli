@@ -51,15 +51,31 @@ export const typescriptConfig: LanguageConfig = {
 
       // Create a temporary tsconfig that extends the original but only includes our target file
       try {
+        // Don't extend the original tsconfig - it pulls in other files
+        // Instead, create a standalone config for just this file
+        // Get absolute path for the file
+        const absoluteFilePath = file.startsWith('/') ? file : join(process.cwd(), file);
+
         const tempTsconfig = {
-          extends: tsconfigPath,
           compilerOptions: {
+            // Copy essential settings from the project
+            target: 'ESNext',
+            module: 'ESNext',
+            lib: ['ESNext'],
+            strict: true,
             skipLibCheck: true,
+            noEmit: true,
             noUnusedLocals: false,
             noUnusedParameters: false,
+            noUncheckedIndexedAccess: true,
+            allowJs: true,
+            moduleResolution: 'bundler',
+            allowImportingTsExtensions: true,
+            // Remove noResolve - it breaks import checking
+            isolatedModules: true,
           },
-          include: [file],
-          exclude: [],
+          files: [absoluteFilePath], // Use absolute path
+          exclude: ['**/node_modules', '**/*.*'], // Exclude everything else
         };
 
         // Use a unique temp file name in system temp directory to avoid conflicts
@@ -117,7 +133,12 @@ export const typescriptConfig: LanguageConfig = {
       const match = stripped.match(/^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS\d+:\s*(.+)$/);
       if (!match) continue;
 
-      const [, , lineStr, colStr, severity, message] = match;
+      const [, filePath, lineStr, colStr, severity, message] = match;
+
+      // Only include diagnostics for the file we're checking
+      if (!filePath.endsWith(_file) && !_file.endsWith(filePath)) {
+        continue;
+      }
       const lineNum = parseInt(lineStr, 10);
       const colNum = parseInt(colStr, 10);
 

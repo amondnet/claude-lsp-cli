@@ -1,6 +1,7 @@
 import { join, dirname } from 'path';
 import { existsSync, readFileSync, writeFileSync, statSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
+import { findProjectRoot } from '../../utils/common';
 
 // Cache project roots to avoid repeated filesystem traversal
 const projectRootCache = new Map<string, string>();
@@ -11,24 +12,15 @@ export function getProjectRoot(filePath: string): string {
     if (cached) return cached;
   }
 
-  let dir = dirname(filePath);
-  while (dir !== '/' && dir.length > 1) {
-    if (
-      existsSync(join(dir, 'package.json')) ||
-      existsSync(join(dir, 'pyproject.toml')) ||
-      existsSync(join(dir, 'go.mod')) ||
-      existsSync(join(dir, 'Cargo.toml')) ||
-      existsSync(join(dir, '.git'))
-    ) {
-      projectRootCache.set(filePath, dir);
-      return dir;
-    }
-    dir = join(dir, '..');
-  }
+  // Use the common utility which has more comprehensive checks
+  const root = findProjectRoot(filePath);
 
-  const fallback = tmpdir();
-  projectRootCache.set(filePath, fallback);
-  return fallback;
+  // If findProjectRoot returned the file's directory (no project found),
+  // use tmpdir as fallback for deduplication state
+  const fileDir = dirname(filePath);
+  const result = root === fileDir ? tmpdir() : root;
+  projectRootCache.set(filePath, result);
+  return result;
 }
 
 export function getStateFile(projectRoot: string): string {

@@ -28,7 +28,7 @@ export const goConfig: LanguageConfig = {
 
     for (const line of lines) {
       const match = line.match(/^.+?:(\d+):(\d+): (.+)$/);
-      if (match) {
+      if (match && match[1] && match[2] && match[3]) {
         diagnostics.push({
           line: parseInt(match[1]),
           column: parseInt(match[2]),
