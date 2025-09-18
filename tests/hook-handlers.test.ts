@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { handlePostToolUse } from '../src/cli/hooks/post-tool-use';
 import * as fileChecker from '../src/file-checker';
 import * as deduplication from '../src/cli/utils/deduplication';
+import * as commonUtils from '../src/utils/common';
 import { join } from 'path';
 
 // Store original process.exit
@@ -345,6 +346,121 @@ describe('Hook Handlers', () => {
       expect(
         parsed.diagnostics.every((d: any) => d.severity === 'error' || d.severity === 'warning')
       ).toBe(true);
+    });
+
+    test('should handle multiple files from different projects with separate project roots', async () => {
+      const mockCheckFile = spyOn(fileChecker, 'checkFile');
+      mockCheckFile.mockClear();
+      mockCheckFile.mockImplementation(async (filePath: string) => {
+        // Simulate diagnostics for files from different projects
+        if (filePath.includes('/project1/')) {
+          return {
+            file: filePath,
+            tool: 'tsc',
+            diagnostics: [
+              { severity: 'error' as const, message: 'Project1 error', line: 1, column: 1 },
+            ],
+          };
+        } else if (filePath.includes('/project2/')) {
+          return {
+            file: filePath,
+            tool: 'pyright',
+            diagnostics: [
+              { severity: 'warning' as const, message: 'Project2 warning', line: 2, column: 1 },
+            ],
+          };
+        }
+        return null;
+      });
+
+      // Track which project roots are detected
+      const projectRootsUsed = new Set<string>();
+
+      // Mock deduplication functions to track calls
+      const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+      mockShouldShow.mockImplementation((filePath: string) => {
+        // Track project roots indirectly through file paths
+        if (filePath.includes('/project1/')) projectRootsUsed.add('/home/user/project1');
+        if (filePath.includes('/project2/')) projectRootsUsed.add('/home/user/project2');
+        return true;
+      });
+
+      const mockMarkShown = spyOn(deduplication, 'markResultShown');
+      mockMarkShown.mockImplementation(() => {});
+
+      const hookData = {
+        tool_response: {
+          output: 'Modified files: /home/user/project1/src/main.ts and /home/user/project2/app.py',
+        },
+      };
+
+      const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+      expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
+
+      // Verify both files were checked
+      expect(mockCheckFile).toHaveBeenCalledTimes(2);
+      expect(mockCheckFile).toHaveBeenCalledWith('/home/user/project1/src/main.ts');
+      expect(mockCheckFile).toHaveBeenCalledWith('/home/user/project2/app.py');
+
+      // Verify deduplication was called for each file
+      expect(mockShouldShow).toHaveBeenCalledWith('/home/user/project1/src/main.ts');
+      expect(mockShouldShow).toHaveBeenCalledWith('/home/user/project2/app.py');
+      expect(mockMarkShown).toHaveBeenCalledWith('/home/user/project1/src/main.ts');
+      expect(mockMarkShown).toHaveBeenCalledWith('/home/user/project2/app.py');
+
+      // Verify that files from different projects were identified
+      expect(projectRootsUsed.size).toBe(2);
+      expect(projectRootsUsed.has('/home/user/project1')).toBe(true);
+      expect(projectRootsUsed.has('/home/user/project2')).toBe(true);
+
+      // Verify the output contains diagnostics from both projects
+      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
+      expect(errorOutput).toContain('Project1 error');
+      expect(errorOutput).toContain('Project2 warning');
+      expect(errorOutput).toContain('1 error(s), 1 warning(s)');
+    });
+
+    test('should use separate deduplication state files for different projects', async () => {
+      const mockCheckFile = spyOn(fileChecker, 'checkFile');
+      mockCheckFile.mockClear();
+      mockCheckFile.mockResolvedValue({
+        file: 'test.ts',
+        tool: 'tsc',
+        diagnostics: [{ severity: 'error' as const, message: 'Error', line: 1, column: 1 }],
+      });
+
+      // Create a mock to spy on internal calls to findProjectRoot
+      const mockFindProjectRoot = spyOn(commonUtils, 'findProjectRoot');
+      mockFindProjectRoot.mockImplementation((filePath: string) => {
+        if (filePath.includes('projectA')) return '/workspace/projectA';
+        if (filePath.includes('projectB')) return '/workspace/projectB';
+        return '/tmp';
+      });
+
+      const mockShouldShow = spyOn(deduplication, 'shouldShowResult');
+      mockShouldShow.mockReturnValue(true);
+
+      const mockMarkShown = spyOn(deduplication, 'markResultShown');
+      mockMarkShown.mockImplementation(() => {});
+
+      const hookData = {
+        tool_response: {
+          output: 'Files: /workspace/projectA/file.ts and /workspace/projectB/file.ts',
+        },
+      };
+
+      await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
+
+      // Verify both files were processed
+      expect(mockCheckFile).toHaveBeenCalledTimes(2);
+      expect(mockCheckFile).toHaveBeenCalledWith('/workspace/projectA/file.ts');
+      expect(mockCheckFile).toHaveBeenCalledWith('/workspace/projectB/file.ts');
+
+      // Verify deduplication was called for each file (which internally uses different state files)
+      expect(mockShouldShow).toHaveBeenCalledWith('/workspace/projectA/file.ts');
+      expect(mockShouldShow).toHaveBeenCalledWith('/workspace/projectB/file.ts');
+      expect(mockMarkShown).toHaveBeenCalledWith('/workspace/projectA/file.ts');
+      expect(mockMarkShown).toHaveBeenCalledWith('/workspace/projectB/file.ts');
     });
   });
 
