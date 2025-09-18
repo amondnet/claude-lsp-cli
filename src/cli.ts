@@ -54,19 +54,39 @@ async function handleHookEvent(eventType: string): Promise<void> {
 // Main execution
 void (async () => {
   if (command === 'hook') {
-    await handleHookEvent(commandArgs[0]);
+    const eventType = commandArgs[0];
+    if (!eventType) {
+      console.error('Event type required for hook command');
+      process.exit(1);
+    }
+    await handleHookEvent(eventType);
   } else if (command === 'check') {
     // Support checking multiple files for better performance
     if (commandArgs.length > 1) {
       await runCheckMultiple(commandArgs);
     } else {
-      await runCheck(commandArgs[0]);
+      const file = commandArgs[0];
+      if (!file) {
+        // Exit silently when file argument is missing (for compatibility with tests)
+        process.exit(1);
+      }
+      await runCheck(file);
     }
   } else if (command === 'disable') {
-    const result = await disableLanguage(commandArgs[0]);
+    const language = commandArgs[0];
+    if (!language) {
+      console.error('Language required for disable command');
+      process.exit(1);
+    }
+    const result = await disableLanguage(language);
     console.log(result);
   } else if (command === 'enable') {
-    const result = await enableLanguage(commandArgs[0]);
+    const language = commandArgs[0];
+    if (!language) {
+      console.error('Language required for enable command');
+      process.exit(1);
+    }
+    const result = await enableLanguage(language);
     console.log(result);
   } else if (command === 'help') {
     await showHelp();

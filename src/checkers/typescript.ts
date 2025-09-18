@@ -2,8 +2,8 @@
  * TypeScript Language Checker Configuration
  */
 
-import { existsSync, writeFileSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { tmpdir } from 'os';
 import { createHash } from 'crypto';
 import type { LanguageConfig } from '../language-checker-registry';
@@ -18,94 +18,36 @@ export const typescriptConfig: LanguageConfig = {
   extensions: ['.ts', '.tsx', '.mts', '.cts'],
   localPaths: ['node_modules/.bin/tsc'],
 
-  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+  buildArgs: (file: string, projectRoot: string, _toolCommand: string, _context?: any) => {
     const args = ['--noEmit', '--pretty', 'false'];
 
     // Enable incremental compilation for faster subsequent checks
     args.push('--incremental');
 
     // Create project-specific cache directory in temp folder
-    const projectHash = createHash('md5').update(_projectRoot).digest('hex');
+    const projectHash = createHash('md5').update(projectRoot).digest('hex');
     const tsBuildInfoDir = join(tmpdir(), 'claude-lsp-ts', projectHash);
+    args.push('--tsBuildInfoFile', join(tsBuildInfoDir, 'project.tsbuildinfo'));
 
-    // If we have a temporary tsconfig from setupCommand, use it
-    if (context?.tempTsconfigPath) {
-      args.push('--project', context.tempTsconfigPath);
-      args.push('--tsBuildInfoFile', join(tsBuildInfoDir, 'project.tsbuildinfo'));
+    // Look for tsconfig in the project
+    const tsconfigRoot = findTsconfigRoot(file);
+    if (tsconfigRoot) {
+      const tsconfigPath = join(tsconfigRoot, 'tsconfig.json');
+      args.push('--project', tsconfigPath);
     } else {
-      // Just check the single file with incremental info
-      const fileHash = createHash('md5').update(_file).digest('hex').substring(0, 8);
-      args.push('--tsBuildInfoFile', join(tsBuildInfoDir, `file-${fileHash}.tsbuildinfo`));
-      args.push(_file);
+      // No tsconfig, just check the file
+      args.push(file);
     }
 
     return args;
   },
 
   setupCommand: async (file: string, _projectRoot: string) => {
-    const tsconfigRoot = findTsconfigRoot(file);
-    let tempTsconfigPath: string | null = null;
-
-    if (tsconfigRoot) {
-      const tsconfigPath = join(tsconfigRoot, 'tsconfig.json');
-
-      // Create a temporary tsconfig that extends the original but only includes our target file
-      try {
-        // Don't extend the original tsconfig - it pulls in other files
-        // Instead, create a standalone config for just this file
-        // Get absolute path for the file
-        const absoluteFilePath = file.startsWith('/') ? file : join(process.cwd(), file);
-
-        const tempTsconfig = {
-          compilerOptions: {
-            // Copy essential settings from the project
-            target: 'ESNext',
-            module: 'ESNext',
-            lib: ['ESNext'],
-            strict: true,
-            skipLibCheck: true,
-            noEmit: true,
-            noUnusedLocals: false,
-            noUnusedParameters: false,
-            noUncheckedIndexedAccess: true,
-            allowJs: true,
-            moduleResolution: 'bundler',
-            allowImportingTsExtensions: true,
-            // Remove noResolve - it breaks import checking
-            isolatedModules: true,
-          },
-          files: [absoluteFilePath], // Use absolute path
-          exclude: ['**/node_modules', '**/*.*'], // Exclude everything else
-        };
-
-        // Use a unique temp file name in system temp directory to avoid conflicts
-        tempTsconfigPath = join(
-          tmpdir(),
-          `tsconfig-check-${Date.now()}-${Math.random().toString(36).substring(7)}.json`
-        );
-        writeFileSync(tempTsconfigPath, JSON.stringify(tempTsconfig, null, 2));
-
-        // Debug output removed - would interfere with CLI stdin/stdout
-      } catch (error) {
-        // Error logging removed - would interfere with CLI stdin/stdout
-        tempTsconfigPath = null;
-      }
-    }
-
+    // No special setup needed - we'll just use the project's tsconfig
+    // and filter diagnostics to the target file
     return {
-      context: tempTsconfigPath ? { tempTsconfigPath } : undefined,
-      cleanup: tempTsconfigPath
-        ? () => {
-            try {
-              if (existsSync(tempTsconfigPath)) {
-                unlinkSync(tempTsconfigPath);
-                // Debug output removed - would interfere with CLI stdin/stdout
-              }
-            } catch (error) {
-              // Error logging removed - would interfere with CLI stdin/stdout
-            }
-          }
-        : undefined,
+      context: undefined,
+      cleanup: undefined,
     };
   },
 
@@ -135,9 +77,20 @@ export const typescriptConfig: LanguageConfig = {
 
       const [, filePath, lineStr, colStr, severity, message] = match;
 
-      // Only include diagnostics for the file we're checking
-      if (!filePath.endsWith(_file) && !_file.endsWith(filePath)) {
+      // With noUncheckedIndexedAccess, all array access could be undefined
+      // Check that we have all required values from the regex match
+      if (!filePath || !lineStr || !colStr || !severity || !message) {
         continue;
+      }
+
+      // Only include diagnostics for the file we're checking
+      // Debug: log what we're comparing
+      if (!filePath.endsWith(_file) && !_file.endsWith(filePath)) {
+        // For now, let's be more lenient - check if the base filename matches
+        const fileName = _file.split('/').pop();
+        if (!fileName || !filePath.includes(fileName)) {
+          continue;
+        }
       }
       const lineNum = parseInt(lineStr, 10);
       const colNum = parseInt(colStr, 10);
