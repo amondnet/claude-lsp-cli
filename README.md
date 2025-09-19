@@ -7,6 +7,44 @@
 
 A lightweight, file-based diagnostics CLI for Claude Code that provides real-time type checking and error detection for 11+ programming languages without requiring language servers.
 
+## 🔄 Built-in Diagnostics vs claude-lsp-cli
+
+**Claude Code has built-in diagnostics.** Here's when to use each:
+
+### Claude Code Built-in Diagnostics
+
+- ✅ **IDE Integration**: Works through MCP to get diagnostics from your IDE (VS Code, Cursor, etc.)
+- ✅ **Clean UI**: Shows "Found X new diagnostic issues (ctrl-r to expand)"
+- ✅ **Zero Setup**: Works automatically if you have MCP-enabled IDE connection
+- ✅ **Universal**: Supports any language your IDE supports
+
+### claude-lsp-cli (This Tool)
+
+- ✅ **Standalone**: Works without IDE connection (pure CLI mode)
+- ✅ **Direct Tool Invocation**: Uses native compilers/linters directly
+- ✅ **Customizable**: Enable/disable specific languages, configure behavior
+- ✅ **CI/CD Ready**: Can be used in scripts, automation, non-IDE environments
+- ✅ **Guaranteed Checking**: Always runs after file edits, regardless of IDE state
+
+### When to Use claude-lsp-cli
+
+**Use claude-lsp-cli if you:**
+
+- Use Claude Code without an IDE (terminal/CLI mode)
+- Want guaranteed diagnostics regardless of IDE connection
+- Need specific language configurations or customization
+- Use it in CI/CD pipelines or automation scripts
+- Want backup diagnostics when IDE integration fails
+- Prefer verbose diagnostic output for debugging
+
+**Use built-in diagnostics if you:**
+
+- Have stable MCP connection to IDE with language servers
+- Prefer clean, minimal UI without JSON output
+- Don't need customization or language-specific control
+
+Both systems are **complementary** - you can use both simultaneously for maximum coverage.
+
 ## ✨ Features
 
 - **🚀 Direct Tool Invocation** - No language servers needed, uses native compilers/linters
