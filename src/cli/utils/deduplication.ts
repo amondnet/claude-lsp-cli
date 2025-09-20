@@ -4,13 +4,58 @@ import { tmpdir } from 'os';
 import { findProjectRoot } from '../../utils/common';
 
 // Cache project roots to avoid repeated filesystem traversal
-const projectRootCache = new Map<string, string>();
+// Includes memory leak prevention with size limits and TTL
+interface ProjectRootCacheEntry {
+  root: string;
+  lastUsed: number;
+}
+
+const projectRootCache = new Map<string, ProjectRootCacheEntry>();
+const MAX_CACHE_SIZE = 1000; // Limit cache to 1000 entries
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes TTL
+
+function cleanupCache(): void {
+  if (projectRootCache.size <= MAX_CACHE_SIZE) return;
+
+  const now = Date.now();
+  const entriesToDelete: string[] = [];
+
+  // Find expired entries
+  for (const [key, value] of projectRootCache.entries()) {
+    if (now - value.lastUsed > CACHE_TTL) {
+      entriesToDelete.push(key);
+    }
+  }
+
+  // If no expired entries, remove oldest entries
+  if (entriesToDelete.length === 0) {
+    const entries = Array.from(projectRootCache.entries());
+    entries.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    const toRemove = Math.max(1, Math.floor(MAX_CACHE_SIZE * 0.1)); // Remove 10%
+    for (let i = 0; i < toRemove && i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry) {
+        entriesToDelete.push(entry[0]);
+      }
+    }
+  }
+
+  // Delete entries
+  for (const key of entriesToDelete) {
+    projectRootCache.delete(key);
+  }
+}
 
 export function getProjectRoot(filePath: string): string {
-  if (projectRootCache.has(filePath)) {
-    const cached = projectRootCache.get(filePath);
-    if (cached) return cached;
+  const cached = projectRootCache.get(filePath);
+  if (cached) {
+    // Update last used time
+    cached.lastUsed = Date.now();
+    return cached.root;
   }
+
+  // Cleanup cache if needed before adding new entry
+  cleanupCache();
 
   // Use the common utility which has more comprehensive checks
   const root = findProjectRoot(filePath);
@@ -19,7 +64,13 @@ export function getProjectRoot(filePath: string): string {
   // use tmpdir as fallback for deduplication state
   const fileDir = dirname(filePath);
   const result = root === fileDir ? tmpdir() : root;
-  projectRootCache.set(filePath, result);
+
+  // Cache with timestamp
+  projectRootCache.set(filePath, {
+    root: result,
+    lastUsed: Date.now(),
+  });
+
   return result;
 }
 
