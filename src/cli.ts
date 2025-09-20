@@ -62,15 +62,20 @@ void (async () => {
     await handleHookEvent(eventType);
   } else if (command === 'check') {
     // Support checking multiple files for better performance
+    let hasErrors = false;
     if (commandArgs.length > 1) {
-      await runCheckMultiple(commandArgs);
+      hasErrors = await runCheckMultiple(commandArgs);
     } else {
       const file = commandArgs[0];
       if (!file) {
         // Exit silently when file argument is missing (for compatibility with tests)
         process.exit(1);
       }
-      await runCheck(file);
+      hasErrors = await runCheck(file);
+    }
+    // Exit with code 1 if errors were found
+    if (hasErrors) {
+      process.exit(1);
     }
   } else if (command === 'disable') {
     const language = commandArgs[0];

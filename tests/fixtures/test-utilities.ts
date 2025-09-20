@@ -185,9 +185,10 @@ export const assertions = {
   },
 
   // Assert CLI output format
-  isValidCLIOutput: (output: string, shouldContainSystemMessage: boolean = false): boolean => {
-    if (shouldContainSystemMessage) {
-      return output.includes('[[system-message]]:');
+  isValidCLIOutput: (output: string, shouldContainShellIntegration: boolean = false): boolean => {
+    if (shouldContainShellIntegration) {
+      // Check for shell integration OSC sequences or clean summary
+      return output.includes(']633;') || output.includes('✗') || output.includes('errors found');
     }
     return typeof output === 'string';
   },
@@ -334,24 +335,50 @@ export const suiteHelpers = {
  * JSON parsing utilities for test output
  */
 export const jsonUtils = {
-  // Safely parse JSON from CLI output
-  parseSystemMessage: (output: string): any => {
-    const parts = output.split('[[system-message]]:');
-    if (parts.length < 2) {
-      throw new Error('No system message found in output');
+  // Parse JSON from shell integration OSC metadata
+  parseShellIntegrationDiagnostics: (output: string): any => {
+    // Extract JSON from OSC 633;E sequence
+    const oscMatch = output.match(/\]633;E;([^\]]+)\]633;D/);
+    if (oscMatch && oscMatch[1]) {
+      try {
+        // Skip the ">" prefix and parse the diagnostic lines
+        const content = oscMatch[1].replace(/^>/, '').trim();
+        const lines = content.split('\n').filter((line) => line.trim());
+
+        // Parse diagnostic lines into structured format
+        const diagnostics = lines
+          .map((line) => {
+            const match = line.match(/^✗\s+([^:]+):(\d+):(\d+)\s+-\s+(.+)$/);
+            if (match && match[1] && match[2] && match[3] && match[4]) {
+              return {
+                file: match[1],
+                line: parseInt(match[2], 10),
+                column: parseInt(match[3], 10),
+                message: match[4],
+                severity: 'error',
+              };
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        return { diagnostics };
+      } catch (error) {
+        throw new Error(`Failed to parse shell integration diagnostics: ${error}`);
+      }
     }
 
-    const jsonPart = parts[1].trim();
+    // Fallback: try to parse direct JSON (for non-hook usage)
     try {
-      return JSON.parse(jsonPart);
-    } catch (error) {
-      throw new Error(`Failed to parse system message JSON: ${error}`);
+      return JSON.parse(output);
+    } catch {
+      throw new Error('No shell integration diagnostics found in output');
     }
   },
 
-  // Extract diagnostic result from CLI output
+  // Extract diagnostic result from CLI output (shell integration format)
   extractDiagnosticResult: (output: string): DiagnosticResult => {
-    const parsed = jsonUtils.parseSystemMessage(output);
+    const parsed = jsonUtils.parseShellIntegrationDiagnostics(output);
 
     if (!assertions.isValidDiagnosticResult(parsed)) {
       throw new Error('Invalid diagnostic result structure');

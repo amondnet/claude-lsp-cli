@@ -75,7 +75,7 @@ export const elixirConfig: LanguageConfig = {
           const standardLocationMatch = locationLine.match(/^\s+(.+?):(\d+):\s/);
           if (standardLocationMatch) {
             diagnostics.push({
-              line: parseInt(standardLocationMatch[2]),
+              line: standardLocationMatch[2] ? parseInt(standardLocationMatch[2], 10) : 1,
               column: 1,
               severity: isError ? ('error' as const) : ('warning' as const),
               message: message,
@@ -92,10 +92,10 @@ export const elixirConfig: LanguageConfig = {
       if (oldMatch) {
         const isError = oldMatch[1] !== 'warning';
         diagnostics.push({
-          line: parseInt(oldMatch[3]),
+          line: oldMatch[3] ? parseInt(oldMatch[3], 10) : 1,
           column: 1,
           severity: isError ? ('error' as const) : ('warning' as const),
-          message: oldMatch[4],
+          message: oldMatch[4] || 'Unknown error',
         });
       }
     }

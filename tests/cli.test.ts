@@ -25,23 +25,17 @@ describe('CLI - Main Entry Point', () => {
         'index.ts'
       );
 
-      const { stdout, stderr } = await exec(`echo "test" | ${CLI_PATH} check ${testFile}`);
+      const result = await exec(`${CLI_PATH} check ${testFile}`).catch((e) => e);
 
-      // Should return system message format
-      if (stdout.includes('[[system-message]]:')) {
-        const match = stdout.match(/\[\[system-message\]\]:(.+)/);
-        if (match) {
-          const response = JSON.parse(match[1]);
-          expect(response).toHaveProperty('summary');
-          // diagnostics property is only present when there are actual diagnostics
-          if (response.summary !== 'no errors or warnings') {
-            expect(response).toHaveProperty('diagnostics');
-          }
-        }
-      }
+      // File has errors, so should exit with code 1
+      expect(result.code).toBe(1);
+
+      // Should use shell integration format in stderr
+      expect(result.stderr || '').toContain('✗');
+      expect(result.stderr || '').toContain('error');
 
       // Should not crash
-      expect(stderr || '').not.toContain('Error:');
+      expect(result.stderr || '').not.toContain('Error:');
     }, 30000);
   });
 
@@ -67,8 +61,9 @@ describe('CLI - Main Entry Point', () => {
 
       // Hook should process the file and output diagnostics (exit code 2 is expected for diagnostics)
       // The test file has TypeScript errors so we expect diagnostic output
-      expect(result.stderr || '').toContain('[[system-message]]:');
-      expect(result.code).toBe(2); // Exit code 2 when diagnostics found
+      expect(result.stderr || '').toContain('✗'); // Check for error indicator
+      expect(result.stderr || '').toContain('error');
+      expect(result.code).toBe(2); // Exit code 2 when diagnostics found in hook mode
 
       // Cleanup
       if (existsSync(tempFile)) {

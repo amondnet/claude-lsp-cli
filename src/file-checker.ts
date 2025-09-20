@@ -39,7 +39,7 @@ export function formatDiagnostics(
   if (result.diagnostics.length === 0) {
     if (showNoErrors) {
       // Show "no errors or warnings" message
-      return '[[system-message]]:{"summary":"no errors or warnings"}';
+      return '{"summary":"no errors or warnings"}';
     }
     return '';
   }
@@ -64,7 +64,7 @@ export function formatDiagnostics(
     summary: summary,
   };
 
-  return `[[system-message]]:${JSON.stringify(output)}`;
+  return JSON.stringify(output);
 }
 
 /**

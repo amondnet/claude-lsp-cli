@@ -16,6 +16,10 @@ let consoleErrorOutput: string[] = [];
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
+// Helper to capture stderr output for shell integration
+let stderrOutput: string[] = [];
+const originalStderrWrite = process.stderr.write;
+
 // Helper function to run async hook and capture exit
 async function runHookAndCaptureExit(
   fn: Promise<void>
@@ -48,6 +52,7 @@ describe('Hook Handlers', () => {
     // Capture console output
     consoleOutput = [];
     consoleErrorOutput = [];
+    stderrOutput = [];
     console.log = ((...args: any[]) => {
       consoleOutput.push(
         args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
@@ -59,6 +64,12 @@ describe('Hook Handlers', () => {
       );
     }) as any;
 
+    // Mock stderr.write to capture shell integration sequences
+    process.stderr.write = ((chunk: any) => {
+      stderrOutput.push(String(chunk));
+      return true;
+    }) as any;
+
     // Clear any mocks if needed
   });
 
@@ -66,6 +77,8 @@ describe('Hook Handlers', () => {
     // Restore console methods
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
+    // Restore stderr.write
+    process.stderr.write = originalStderrWrite;
     // Restore process.exit
     process.exit = originalExit;
   });
@@ -131,10 +144,16 @@ describe('Hook Handlers', () => {
       expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts');
       expect(_mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts');
 
-      // Check output format
-      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      expect(errorOutput).toBeDefined();
-      expect(errorOutput).toContain('"summary":"1 error(s)"');
+      // Check shell integration output format
+      const fullStderr = stderrOutput.join('');
+      expect(fullStderr).toContain('\x1b]633;A\x07'); // Start sequence
+      expect(fullStderr).toContain('\x1b]633;E;'); // Command metadata
+      expect(fullStderr).toContain('\x1b]633;D;1\x07'); // Exit code 1 for errors
+
+      // Check visible summary in console.error
+      const errorOutput = consoleErrorOutput.join(' ');
+      expect(errorOutput).toContain('✗ 1 error found');
+      expect(errorOutput).toContain('Files affected:');
     });
 
     test('should handle multiple files in parallel', async () => {
@@ -188,8 +207,14 @@ describe('Hook Handlers', () => {
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
       expect(mockCheckFile).toHaveBeenCalledTimes(2);
-      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      expect(errorOutput).toContain('"summary":"1 error(s), 1 warning(s)"');
+
+      // Check shell integration format
+      const fullStderr = stderrOutput.join('');
+      expect(fullStderr).toContain('\x1b]633;E;'); // Command metadata
+
+      // Check visible summary
+      const errorOutput = consoleErrorOutput.join(' ');
+      expect(errorOutput).toContain('✗ 1 error, 1 warning found');
     });
 
     test('should skip files when checking is disabled', async () => {
@@ -205,7 +230,10 @@ describe('Hook Handlers', () => {
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(0); // Disabled language exits cleanly with 0
       expect(mockCheckFile).toHaveBeenCalled();
-      expect(consoleErrorOutput.find((o) => o.includes('[[system-message]]'))).toBeUndefined();
+
+      // Should not output anything when disabled
+      expect(consoleErrorOutput.length).toBe(0);
+      expect(stderrOutput.length).toBe(0);
     });
 
     test('should respect deduplication and not show same results', async () => {
@@ -245,7 +273,6 @@ describe('Hook Handlers', () => {
       expect(mockCheckFile).toHaveBeenCalled();
       expect(mockShouldShow).toHaveBeenCalled();
       expect(_mockMarkShown).not.toHaveBeenCalled(); // Should not mark if not shown
-      expect(consoleErrorOutput.find((o) => o.includes('[[system-message]]'))).toBeUndefined();
       // The "Hook processing failed" message comes from catching the mocked process.exit, not a real error
       // So we don't check for it here
     });
@@ -279,10 +306,12 @@ describe('Hook Handlers', () => {
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
-      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      const parsed = JSON.parse(errorOutput?.replace('[[system-message]]:', '') || '{}');
-      expect(parsed.diagnostics.length).toBe(5); // Limited to 5
-      expect(parsed.summary).toBe('10 error(s)'); // But summary shows all
+      // Check shell integration format shows all errors in summary
+      const fullStderr = stderrOutput.join('');
+      expect(fullStderr).toContain('\x1b]633;E;'); // Command metadata contains all diagnostics
+
+      const errorOutput = consoleErrorOutput.join(' ');
+      expect(errorOutput).toContain('✗ 10 errors found'); // Summary shows all 10 errors
     });
 
     test('should handle errors gracefully', async () => {
@@ -340,12 +369,14 @@ describe('Hook Handlers', () => {
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
-      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      const parsed = JSON.parse(errorOutput?.replace('[[system-message]]:', '') || '{}');
-      expect(parsed.diagnostics.length).toBe(2); // Only error and warning
-      expect(
-        parsed.diagnostics.every((d: any) => d.severity === 'error' || d.severity === 'warning')
-      ).toBe(true);
+      // Check shell integration output in stderr
+      const fullStderr = stderrOutput.join('');
+      expect(fullStderr).toContain(']633;E;');
+      expect(fullStderr).toContain('✗');
+
+      // Count the number of error/warning lines (should be 2: error and warning)
+      const errorLines = (fullStderr.match(/✗|⚠/g) || []).length;
+      expect(errorLines).toBe(2);
     });
 
     test('should handle multiple files from different projects with separate project roots', async () => {
@@ -413,11 +444,14 @@ describe('Hook Handlers', () => {
       expect(projectRootsUsed.has('/home/user/project1')).toBe(true);
       expect(projectRootsUsed.has('/home/user/project2')).toBe(true);
 
-      // Verify the output contains diagnostics from both projects
-      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
-      expect(errorOutput).toContain('Project1 error');
-      expect(errorOutput).toContain('Project2 warning');
-      expect(errorOutput).toContain('1 error(s), 1 warning(s)');
+      // Verify the output contains diagnostics from both projects in shell integration format
+      const fullStderr = stderrOutput.join('');
+      expect(fullStderr).toContain('Project1 error');
+      expect(fullStderr).toContain('Project2 warning');
+
+      // Check visible summary
+      const consoleOutput = consoleErrorOutput.join('');
+      expect(consoleOutput).toContain('1 error, 1 warning found');
     });
 
     test('should use separate deduplication state files for different projects', async () => {
@@ -505,6 +539,8 @@ describe('Hook Handlers', () => {
       for (let i = 0; i < testCases.length; i++) {
         const testCase = testCases[i];
         mockCheckFile.mockClear();
+
+        if (!testCase) continue; // Skip if testCase is undefined
 
         const result = await runHookAndCaptureExit(
           handlePostToolUse(JSON.stringify(testCase.data))

@@ -3,6 +3,7 @@ import { checkFile } from '../../file-checker';
 import type { Diagnostic } from '../../file-checker';
 import { extractFilePaths } from '../utils/file-extraction';
 import { shouldShowResult, markResultShown } from '../utils/deduplication';
+import { outputDiagnostics, type ShellDiagnostic } from '../../shell-integration';
 
 export async function handlePostToolUse(input: string): Promise<void> {
   try {
@@ -48,43 +49,45 @@ export async function handlePostToolUse(input: string): Promise<void> {
         continue;
       }
 
-      if (result.diagnostics.length > 0) {
-        const importantIssues = result.diagnostics.filter(
-          (d) => d.severity === 'error' || d.severity === 'warning'
-        );
-
-        if (importantIssues.length > 0 && shouldShowResult(absolutePath)) {
-          // Add file context to diagnostics
-          const fileRelativePath = result.file || filePaths[i];
-          for (const diag of importantIssues) {
-            allDiagnostics.push({
-              ...diag,
-              file: fileRelativePath,
-            });
-          }
-          markResultShown(absolutePath);
-          hasErrors = true;
-        }
+      if (result.diagnostics.length === 0) {
+        continue;
       }
+
+      const importantIssues = result.diagnostics.filter(
+        (d) => d.severity === 'error' || d.severity === 'warning'
+      );
+
+      if (importantIssues.length === 0) {
+        continue;
+      }
+
+      const absolutePathStr = absolutePath || '';
+      if (!shouldShowResult(absolutePathStr)) {
+        continue;
+      }
+
+      // Add file context to diagnostics
+      const fileRelativePath = result.file || filePaths[i] || 'unknown';
+      for (const diag of importantIssues) {
+        allDiagnostics.push({
+          ...diag,
+          file: fileRelativePath,
+        });
+      }
+      markResultShown(absolutePathStr);
+      hasErrors = true;
     }
 
     // Show combined results if any errors found
     if (hasErrors && allDiagnostics.length > 0) {
-      // Count all diagnostics for summary
-      const errors = allDiagnostics.filter((d) => d.severity === 'error');
-      const warnings = allDiagnostics.filter((d) => d.severity === 'warning');
+      // Convert to ShellDiagnostic format
+      const shellDiagnostics: ShellDiagnostic[] = allDiagnostics.map((diag) => ({
+        ...diag,
+        file: diag.file || 'unknown',
+      }));
 
-      const summaryParts = [];
-      if (errors.length > 0) summaryParts.push(`${errors.length} error(s)`);
-      if (warnings.length > 0) summaryParts.push(`${warnings.length} warning(s)`);
-
-      // Format output with limited diagnostics but full count
-      const output = {
-        diagnostics: allDiagnostics.slice(0, 5), // Show at most 5 items
-        summary: summaryParts.join(', '),
-      };
-
-      console.error(`[[system-message]]:${JSON.stringify(output)}`);
+      // Output using shell integration
+      outputDiagnostics(shellDiagnostics);
       process.exit(2);
       return; // For testing
     }

@@ -40,7 +40,7 @@ A lightweight, file-based diagnostics CLI for Claude Code that provides real-tim
 **Use built-in diagnostics if you:**
 
 - Have stable MCP connection to IDE with language servers
-- Prefer clean, minimal UI without JSON output
+- Prefer clean, minimal UI without verbose diagnostic output
 - Don't need customization or language-specific control
 
 Both systems are **complementary** - you can use both simultaneously for maximum coverage.
@@ -330,23 +330,30 @@ Package includes only:
 
 ## 📝 Diagnostic Format
 
-The system outputs diagnostics in a standardized JSON format:
+The system outputs diagnostics using shell integration with OSC 633 sequences:
 
-```json
-{
-  "diagnostics": [
-    {
-      "file": "src/index.ts",
-      "line": 10,
-      "column": 5,
-      "severity": "error",
-      "message": "Cannot find name 'foo'",
-      "code": "TS2304"
-    }
-  ],
-  "summary": "1 error, 0 warnings"
-}
+**Default View (immediately visible):**
+
 ```
+✗ 3 errors found
+  Files affected: src/index.ts
+```
+
+**Expanded View (Ctrl+O in Claude Code):**
+
+```
+>
+✗ src/index.ts:10:5 - Cannot find name 'foo'
+✗ src/index.ts:15:8 - Type 'string' is not assignable to type 'number'
+✗ src/index.ts:20:12 - Object is possibly 'undefined'
+```
+
+**Benefits:**
+
+- ✅ **Clean Summary**: Users see error count immediately
+- ✅ **Details on Demand**: Full diagnostics available via Ctrl+O
+- ✅ **Terminal Integration**: OSC sequences work in supporting terminals
+- ✅ **Clear Feedback**: Shows "No issues found" for clean files (hooks remain silent)
 
 ## 🤝 Contributing
 

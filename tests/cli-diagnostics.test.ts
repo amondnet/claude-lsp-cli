@@ -35,15 +35,16 @@ async function runCLI(
 
 describe('CLI check Command', () => {
   // Test diagnostics mode behavior:
-  // - Exit code 0 (success) regardless of diagnostics found
-  // - Outputs "[[system-message]]:" prefix
-  // - Shows summary even when no errors
+  // - Exit code 1 when errors found, 0 when no errors
+  // - Uses shell integration format with OSC 633 sequences
+  // - Shows "No issues found" when no errors (not silent)
 
   test("Bun/TypeScript with no errors - shows 'no errors or warnings'", async () => {
     const result = await runCLI(['check', join(import.meta.dir, '..', 'src', 'cli.ts')]);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+    // Should show "No issues found" when no errors
+    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+    expect(result.stdout).toBe('');
   }, 30000);
 
   test("Python file with no errors - shows 'no errors or warnings'", async () => {
@@ -52,8 +53,9 @@ describe('CLI check Command', () => {
     await Bun.write(testFile, "def hello():\n    return 'Hello, World!'\n");
     const result = await runCLI(['check', testFile]);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+    // Should show "No issues found" when no errors
+    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+    expect(result.stdout).toBe('');
   }, 30000);
 
   test("Go file with no errors - shows 'no errors or warnings'", async () => {
@@ -62,27 +64,28 @@ describe('CLI check Command', () => {
     await Bun.write(testFile, 'package main\n\nfunc main() {\n    println("Hello")\n}\n');
     const result = await runCLI(['check', testFile]);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"summary":"no errors or warnings"');
+    // Should show "No issues found" when no errors
+    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+    expect(result.stdout).toBe('');
   }, 30000);
 
   test('C++ with errors - shows diagnostic count', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'cpp-project', 'src', 'main.cpp')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('Elixir with compilation errors', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'elixir-project', 'lib', 'main.ex')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    const match = result.stdout.match(/"summary":"(\d+) error/);
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    const match = result.stderr.match(/(\d+) error/);
     expect(match).toBeTruthy();
-    if (match) {
-      const errorCount = parseInt(match[1]);
+    if (match && match[1]) {
+      const errorCount = parseInt(match[1], 10);
       expect(errorCount).toBeGreaterThan(0);
     }
   }, 30000);
@@ -92,10 +95,10 @@ describe('CLI check Command', () => {
       'check',
       join(EXAMPLES_DIR, 'go-project', 'cmd', 'server', 'main.go'),
     ]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('Java with multiple errors', async () => {
@@ -103,44 +106,44 @@ describe('CLI check Command', () => {
       'check',
       join(EXAMPLES_DIR, 'java-project', 'src', 'main', 'java', 'com', 'example', 'Main.java'),
     ]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('Lua with syntax errors', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'lua-project', 'main.lua')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('PHP with syntax errors', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'php-project', 'src', 'User.php')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('Python with type errors', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'python-project', 'main.py')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    const hasErrors = result.stdout.includes('"severity":"error"');
-    const hasWarnings = result.stdout.includes('"severity":"warning"');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    const hasErrors = result.stderr.includes('error');
+    const hasWarnings = result.stderr.includes('warning');
     expect(hasErrors || hasWarnings).toBe(true);
   }, 30000);
 
   test('Rust with compilation errors', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'rust-project', 'src', 'main.rs')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('Scala with errors', async () => {
@@ -148,31 +151,31 @@ describe('CLI check Command', () => {
       'check',
       join(EXAMPLES_DIR, 'scala-project', 'src', 'main', 'scala', 'Main.scala'),
     ]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
 
     // In CI, Bloop might not be available or behave differently
-    if (result.stdout.includes('"diagnostics":[')) {
+    if (result.stderr.includes('✗')) {
       // Bloop is working and found errors
-      const match = result.stdout.match(/"summary":"(\d+) error/);
+      expect(result.exitCode).toBe(1);
+      const match = result.stderr.match(/(\d+) error/);
       expect(match).toBeTruthy();
-      if (match) {
-        const errorCount = parseInt(match[1]);
+      if (match && match[1]) {
+        const errorCount = parseInt(match[1], 10);
         // Bloop finds 12 errors in Main.scala
         expect(errorCount).toBeGreaterThanOrEqual(10);
       }
     } else {
-      // scalac not available or no errors detected - just ensure we get a response
-      expect(result.stdout).toContain('"summary":');
+      // scalac not available or no errors detected - shows "No issues found"
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
     }
   }, 30000);
 
   test('Terraform with warnings', async () => {
     const result = await runCLI(['check', join(EXAMPLES_DIR, 'terraform-project', 'main.tf')]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
+    expect(result.exitCode).toBe(1); // Exit code 1 when diagnostics found (warnings or errors)
+    // Shell integration format outputs to stderr
     // Terraform might have warnings but not necessarily errors
-    const hasWarnings = result.stdout.includes('"severity":"warning"');
+    const hasWarnings = result.stderr.includes('warning');
     expect(hasWarnings).toBe(true);
   }, 30000);
 
@@ -181,15 +184,18 @@ describe('CLI check Command', () => {
       'check',
       join(EXAMPLES_DIR, 'typescript-project', 'src', 'index.ts'),
     ]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[[system-message]]:');
-    expect(result.stdout).toContain('"diagnostics":[');
-    expect(result.stdout).toContain('error');
+    expect(result.exitCode).toBe(1); // Exit code 1 when errors found
+    // Shell integration format outputs to stderr
+    expect(result.stderr).toContain('✗');
+    expect(result.stderr).toContain('error');
   }, 30000);
 
   test('Non-existent file returns exit code 0', async () => {
     const result = await runCLI(['check', '/tmp/non-existent-file.ts']);
     expect(result.exitCode).toBe(0);
+    // Should be silent when file doesn't exist
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('');
   }, 10000);
 });
 
@@ -198,7 +204,7 @@ describe('CLI Hook Mode', () => {
   // - Exit code 2 when diagnostics found
   // - Exit code 0 when no diagnostics
   // - No output when no diagnostics
-  // - Output with "[[system-message]]:" when diagnostics found
+  // - Shell integration format when diagnostics found
 
   test('Hook mode with diagnostics returns exit code 2', async () => {
     // Clear the deduplication cache for the typescript-project directory
@@ -232,8 +238,9 @@ describe('CLI Hook Mode', () => {
     const exitCode = await proc.exited;
 
     expect(exitCode).toBe(2);
-    expect(stderr).toContain('[[system-message]]:');
-    expect(stderr).toContain('"diagnostics":[');
+    // Shell integration format outputs to stderr with OSC sequences
+    expect(stderr).toContain('✗');
+    expect(stderr).toContain('error');
   }, 30000);
 
   test('Hook mode with no diagnostics returns exit code 0 and no output', async () => {

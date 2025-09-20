@@ -115,17 +115,16 @@ describe('Language Comprehensive Testing', () => {
           const stderr = await new Response(proc.stderr).text();
           const _exitCode = await proc.exited;
 
-          // Should detect errors
+          // Should detect errors (now using shell integration format)
           const output = stdout + stderr;
-          if (output.includes('[[system-message]]')) {
-            const json = JSON.parse(output.replace('[[system-message]]:', ''));
-            // In CI, some language tools might not be available
-            if (json.diagnostics && json.diagnostics.length > 0) {
-              // Tool found errors - verify summary matches
-              expect(json.summary).toMatch(/error|warning/);
+          if (output.includes(']633;E;')) {
+            // Shell integration format - check for error markers
+            if (output.includes('✗') || output.includes('error')) {
+              // Found errors in shell integration format
+              expect(output).toMatch(/✗.*(error|warning)|(error|warning).*found/i);
             } else {
-              // Tool not available or no errors found - just ensure we got a response
-              expect(json.summary).toBeDefined();
+              // No errors in shell integration output
+              expect(output).toContain('No issues found');
             }
           } else if (output) {
             // Some languages might output errors differently
@@ -148,18 +147,17 @@ describe('Language Comprehensive Testing', () => {
           await proc.exited;
 
           const output = stdout + stderr;
-          if (output.includes('[[system-message]]')) {
-            const json = JSON.parse(output.replace('[[system-message]]:', ''));
-            if (json.summary) {
-              // Terraform always shows formatting warnings, Java may have file naming issues
-              if (ext === '.tf' || ext === '.tfvars') {
-                expect(json.summary).toMatch(/no errors|warning/);
-              } else if (ext === '.java') {
-                // Java may have errors if public class name doesn't match file name
-                expect(json.summary).toMatch(/no errors|error|warning/);
-              } else {
-                expect(json.summary).toBe('no errors or warnings');
-              }
+          if (output.includes(']633;E;')) {
+            // Shell integration format - check for appropriate messages
+            if (ext === '.tf' || ext === '.tfvars') {
+              // Terraform always shows formatting warnings
+              expect(output).toMatch(/no errors|warning|No issues found/i);
+            } else if (ext === '.java') {
+              // Java may have errors if public class name doesn't match file name
+              expect(output).toMatch(/no errors|error|warning|No issues found/i);
+            } else {
+              // Should show no issues
+              expect(output).toContain('No issues found');
             }
           } else {
             // No output is also acceptable for clean files
@@ -190,11 +188,10 @@ describe('Language Comprehensive Testing', () => {
           const stderr = await new Response(proc.stderr).text();
           const exitCode = await proc.exited;
 
-          // Should detect errors via hook
-          if (stderr.includes('[[system-message]]')) {
+          // Should detect errors via hook (shell integration format)
+          if (stderr.includes(']633;E;')) {
             expect(exitCode).toBe(2); // Error exit code
-            const json = JSON.parse(stderr.replace('[[system-message]]:', ''));
-            expect(json.diagnostics.length).toBeGreaterThan(0);
+            expect(stderr).toMatch(/✗.*(error|warning)|(error|warning).*found/i);
           }
         }, 30000);
 

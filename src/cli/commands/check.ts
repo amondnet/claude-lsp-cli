@@ -1,34 +1,42 @@
 import { resolve } from 'path';
 import { existsSync } from 'fs';
-import { checkFile, formatDiagnostics } from '../../file-checker';
+import { checkFile } from '../../file-checker';
+import { outputDiagnostics, type ShellDiagnostic } from '../../shell-integration';
 
-export async function runCheck(
-  filePath: string,
-  log: (..._args: unknown[]) => unknown = console.log
-): Promise<void> {
+export async function runCheck(filePath: string): Promise<boolean> {
   if (!filePath) {
-    return;
+    return false;
   }
 
   const absolutePath = resolve(filePath);
 
   if (!existsSync(absolutePath)) {
-    return;
+    return false;
   }
 
   const result = await checkFile(absolutePath);
   if (result === null) {
     // Checking was disabled - exit silently with no output
-    return;
+    return false;
   } else if (result) {
-    // Use formatDiagnostics for both cases (with errors and without)
-    const formatted = formatDiagnostics(result, true); // showNoErrors=true
-    if (formatted) {
-      log(formatted);
+    // Convert to shell diagnostics format
+    const shellDiagnostics: ShellDiagnostic[] = result.diagnostics.map((diag) => ({
+      ...diag,
+      file: result.file,
+    }));
+
+    // Output using shell integration
+    if (shellDiagnostics.length > 0) {
+      outputDiagnostics(shellDiagnostics);
+      return true; // Has errors
+    } else {
+      // For check command, show "No issues found" when no errors
+      outputDiagnostics([]);
+      return false; // No errors
     }
   } else {
     // File type not supported - also exit silently
-    return;
+    return false;
   }
 }
 
@@ -36,19 +44,16 @@ export async function runCheck(
  * Check multiple files in parallel for better performance
  * Useful when Claude Code processes multiple files at once
  */
-export async function runCheckMultiple(
-  filePaths: string[],
-  log: (..._args: unknown[]) => unknown = console.log
-): Promise<void> {
+export async function runCheckMultiple(filePaths: string[]): Promise<boolean> {
   if (!filePaths || filePaths.length === 0) {
-    return;
+    return false;
   }
 
   // Filter to existing files first
   const validFiles = filePaths.map((filePath) => resolve(filePath)).filter(existsSync);
 
   if (validFiles.length === 0) {
-    return;
+    return false;
   }
 
   // Check files in parallel with limited concurrency to avoid overwhelming system
@@ -68,17 +73,31 @@ export async function runCheckMultiple(
     results.push(...batchResults);
   }
 
-  // Output results in original file order
+  // Collect all diagnostics across all files
+  const allDiagnostics: ShellDiagnostic[] = [];
+
   for (const { result } of results) {
     if (result === null) {
       // Checking was disabled - skip
       continue;
-    } else if (result) {
-      const formatted = formatDiagnostics(result, true);
-      if (formatted) {
-        log(formatted);
-      }
+    } else if (result && result.diagnostics.length > 0) {
+      // Add diagnostics with file context
+      const shellDiagnostics: ShellDiagnostic[] = result.diagnostics.map((diag) => ({
+        ...diag,
+        file: result.file,
+      }));
+      allDiagnostics.push(...shellDiagnostics);
     }
     // Skip unsupported file types silently
+  }
+
+  // Output all diagnostics at once using shell integration
+  if (allDiagnostics.length > 0) {
+    outputDiagnostics(allDiagnostics);
+    return true; // Has errors
+  } else {
+    // For check command, show "No issues found" when no errors
+    outputDiagnostics([]);
+    return false; // No errors
   }
 }

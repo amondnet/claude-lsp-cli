@@ -15,8 +15,10 @@ void _exitCode;
 // Helper to capture console output
 let consoleOutput: string[] = [];
 let consoleErrorOutput: string[] = [];
+let stderrOutput: string[] = [];
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
+const originalStderrWrite = process.stderr.write;
 
 // Helper function to run async hook and capture exit
 async function runHookAndCaptureExit(
@@ -31,12 +33,64 @@ async function runHookAndCaptureExit(
       const match = error.message.match(/process\.exit\((\d+)\)/);
       const code = match ? parseInt(match[1]) : (error.exitCode ?? 0);
 
-      // Try to extract the JSON output if it was logged
-      const errorOutput = consoleErrorOutput.find((o) => o.includes('[[system-message]]'));
+      // Try to extract shell integration output from stderr
+      const fullStderr = stderrOutput.join('');
       let output;
-      if (errorOutput) {
-        const jsonPart = errorOutput.split('[[system-message]]:')[1];
-        output = JSON.parse(jsonPart);
+
+      // Parse shell integration output - look for diagnostic content between OSC sequences
+      const oscMatch = fullStderr.match(/\]633;E;([^]*?)\]633;D/);
+      if (oscMatch && oscMatch[1]) {
+        try {
+          // Skip the ">" prefix and parse the diagnostic lines
+          const content = oscMatch[1].replace(/^>\s*/, '').trim();
+          const lines = content.split('\n').filter((line) => line.trim());
+
+          // Count errors and warnings, and extract diagnostics
+          const diagnostics: any[] = [];
+
+          for (const line of lines) {
+            const errorMatch = line.match(/^✗\s+([^:]+):(\d+):(\d+)\s+-\s+(.+)$/);
+            const warningMatch = line.match(/^⚠\s+([^:]+):(\d+):(\d+)\s+-\s+(.+)$/);
+
+            if (errorMatch && errorMatch[1] && errorMatch[2] && errorMatch[3] && errorMatch[4]) {
+              diagnostics.push({
+                file: errorMatch[1],
+                line: parseInt(errorMatch[2], 10),
+                column: parseInt(errorMatch[3], 10),
+                message: errorMatch[4],
+                severity: 'error',
+              });
+            } else if (
+              warningMatch &&
+              warningMatch[1] &&
+              warningMatch[2] &&
+              warningMatch[3] &&
+              warningMatch[4]
+            ) {
+              diagnostics.push({
+                file: warningMatch[1],
+                line: parseInt(warningMatch[2], 10),
+                column: parseInt(warningMatch[3], 10),
+                message: warningMatch[4],
+                severity: 'warning',
+              });
+            }
+          }
+
+          // Extract the actual summary from console.error output (visible output)
+          const consoleErrors = consoleErrorOutput.join('\n');
+          const summaryMatch = consoleErrors.match(/✗\s+([^\n]+found)/);
+          const actualSummary = summaryMatch ? summaryMatch[1] : 'unknown';
+
+          output = {
+            diagnostics: diagnostics, // These are already limited by shell integration
+            summary: actualSummary,
+          };
+        } catch (_parseError) {
+          // Fallback: basic parsing
+          const hasErrors = fullStderr.includes('✗');
+          output = { hasErrors };
+        }
       }
 
       return { exitCode: code, output };
@@ -59,6 +113,7 @@ describe('Multiple Files Combined Results', () => {
     // Capture console output
     consoleOutput = [];
     consoleErrorOutput = [];
+    stderrOutput = [];
     console.log = ((...args: any[]) => {
       consoleOutput.push(
         args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
@@ -69,12 +124,17 @@ describe('Multiple Files Combined Results', () => {
         args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')
       );
     }) as any;
+    process.stderr.write = ((data: any) => {
+      stderrOutput.push(String(data));
+      return true;
+    }) as any;
   });
 
   afterEach(() => {
     // Restore console methods
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
+    process.stderr.write = originalStderrWrite;
     // Restore process.exit
     process.exit = originalExit;
   });
@@ -151,7 +211,7 @@ describe('Multiple Files Combined Results', () => {
     expect(result.output).toBeDefined();
 
     // Check summary includes both errors and warnings
-    expect(result.output.summary).toBe('3 error(s), 1 warning(s)');
+    expect(result.output.summary).toBe('3 errors, 1 warning found');
 
     // Check that diagnostics array contains items from all files (limited to 5)
     expect(result.output.diagnostics).toHaveLength(4); // We have 4 total diagnostics
@@ -232,7 +292,7 @@ describe('Multiple Files Combined Results', () => {
     expect(result.output).toBeDefined();
 
     // Should show total count in summary
-    expect(result.output.summary).toBe('7 error(s)');
+    expect(result.output.summary).toBe('7 errors found');
 
     // But diagnostics array should be limited to 5
     expect(result.output.diagnostics).toHaveLength(5);
@@ -298,7 +358,7 @@ describe('Multiple Files Combined Results', () => {
     expect(result.output).toBeDefined();
 
     // Should only count the file with errors
-    expect(result.output.summary).toBe('1 error(s)');
+    expect(result.output.summary).toBe('1 error found');
     expect(result.output.diagnostics).toHaveLength(1);
     expect(result.output.diagnostics[0].file).toBe('error.ts');
 
@@ -365,7 +425,7 @@ describe('Multiple Files Combined Results', () => {
     expect(result.output).toBeDefined();
 
     // Should only show diagnostics from file1.ts (file2.ts was deduplicated)
-    expect(result.output.summary).toBe('1 error(s)');
+    expect(result.output.summary).toBe('1 error found');
     expect(result.output.diagnostics).toHaveLength(1);
     expect(result.output.diagnostics[0].file).toBe('file1.ts');
 

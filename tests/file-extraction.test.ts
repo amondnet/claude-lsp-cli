@@ -39,7 +39,7 @@ describe('File Path Extraction', () => {
 
       // Should extract and check the file
       expect(exitCode).toBe(2); // Has errors
-      expect(stderr).toContain('[[system-message]]');
+      expect(stderr).toContain(']633;E;');
       expect(stderr).toContain('edit-test.ts');
     });
 
@@ -285,12 +285,20 @@ describe('File Path Extraction', () => {
 
       // Should check all files extracted from Bash output
       expect(exitCode).toBe(2); // Has errors
-      if (stderr.includes('[[system-message]]')) {
-        // Extract just the JSON part
-        const match = stderr.match(/\[\[system-message\]\]:(.+)/);
-        if (match) {
-          const json = JSON.parse(match[1]);
-          const files = json.diagnostics.map((d: any) => d.file);
+      if (stderr.includes(']633;E;')) {
+        // Extract diagnostics from shell integration format
+        const match = stderr.match(/\]633;E;([^\]]+)\]633;D/);
+        if (match && match[1]) {
+          // Parse shell integration diagnostics
+          const content = match[1].replace(/^>/, '').trim();
+          const lines = content.split('\n').filter((line) => line.includes('✗'));
+          const files = lines
+            .map((line) => {
+              const fileMatch = line.match(/✗\s+([^:]+):/);
+              return fileMatch ? fileMatch[1] : '';
+            })
+            .filter(Boolean) as string[];
+
           // Check that all three file types are present
           const hasTs = files.some((f: string) => f.endsWith('.ts'));
           const hasPy = files.some((f: string) => f.endsWith('.py'));

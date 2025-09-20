@@ -29,7 +29,9 @@ export function extractFilePaths(hookData: unknown): string[] {
 
   for (const candidate of candidates) {
     if (candidate && typeof candidate === 'string') {
-      if (candidate.match(/\.(ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf)$/i)) {
+      if (
+        candidate.match(/\.(ts|tsx|mts|cts|py|go|rs|java|c|cpp|cc|cxx|php|scala|lua|tf|ex|exs)$/i)
+      ) {
         files.push(candidate);
       }
     }
@@ -39,10 +41,12 @@ export function extractFilePaths(hookData: unknown): string[] {
   if (data?.tool_response?.output) {
     const output = data.tool_response.output;
     const fileRegex =
-      /(?:^|\s|["'])([^\s"']*[/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?=$|\s|["'])/gim;
+      /(?:^|\s|["'])([^\s"']*[/\\]?[^\s"']*\.(?:ts|tsx|mts|cts|py|go|rs|java|c|cpp|cc|cxx|php|scala|lua|tf|ex|exs))(?=$|\s|["'])/gim;
     let match;
     while ((match = fileRegex.exec(output)) !== null) {
-      files.push(match[1]);
+      if (match[1]) {
+        files.push(match[1]);
+      }
     }
   }
 
@@ -50,10 +54,12 @@ export function extractFilePaths(hookData: unknown): string[] {
   if (files.length === 0 && data?.tool_input?.command) {
     const command = data.tool_input.command;
     const fileRegex =
-      /(?:^|\s|["'])([^\s"']*[/\\]?[^\s"']*\.(?:ts|tsx|py|go|rs|java|c|cpp|php|swift|kt|scala|tf))(?=$|\s|["'])/gim;
+      /(?:^|\s|["'])([^\s"']*[/\\]?[^\s"']*\.(?:ts|tsx|mts|cts|py|go|rs|java|c|cpp|cc|cxx|php|scala|lua|tf|ex|exs))(?=$|\s|["'])/gim;
     let match;
     while ((match = fileRegex.exec(command)) !== null) {
-      files.push(match[1]);
+      if (match[1]) {
+        files.push(match[1]);
+      }
     }
   }
 

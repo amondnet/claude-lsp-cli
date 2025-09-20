@@ -174,18 +174,15 @@ badFunction()
       );
 
       const result = await runCLI(['check', tsFile]);
-      expect(result.exitCode).toBe(0); // Diagnostic mode returns 0
-      expect(result.stdout).toContain('[[system-message]]:');
+      expect(result.exitCode).toBe(1); // Exit code 1 when errors found
 
-      const output = result.stdout;
-      expect(output).toMatch(/"diagnostics":\s*\[/);
-      expect(output).toMatch(/"summary":\s*"\d+\s+(error|warning)s?/);
+      // Shell integration format outputs to stderr
+      expect(result.stderr).toContain('✗');
+      expect(result.stderr).toContain('error');
 
       // Should contain actual TypeScript errors
-      const jsonPart = output.split('[[system-message]]:')[1];
-      const diagnostics = JSON.parse(jsonPart);
-      expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
-      expect(diagnostics.summary).toContain('error');
+      const match = result.stderr.match(/(\d+) error/);
+      expect(match).toBeTruthy();
     }, 30000);
 
     test('Python file with errors - complete diagnostic flow', async () => {
@@ -211,13 +208,13 @@ bad_function
       );
 
       const result = await runCLI(['check', pyFile]);
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('[[system-message]]:');
+      expect(result.exitCode).toBe(1); // Exit code 1 when errors found
 
-      const output = result.stdout;
-      const jsonPart = output.split('[[system-message]]:')[1];
-      const diagnostics = JSON.parse(jsonPart);
-      expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
+      // Shell integration format outputs to stderr
+      expect(result.stderr).toContain('✗');
+      const hasErrors = result.stderr.includes('error');
+      const hasWarnings = result.stderr.includes('warning');
+      expect(hasErrors || hasWarnings).toBe(true);
     }, 30000);
 
     test('Go file with errors - complete diagnostic flow', async () => {
@@ -245,13 +242,11 @@ func main() {
       );
 
       const result = await runCLI(['check', goFile]);
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('[[system-message]]:');
+      expect(result.exitCode).toBe(1); // Exit code 1 when errors found
 
-      const output = result.stdout;
-      const jsonPart = output.split('[[system-message]]:')[1];
-      const diagnostics = JSON.parse(jsonPart);
-      expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
+      // Shell integration format outputs to stderr
+      expect(result.stderr).toContain('✗');
+      expect(result.stderr).toContain('error');
     }, 30000);
 
     test('Multiple files - batch processing', async () => {
@@ -265,18 +260,16 @@ func main() {
       const result1 = await runCLI(['check', file1]);
       const result2 = await runCLI(['check', file2]);
 
-      expect(result1.exitCode).toBe(0);
-      expect(result2.exitCode).toBe(0);
+      expect(result1.exitCode).toBe(0); // No errors
+      expect(result2.exitCode).toBe(1); // Has errors
 
-      // Good file should have no errors
-      const jsonPart1 = result1.stdout.split('[[system-message]]:')[1];
-      const diagnostics1 = JSON.parse(jsonPart1);
-      expect(diagnostics1.summary).toContain('no errors');
+      // Good file should show "No issues found" for check command
+      expect(result1.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result1.stdout).toBe('');
 
       // Bad file should have errors
-      const jsonPart2 = result2.stdout.split('[[system-message]]:')[1];
-      const diagnostics2 = JSON.parse(jsonPart2);
-      expect(diagnostics2.diagnostics.length).toBeGreaterThan(0);
+      expect(result2.stderr).toContain('✗');
+      expect(result2.stderr).toContain('error');
     }, 30000);
   });
 
@@ -285,7 +278,9 @@ func main() {
       // Initially all languages should be enabled
       const checkResult = await runCLI(['check', createTestFile('test.py', 'print("hello")')]);
       expect(checkResult.exitCode).toBe(0);
-      expect(checkResult.stdout).toContain('[[system-message]]:');
+      // Should show "No issues found" when no errors
+      expect(checkResult.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(checkResult.stdout).toBe('');
 
       // Disable Python
       const disableResult = await runCLI(['disable', 'python']);
@@ -326,12 +321,10 @@ func main() {
         stdin: hookData,
       });
 
-      expect(result.exitCode).toBe(2); // Exit code 2 when errors found
-      expect(result.stderr).toContain('[[system-message]]:');
-
-      const jsonPart = result.stderr.split('[[system-message]]:')[1];
-      const diagnostics = JSON.parse(jsonPart);
-      expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
+      expect(result.exitCode).toBe(2); // Exit code 2 when errors found in hook mode
+      // Shell integration format outputs to stderr
+      expect(result.stderr).toContain('✗');
+      expect(result.stderr).toContain('error');
     }, 30000);
 
     test('PostToolUse hook with Write tool simulation', async () => {
@@ -393,15 +386,17 @@ func main() {
       const largeFile = createTestFile('large.ts', largeContent);
       const result = await runCLI(['check', largeFile], { timeout: 45000 });
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('[[system-message]]:');
+      // Large file might have errors or not, just check it doesn't crash
+      expect([0, 1]).toContain(result.exitCode);
 
-      // Should handle large files without crashing
-      const jsonPart = result.stdout.split('[[system-message]]:')[1];
-      const diagnostics = JSON.parse(jsonPart);
-      expect(
-        diagnostics.summary.includes('no errors') || diagnostics.summary.includes('error')
-      ).toBe(true);
+      // If it has errors, they'll be in stderr
+      if (result.exitCode === 1) {
+        expect(result.stderr).toContain('✗');
+      } else {
+        // Otherwise should show "No issues found"
+        expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+        expect(result.stdout).toBe('');
+      }
     }, 50000);
 
     test('concurrent file checking', async () => {
@@ -420,13 +415,13 @@ func main() {
       expect(result2.exitCode).toBe(0);
       expect(result3.exitCode).toBe(0);
 
-      expect(result1.stdout).toContain('[[system-message]]:');
-      expect(result2.stdout.includes('[[system-message]]:') || result2.stdout.trim() === '').toBe(
-        true
-      ); // Python might be empty
-      expect(result3.stdout.includes('[[system-message]]:') || result3.stdout.trim() === '').toBe(
-        true
-      ); // Go might be empty
+      // All files have no errors (should show "No issues found")
+      expect(result1.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result1.stdout).toBe('');
+      expect(result2.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result2.stdout).toBe('');
+      expect(result3.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result3.stdout).toBe('');
     }, 45000);
   });
 
@@ -436,20 +431,17 @@ func main() {
 
       // First check - should show diagnostics
       const result1 = await runCLI(['check', testFile]);
-      expect(result1.exitCode).toBe(0);
-      expect(result1.stdout).toContain('[[system-message]]:');
-
-      const jsonPart1 = result1.stdout.split('[[system-message]]:')[1];
-      const diagnostics1 = JSON.parse(jsonPart1);
-      expect(diagnostics1.diagnostics.length).toBeGreaterThan(0);
+      expect(result1.exitCode).toBe(1); // Has errors
+      expect(result1.stderr).toContain('✗');
+      expect(result1.stderr).toContain('error');
 
       // Wait a bit
       await sleep(100);
 
       // Second check - CLI check always shows output (no deduplication)
       const result2 = await runCLI(['check', testFile]);
-      expect(result2.exitCode).toBe(0);
-      expect(result2.stdout).toContain('[[system-message]]:'); // CLI check doesn't deduplicate
+      expect(result2.exitCode).toBe(1); // Still has errors
+      expect(result2.stderr).toContain('✗'); // CLI check doesn't deduplicate
     }, 30000);
 
     test('hook-based deduplication with file change', async () => {
@@ -460,8 +452,8 @@ func main() {
       const result1 = await runCLI(['hook', 'PostToolUse'], {
         stdin: hookData1,
       });
-      expect(result1.exitCode).toBe(2); // Has errors
-      expect(result1.stderr).toContain('[[system-message]]:');
+      expect(result1.exitCode).toBe(2); // Has errors in hook mode
+      expect(result1.stderr).toContain('✗');
 
       await sleep(100);
 
@@ -480,7 +472,7 @@ func main() {
         stdin: hookData1,
       });
       expect(result3.exitCode).toBe(2); // Has errors
-      expect(result3.stderr).toContain('[[system-message]]:');
+      expect(result3.stderr).toContain('✗');
     }, 30000);
   });
 
@@ -493,8 +485,9 @@ func main() {
       );
       const result = await runCLI(['check', winFile]);
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('[[system-message]]:');
+      expect(result.exitCode).toBe(1); // Has errors (type mismatch)
+      expect(result.stderr).toContain('✗');
+      expect(result.stderr).toContain('error');
     }, 20000);
 
     test('handles files with unicode content', async () => {
@@ -504,12 +497,10 @@ func main() {
       );
       const result = await runCLI(['check', unicodeFile]);
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('[[system-message]]:');
-
-      const jsonPart = result.stdout.split('[[system-message]]:')[1];
-      const diagnostics = JSON.parse(jsonPart);
-      expect(diagnostics.summary).toContain('no errors');
+      expect(result.exitCode).toBe(0); // No errors
+      // Should show "No issues found" when no errors
+      expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result.stdout).toBe('');
     }, 20000);
 
     test('handles files in subdirectories', async () => {
@@ -518,8 +509,10 @@ func main() {
       writeFileSync(subFile, 'const x: string = "valid";');
 
       const result = await runCLI(['check', subFile]);
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('[[system-message]]:');
+      expect(result.exitCode).toBe(0); // No errors
+      // Should show "No issues found" when no errors
+      expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result.stdout).toBe('');
     }, 20000);
   });
 });
