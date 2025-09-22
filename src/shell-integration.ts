@@ -14,9 +14,10 @@
 
 import type { Diagnostic } from './file-checker';
 
-const ESC = '\x1b';
-const OSC = `${ESC}]`;
-const ST = '\x07';
+// Unused but keeping for potential future OSC sequence use
+// const ESC = '\x1b';
+// const OSC = `${ESC}]`;
+// const ST = '\x07';
 
 export interface ShellDiagnostic extends Diagnostic {
   file: string;
@@ -59,19 +60,16 @@ export function formatShellIntegrationOutput(
     }
   }
 
-  // Build detailed diagnostics for command metadata (limit to first 5 for readability)
-  const detailedLines: string[] = ['>'];
-  const maxDiagnosticsToShow = 5;
-
-  for (let i = 0; i < Math.min(diagnostics.length, maxDiagnosticsToShow); i++) {
-    const diag = diagnostics[i];
-    if (!diag) continue; // TypeScript safety check
-
-    const severityIcon = diag.severity === 'error' ? '✗' : '⚠';
-    const code = diag.code ? `${diag.code}: ` : '';
-    detailedLines.push(
-      `${severityIcon} ${diag.file}:${diag.line}:${diag.column} - ${code}${diag.message}`
-    );
+  // Build full detailed diagnostics array for command metadata
+  const detailedArray: any[] = [];
+  for (const diag of diagnostics) {
+    detailedArray.push({
+      file: diag.file,
+      line: diag.line,
+      col: diag.column,
+      severity: diag.severity,
+      msg: diag.message,
+    });
   }
 
   // Build visible summary
@@ -93,10 +91,10 @@ export function formatShellIntegrationOutput(
 
   if (firstError) {
     const shortFile = firstError.file.split('/').pop() || firstError.file;
-    summary.push(`${shortFile}:${firstError.line}`);
+    summary.push(`${shortFile}:${firstError.line}:${firstError.column}`);
     const shortMsg =
-      firstError.message.length > 40
-        ? firstError.message.substring(0, 37) + '...'
+      firstError.message.length > 60
+        ? firstError.message.substring(0, 57) + '...'
         : firstError.message;
     summary.push(shortMsg);
   }
@@ -109,7 +107,7 @@ export function formatShellIntegrationOutput(
   const visibleSummary = JSON.stringify(summary);
 
   return {
-    commandMetadata: detailedLines.join('\n'), // Use actual newlines
+    commandMetadata: JSON.stringify(detailedArray), // Full details as JSON array
     visibleOutput: visibleSummary,
     exitCode: 1,
   };
@@ -119,15 +117,9 @@ export function formatShellIntegrationOutput(
  * Write shell integration output with OSC 633 sequences
  */
 export function writeShellIntegrationOutput(output: ShellIntegrationOutput): void {
-  // Add OSC sequences with detailed diagnostics hidden in command metadata
-  process.stderr.write(`${OSC}633;A${ST}`);
-  process.stderr.write(`${OSC}633;B${ST}`);
-  process.stderr.write(`${OSC}633;C${ST}`);
-  process.stderr.write(`${OSC}633;E;${output.visibleOutput || ''}${ST}\n`);
-  process.stderr.write(`${OSC}633;D;${output.exitCode}${ST}\n`);
-
-  // Output the JSON summary as visible text
+  // Only output the compact summary, not the full details
   if (output.exitCode !== 0 && output.visibleOutput) {
+    // Just output the summary line to stderr
     process.stderr.write(output.visibleOutput + '\n');
   }
 }
