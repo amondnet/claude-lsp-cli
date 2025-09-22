@@ -83,43 +83,34 @@ export function formatShellIntegrationOutput(
     summaryParts.push(`${warningCount} warning${warningCount !== 1 ? 's' : ''}`);
   }
 
-  // Create more informative visible output
-  const visibleLines: string[] = [`✗ ${summaryParts.join(', ')} found`];
+  // Create a one-liner JSON array format that's both human and Claude readable
+  const firstError = diagnostics.find((d) => d.severity === 'error');
+  const fileList = Array.from(affectedFiles);
 
-  // Show first few errors in visible output for better context
-  const maxVisibleErrors = 3;
-  const errorSample = diagnostics.filter((d) => d.severity === 'error').slice(0, maxVisibleErrors);
+  // Compact JSON format: [errors, warnings, "first_file:line", "error_snippet"]
+  const summary: any[] = [errorCount];
+  if (warningCount > 0) summary.push(warningCount);
 
-  if (errorSample.length > 0) {
-    visibleLines.push('  First errors:');
-    errorSample.forEach((diag) => {
-      const shortFile = diag.file.split('/').pop() || diag.file;
-      const shortMsg =
-        diag.message.length > 60 ? diag.message.substring(0, 57) + '...' : diag.message;
-      visibleLines.push(`    ${shortFile}:${diag.line} - ${shortMsg}`);
-    });
-
-    if (diagnostics.filter((d) => d.severity === 'error').length > maxVisibleErrors) {
-      visibleLines.push(
-        `    ... and ${diagnostics.filter((d) => d.severity === 'error').length - maxVisibleErrors} more errors`
-      );
-    }
+  if (firstError) {
+    const shortFile = firstError.file.split('/').pop() || firstError.file;
+    summary.push(`${shortFile}:${firstError.line}`);
+    const shortMsg =
+      firstError.message.length > 40
+        ? firstError.message.substring(0, 37) + '...'
+        : firstError.message;
+    summary.push(shortMsg);
   }
 
-  if (affectedFiles.size > 0) {
-    const fileList = Array.from(affectedFiles);
-    if (fileList.length <= 3) {
-      visibleLines.push(`  Files: ${fileList.join(', ')}`);
-    } else {
-      visibleLines.push(
-        `  Files: ${fileList.slice(0, 3).join(', ')} and ${fileList.length - 3} more`
-      );
-    }
+  // Add file count if many files affected
+  if (fileList.length > 3) {
+    summary.push(`${fileList.length} files`);
   }
+
+  const visibleSummary = JSON.stringify(summary);
 
   return {
     commandMetadata: detailedLines.join('\n'), // Use actual newlines
-    visibleOutput: visibleLines.join('\n'),
+    visibleOutput: visibleSummary,
     exitCode: 1,
   };
 }
