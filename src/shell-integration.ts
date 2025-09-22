@@ -119,16 +119,16 @@ export function formatShellIntegrationOutput(
  * Write shell integration output with OSC 633 sequences
  */
 export function writeShellIntegrationOutput(output: ShellIntegrationOutput): void {
-  // Add OSC sequences for terminal integration (detailed diagnostics in metadata)
+  // Add OSC sequences with detailed diagnostics hidden in command metadata
   process.stderr.write(`${OSC}633;A${ST}`);
   process.stderr.write(`${OSC}633;B${ST}`);
   process.stderr.write(`${OSC}633;C${ST}`);
-  process.stderr.write(`${OSC}633;E;${output.commandMetadata}${ST}\n`);
-  process.stderr.write(`${OSC}633;D;${output.exitCode}${ST}`);
+  process.stderr.write(`${OSC}633;E;${output.visibleOutput || ''}${ST}\n`);
+  process.stderr.write(`${OSC}633;D;${output.exitCode}${ST}\n`);
 
-  // Show clean summary in normal stderr (visible to user)
+  // Output the JSON summary as visible text
   if (output.exitCode !== 0 && output.visibleOutput) {
-    console.error(output.visibleOutput);
+    process.stderr.write(output.visibleOutput + '\n');
   }
 }
 
