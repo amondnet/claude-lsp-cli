@@ -83,11 +83,38 @@ export function formatShellIntegrationOutput(
     summaryParts.push(`${warningCount} warning${warningCount !== 1 ? 's' : ''}`);
   }
 
+  // Create more informative visible output
   const visibleLines: string[] = [`✗ ${summaryParts.join(', ')} found`];
 
+  // Show first few errors in visible output for better context
+  const maxVisibleErrors = 3;
+  const errorSample = diagnostics.filter((d) => d.severity === 'error').slice(0, maxVisibleErrors);
+
+  if (errorSample.length > 0) {
+    visibleLines.push('  First errors:');
+    errorSample.forEach((diag) => {
+      const shortFile = diag.file.split('/').pop() || diag.file;
+      const shortMsg =
+        diag.message.length > 60 ? diag.message.substring(0, 57) + '...' : diag.message;
+      visibleLines.push(`    ${shortFile}:${diag.line} - ${shortMsg}`);
+    });
+
+    if (diagnostics.filter((d) => d.severity === 'error').length > maxVisibleErrors) {
+      visibleLines.push(
+        `    ... and ${diagnostics.filter((d) => d.severity === 'error').length - maxVisibleErrors} more errors`
+      );
+    }
+  }
+
   if (affectedFiles.size > 0) {
-    const fileList = Array.from(affectedFiles).join(', ');
-    visibleLines.push(`  Files affected: ${fileList}`);
+    const fileList = Array.from(affectedFiles);
+    if (fileList.length <= 3) {
+      visibleLines.push(`  Files: ${fileList.join(', ')}`);
+    } else {
+      visibleLines.push(
+        `  Files: ${fileList.slice(0, 3).join(', ')} and ${fileList.length - 3} more`
+      );
+    }
   }
 
   return {
