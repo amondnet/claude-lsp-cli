@@ -57,16 +57,12 @@ describe('Shell Integration Output', () => {
       }
     );
 
-    // Check for OSC 633 sequences in stderr
-    expect(result.stderr).toContain('\x1b]633;A\x07'); // Start sequence
-    expect(result.stderr).toContain('\x1b]633;B\x07'); // Prompt end
-    expect(result.stderr).toContain('\x1b]633;C\x07'); // Pre-execution
-    expect(result.stderr).toContain('\x1b]633;E;'); // Command metadata
-    expect(result.stderr).toContain('\x1b]633;D;1\x07'); // Exit code 1 (errors)
-
-    // Check for clean summary in output (not the JSON format)
-    expect(result.stderr).toContain('✗');
-    expect(result.stderr).toContain('error');
+    // Check for the new format with summary and details
+    expect(result.stderr).toContain('✗ 2 errors found');
+    expect(result.stderr).toContain('test-error.ts:2:13');
+    expect(result.stderr).toContain('test-error.ts:3:19');
+    expect(result.stderr).toContain("Type 'number' is not assignable to type 'string'");
+    expect(result.code).toBe(1);
   });
 
   test('should be silent for files with no errors', async () => {
@@ -104,9 +100,8 @@ describe('Shell Integration Output', () => {
       }
     );
 
-    // Should show "No issues found" for check command when no errors
-    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
-    expect(result.stderr).toContain('\x1b]633;D;0\x07'); // Exit code 0
+    // Check command shows "No issues found" when no errors
+    expect(result.stderr).toContain('No issues found');
     expect(result.stdout).toBe('');
     expect(result.code).toBe(0);
 
@@ -163,10 +158,10 @@ describe('Shell Integration Output', () => {
       }
     );
 
-    // Check for shell integration format
-    expect(result.stderr).toContain('\x1b]633;E;'); // Command metadata with diagnostics
-    expect(result.stderr).toContain('✗'); // Clean summary
-    expect(result.stderr).toContain('1 error');
+    // Check for the new format with summary and details
+    expect(result.stderr).toContain('✗ 1 error found');
+    expect(result.stderr).toContain('test-hook.ts:3:9');
+    expect(result.stderr).toContain("Type 'number' is not assignable to type 'void'");
     expect(result.code).toBe(2); // Hook exits with 2 on errors
   });
 });

@@ -39,7 +39,8 @@ describe('File Path Extraction', () => {
 
       // Should extract and check the file
       expect(exitCode).toBe(2); // Has errors
-      expect(stderr).toContain(']633;E;');
+      expect(stderr).toContain('✗ 1 error found');
+      expect(stderr).toContain("Type 'number' is not assignable to type 'string'");
       expect(stderr).toContain('edit-test.ts');
     });
 

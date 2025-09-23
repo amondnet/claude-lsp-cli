@@ -7,11 +7,17 @@ import {
 
 describe('Shell Integration', () => {
   describe('formatShellIntegrationOutput', () => {
-    test('should return silent output for no diagnostics', () => {
-      const result = formatShellIntegrationOutput([]);
+    test('should return silent output for no diagnostics in hook mode', () => {
+      const result = formatShellIntegrationOutput([], true); // isHook=true
 
-      expect(result.commandMetadata).toBe('claude-lsp-cli diagnostics: No issues found');
-      expect(result.visibleOutput).toBe('');
+      expect(result.summary).toBe('');
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('should return "No issues found" for no diagnostics in check mode', () => {
+      const result = formatShellIntegrationOutput([], false); // isHook=false (default)
+
+      expect(result.summary).toBe('No issues found');
       expect(result.exitCode).toBe(0);
     });
 
@@ -29,10 +35,10 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain(
-        "✗ src/main.ts:15:3 - TS2304: Cannot find name 'document'"
-      );
-      expect(result.visibleOutput).toBe('✗ 1 error found\n  Files affected: src/main.ts');
+      expect(result.summary).toContain('✗ 1 error found');
+      expect(result.summary).toContain('src/main.ts:15:3');
+      expect(result.summary).toContain('[TS2304]');
+      expect(result.summary).toContain("Cannot find name 'document'");
       expect(result.exitCode).toBe(1);
     });
 
@@ -65,12 +71,10 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain('✗ src/main.ts:15:3');
-      expect(result.commandMetadata).toContain('✗ src/main.ts:22:1');
-      expect(result.commandMetadata).toContain('⚠ src/utils.ts:8:12');
-      expect(result.visibleOutput).toBe(
-        '✗ 2 errors, 1 warning found\n  Files affected: src/main.ts, src/utils.ts'
-      );
+      expect(result.summary).toContain('✗ 2 errors, 1 warning found');
+      expect(result.summary).toContain('src/main.ts:15:3');
+      expect(result.summary).toContain('src/main.ts:22:1');
+      expect(result.summary).toContain('src/utils.ts:8:12');
       expect(result.exitCode).toBe(1);
     });
 
@@ -87,8 +91,9 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain('✗ src/test.py:10:5 - Undefined variable');
-      expect(result.commandMetadata).not.toContain('undefined:');
+      expect(result.summary).toContain('✗ 1 error found');
+      expect(result.summary).toContain('src/test.py:10:5');
+      expect(result.summary).toContain('Undefined variable');
     });
 
     test('should handle only warnings', () => {
@@ -111,9 +116,9 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.visibleOutput).toBe(
-        '✗ 2 warnings found\n  Files affected: src/hooks.ts, src/api.ts'
-      );
+      expect(result.summary).toContain('✗ 2 warnings found');
+      expect(result.summary).toContain('src/hooks.ts:5:1');
+      expect(result.summary).toContain('src/api.ts:12:8');
       expect(result.exitCode).toBe(1);
     });
 
@@ -129,21 +134,19 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      // Check command metadata only has first 5 items
-      const metadataLines = result.commandMetadata.split('\n');
-      expect(metadataLines).toHaveLength(6); // '>' + 5 diagnostic lines
-
-      // Verify first line is '>'
-      expect(metadataLines[0]).toBe('>');
+      // Check summary has first 5 items plus "and X more"
+      const summaryLines = result.summary.split('\n');
+      // Should have: summary line + 5 detail lines + "and X more" line
+      expect(summaryLines.length).toBeGreaterThanOrEqual(6);
 
       // Verify each of the first 5 diagnostics is included
       for (let i = 0; i < 5; i++) {
-        expect(metadataLines[i + 1]).toContain(`✗ src/file${i}.ts:${i + 1}:1`);
-        expect(metadataLines[i + 1]).toContain(`E${i + 1}: Error ${i + 1}`);
+        expect(result.summary).toContain(`src/file${i}.ts:${i + 1}:1`);
       }
 
-      // Visible output should still show total count
-      expect(result.visibleOutput).toContain('10 errors found');
+      // Summary should show total count and "more" indicator
+      expect(result.summary).toContain('✗ 10 errors found');
+      expect(result.summary).toContain('... and 5 more');
     });
 
     test('should handle very long file paths', () => {
@@ -163,8 +166,8 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain(longPath);
-      expect(result.visibleOutput).toContain(longPath);
+      expect(result.summary).toContain('✗ 1 error found');
+      expect(result.summary).toContain(longPath);
     });
 
     test('should handle diagnostics with special characters in messages', () => {
@@ -181,7 +184,7 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain("Unexpected token '<', expected '>' or '>='");
+      expect(result.summary).toContain("Unexpected token '<', expected '>' or '>='");
     });
 
     test('should handle mixed severity with proper pluralization', () => {
@@ -218,7 +221,7 @@ describe('Shell Integration', () => {
         }
 
         const result = formatShellIntegrationOutput(diagnostics);
-        expect(result.visibleOutput.split('\n')[0]).toBe(expected);
+        expect(result.summary.split('\n')[0]).toBe(expected);
       }
     });
 
@@ -256,10 +259,12 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      // Should only list each file once
-      expect(result.visibleOutput).toBe(
-        '✗ 2 errors, 2 warnings found\n  Files affected: src/main.ts, src/utils.ts'
-      );
+      // Should show summary and first 5 details
+      expect(result.summary).toContain('✗ 2 errors, 2 warnings found');
+      expect(result.summary).toContain('src/main.ts:1:1');
+      expect(result.summary).toContain('src/main.ts:2:1');
+      expect(result.summary).toContain('src/utils.ts:1:1');
+      expect(result.summary).toContain('src/main.ts:3:1');
     });
 
     test('should handle empty message gracefully', () => {
@@ -275,7 +280,8 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain('✗ src/test.ts:1:1 - ');
+      expect(result.summary).toContain('✗ 1 error found');
+      expect(result.summary).toContain('src/test.ts:1:1');
       expect(result.exitCode).toBe(1);
     });
 
@@ -292,7 +298,9 @@ describe('Shell Integration', () => {
 
       const result = formatShellIntegrationOutput(diagnostics);
 
-      expect(result.commandMetadata).toContain('✗ src/test.ts:0:0 - General file error');
+      expect(result.summary).toContain('✗ 1 error found');
+      expect(result.summary).toContain('src/test.ts:0:0');
+      expect(result.summary).toContain('General file error');
     });
   });
 
@@ -312,22 +320,15 @@ describe('Shell Integration', () => {
       console.error = mockError;
 
       const output = {
-        commandMetadata: '>\n✗ test.ts:1:1 - Error',
-        visibleOutput: '✗ 1 error found',
+        summary: '✗ 1 error found\n  ✗ test.ts:1:1: Error',
         exitCode: 1,
       };
 
       writeShellIntegrationOutput(output);
 
-      // Check OSC 633 sequences
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;A\x07');
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;B\x07');
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;C\x07');
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;E;>\n✗ test.ts:1:1 - Error\x07\n');
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;D;1\x07');
-
-      // Check visible output
-      expect(mockError).toHaveBeenCalledWith('✗ 1 error found');
+      // Should write newline and summary to stderr
+      expect(mockWrite).toHaveBeenCalledWith('\n');
+      expect(mockWrite).toHaveBeenCalledWith('✗ 1 error found\n  ✗ test.ts:1:1: Error');
     });
 
     test('should write correct sequences for no errors', () => {
@@ -340,23 +341,14 @@ describe('Shell Integration', () => {
       console.error = mockError;
 
       const output = {
-        commandMetadata: 'claude-lsp-cli diagnostics: No issues found',
-        visibleOutput: '',
+        summary: '',
         exitCode: 0,
       };
 
       writeShellIntegrationOutput(output);
 
-      // Check OSC 633 sequences
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;A\x07');
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;B\x07');
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;C\x07');
-      expect(mockWrite).toHaveBeenCalledWith(
-        '\x1b]633;E;claude-lsp-cli diagnostics: No issues found\x07\n'
-      );
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;D;0\x07');
-
-      // Check no visible output for clean case
+      // Should not write anything when no errors
+      expect(mockWrite).not.toHaveBeenCalled();
       expect(mockError).not.toHaveBeenCalled();
     });
 
@@ -370,25 +362,16 @@ describe('Shell Integration', () => {
       console.error = mockError;
 
       const output = {
-        commandMetadata: '>\n✗ file1.ts:1:1 - Error 1\n✗ file2.ts:2:2 - Error 2',
-        visibleOutput: '✗ 2 errors found\n  Files affected: file1.ts, file2.ts',
+        summary: '✗ 2 errors found\n  ✗ file1.ts:1:1: Error 1\n  ✗ file2.ts:2:2: Error 2',
         exitCode: 1,
       };
 
       writeShellIntegrationOutput(output);
 
-      // Verify all sequences are called in correct order
-      const calls = mockWrite.mock.calls;
-      expect(calls[0]?.[0]).toBe('\x1b]633;A\x07'); // Start
-      expect(calls[1]?.[0]).toBe('\x1b]633;B\x07'); // Prompt end
-      expect(calls[2]?.[0]).toBe('\x1b]633;C\x07'); // Pre-execution
-      expect(calls[3]?.[0]).toBe(
-        '\x1b]633;E;>\n✗ file1.ts:1:1 - Error 1\n✗ file2.ts:2:2 - Error 2\x07\n'
-      ); // Metadata with newlines preserved
-      expect(calls[4]?.[0]).toBe('\x1b]633;D;1\x07'); // Exit code
-
-      expect(mockError).toHaveBeenCalledWith(
-        '✗ 2 errors found\n  Files affected: file1.ts, file2.ts'
+      // Should write newline and summary
+      expect(mockWrite).toHaveBeenCalledWith('\n');
+      expect(mockWrite).toHaveBeenCalledWith(
+        '✗ 2 errors found\n  ✗ file1.ts:1:1: Error 1\n  ✗ file2.ts:2:2: Error 2'
       );
     });
 
@@ -402,16 +385,17 @@ describe('Shell Integration', () => {
       console.error = mockError;
 
       const output = {
-        commandMetadata: '>\n⚠ test.ts:5:10 - Unused variable',
-        visibleOutput: '✗ 1 warning found',
+        summary: '✗ 1 warning found\n  ⚠ test.ts:5:10: Unused variable',
         exitCode: 1,
       };
 
       writeShellIntegrationOutput(output);
 
-      // Check exit code is 1 for warnings
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;D;1\x07');
-      expect(mockError).toHaveBeenCalledWith('✗ 1 warning found');
+      // Should write newline and summary with warning
+      expect(mockWrite).toHaveBeenCalledWith('\n');
+      expect(mockWrite).toHaveBeenCalledWith(
+        '✗ 1 warning found\n  ⚠ test.ts:5:10: Unused variable'
+      );
     });
 
     test('should handle special characters in metadata', () => {
@@ -424,16 +408,16 @@ describe('Shell Integration', () => {
       console.error = mockError;
 
       const output = {
-        commandMetadata: ">\n✗ test.ts:1:1 - Expected '>' but got '<='",
-        visibleOutput: '✗ 1 error found',
+        summary: "✗ 1 error found\n  ✗ test.ts:1:1: Expected '>' but got '<='",
         exitCode: 1,
       };
 
       writeShellIntegrationOutput(output);
 
-      // Verify special characters are preserved in metadata
+      // Should write newline and summary with special characters
+      expect(mockWrite).toHaveBeenCalledWith('\n');
       expect(mockWrite).toHaveBeenCalledWith(
-        "\x1b]633;E;>\n✗ test.ts:1:1 - Expected '>' but got '<='\x07\n"
+        "✗ 1 error found\n  ✗ test.ts:1:1: Expected '>' but got '<='"
       );
     });
 
@@ -447,18 +431,15 @@ describe('Shell Integration', () => {
       console.error = mockError;
 
       const output = {
-        commandMetadata: 'No issues',
-        visibleOutput: 'This should not be shown',
+        summary: '',
         exitCode: 0,
       };
 
       writeShellIntegrationOutput(output);
 
-      // Should not call console.error for exitCode 0
+      // Should not write anything when no errors
       expect(mockError).not.toHaveBeenCalled();
-
-      // But should still write OSC sequences
-      expect(mockWrite).toHaveBeenCalledWith('\x1b]633;D;0\x07');
+      expect(mockWrite).not.toHaveBeenCalled();
     });
   });
 });

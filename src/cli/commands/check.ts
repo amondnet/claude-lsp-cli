@@ -16,7 +16,7 @@ export async function runCheck(filePath: string): Promise<boolean> {
 
   const result = await checkFile(absolutePath);
   if (result === null) {
-    // Checking was disabled - exit silently with no output
+    // Checking was disabled or file type not supported - exit silently
     return false;
   } else if (result) {
     // Convert to shell diagnostics format
@@ -35,7 +35,7 @@ export async function runCheck(filePath: string): Promise<boolean> {
       return false; // No errors
     }
   } else {
-    // File type not supported - also exit silently
+    // File type not supported - exit silently
     return false;
   }
 }
@@ -78,7 +78,7 @@ export async function runCheckMultiple(filePaths: string[]): Promise<boolean> {
 
   for (const { result } of results) {
     if (result === null) {
-      // Checking was disabled - skip
+      // Checking was disabled or not supported - skip
       continue;
     } else if (result && result.diagnostics.length > 0) {
       // Add diagnostics with file context

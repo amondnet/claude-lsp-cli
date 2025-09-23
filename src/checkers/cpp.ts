@@ -8,11 +8,19 @@ import type { DiagnosticResult } from '../types/DiagnosticResult';
 export const cppConfig: LanguageConfig = {
   name: 'Cpp',
   tool: 'gcc',
-  extensions: ['.cpp', '.cxx', '.cc', '.c', '.h'],
+  extensions: ['.cpp', '.cxx', '.cc', '.c', '.h', '.c++', '.hpp', '.hh', '.hxx', '.h++'],
   localPaths: [], // GCC is usually system-installed
 
   buildArgs: (file: string, _projectRoot: string, _toolCommand: string) => {
-    return ['-fsyntax-only', '-Wall', file];
+    const args = ['-fsyntax-only', '-Wall'];
+
+    // For header files, we need to explicitly tell GCC to treat them as C++
+    if (file.match(/\.(h|hpp|hh|hxx|h\+\+)$/i)) {
+      args.unshift('-x', 'c++');
+    }
+
+    args.push(file);
+    return args;
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {

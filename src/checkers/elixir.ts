@@ -9,17 +9,17 @@ import type { DiagnosticResult } from '../types/DiagnosticResult';
 
 export const elixirConfig: LanguageConfig = {
   name: 'Elixir',
-  tool: 'mix',
+  tool: 'elixirc',
   extensions: ['.ex', '.exs'],
   localPaths: [
     // Common system paths
-    '/usr/local/bin/mix',
-    '/usr/bin/mix',
+    '/usr/local/bin/elixirc',
+    '/usr/bin/elixirc',
     // GitHub Actions setup-beam default paths
-    '/home/runner/work/_temp/.setup-beam/elixir/bin/mix',
+    '/home/runner/work/_temp/.setup-beam/elixir/bin/elixirc',
     // Common local Elixir installation paths
-    '~/.asdf/shims/mix',
-    '~/.kiex/elixirs/*/bin/mix',
+    '~/.asdf/shims/elixirc',
+    '~/.kiex/elixirs/*/bin/elixirc',
   ],
 
   detectConfig: (projectRoot: string) => {
@@ -27,18 +27,38 @@ export const elixirConfig: LanguageConfig = {
   },
 
   setupCommand: async (_file: string, projectRoot: string) => {
-    // Clean the project first to ensure we catch all errors
-    const { runCommand } = await import('../utils/common');
-    await runCommand(['mix', 'clean'], undefined, projectRoot);
-    return { context: {} };
+    // For Mix projects, use mix compile
+    if (existsSync(join(projectRoot, 'mix.exs'))) {
+      const { runCommand } = await import('../utils/common');
+      await runCommand(['mix', 'clean'], undefined, projectRoot);
+      return {
+        context: {
+          hasMixProject: true,
+          tool: 'mix',
+          args: ['compile', '--warnings-as-errors'],
+        },
+      };
+    }
+    // For standalone files, use elixirc
+    return {
+      context: {
+        hasMixProject: false,
+        tool: 'elixirc',
+        args: [],
+      },
+    };
   },
 
-  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string) => {
-    // Use mix compile to check the whole project, which catches more errors
-    return {
-      tool: 'mix',
-      args: ['compile', '--warnings-as-errors'],
-    };
+  buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, context?: any) => {
+    if (context?.hasMixProject) {
+      return {
+        tool: 'mix',
+        args: ['compile', '--warnings-as-errors'],
+      };
+    } else {
+      // For standalone files, compile directly
+      return ['--warnings-as-errors', _file];
+    }
   },
 
   parseOutput: (_stdout: string, stderr: string, _file: string, _projectRoot: string) => {

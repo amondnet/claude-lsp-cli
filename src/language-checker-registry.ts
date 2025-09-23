@@ -7,6 +7,7 @@
 
 import { existsSync } from 'fs';
 import { join, relative } from 'path';
+import { homedir } from 'os';
 import type { FileCheckResult } from './file-checker';
 
 // Registry interface for language checkers
@@ -25,7 +26,7 @@ export interface LanguageConfig {
     _projectRoot: string,
     _toolCommand: string,
     _context?: unknown
-  ) => { tool?: string; args: string[]; timeout?: number } | string[];
+  ) => { tool?: string; args: string[]; timeout?: number; workingDirectory?: string } | string[];
   /** Function to parse tool output into diagnostics */
   parseOutput: (
     _stdout: string,
@@ -57,15 +58,36 @@ export function registerLanguage(extensions: string[], config: LanguageConfig): 
 export function findLocalTool(projectRoot: string, localPaths: string[]): string | null {
   // Check each path
   for (const localPath of localPaths) {
+    // Expand ~ to home directory
+    let expandedPath = localPath;
+    if (localPath.startsWith('~')) {
+      expandedPath = localPath.replace(/^~/, homedir());
+    }
+
     // Check if it's an absolute path
-    if (localPath.startsWith('/')) {
-      // Check absolute path directly
-      if (existsSync(localPath)) {
-        return localPath;
+    if (expandedPath.startsWith('/')) {
+      // Handle glob patterns
+      if (expandedPath.includes('*')) {
+        // For glob patterns, try common version directories
+        const basePattern = expandedPath.replace(/\*/g, '');
+        // Just check if the base directory exists
+        const baseDir = basePattern.substring(0, basePattern.lastIndexOf('/'));
+        if (existsSync(baseDir)) {
+          // For now, just check if pyright exists in common locations
+          const commonVersions = ['3.12.10', '3.11.0', '3.10.0', 'current', 'latest'];
+          for (const version of commonVersions) {
+            const versionPath = expandedPath.replace('*', version);
+            if (existsSync(versionPath)) {
+              return versionPath;
+            }
+          }
+        }
+      } else if (existsSync(expandedPath)) {
+        return expandedPath;
       }
     } else {
       // Check relative to project root
-      const projectLocalTool = join(projectRoot, localPath);
+      const projectLocalTool = join(projectRoot, expandedPath);
       if (existsSync(projectLocalTool)) {
         return projectLocalTool;
       }

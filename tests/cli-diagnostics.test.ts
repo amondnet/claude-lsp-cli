@@ -43,7 +43,7 @@ describe('CLI check Command', () => {
     const result = await runCLI(['check', join(import.meta.dir, '..', 'src', 'cli.ts')]);
     expect(result.exitCode).toBe(0);
     // Should show "No issues found" when no errors
-    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+    expect(result.stderr).toContain('No issues found');
     expect(result.stdout).toBe('');
   }, 30000);
 
@@ -54,7 +54,7 @@ describe('CLI check Command', () => {
     const result = await runCLI(['check', testFile]);
     expect(result.exitCode).toBe(0);
     // Should show "No issues found" when no errors
-    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+    expect(result.stderr).toContain('No issues found');
     expect(result.stdout).toBe('');
   }, 30000);
 
@@ -65,7 +65,7 @@ describe('CLI check Command', () => {
     const result = await runCLI(['check', testFile]);
     expect(result.exitCode).toBe(0);
     // Should show "No issues found" when no errors
-    expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+    expect(result.stderr).toContain('No issues found');
     expect(result.stdout).toBe('');
   }, 30000);
 
@@ -166,7 +166,7 @@ describe('CLI check Command', () => {
     } else {
       // scalac not available or no errors detected - shows "No issues found"
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result.stderr).toContain('No issues found');
     }
   }, 30000);
 

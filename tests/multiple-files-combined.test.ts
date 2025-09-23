@@ -37,20 +37,17 @@ async function runHookAndCaptureExit(
       const fullStderr = stderrOutput.join('');
       let output;
 
-      // Parse shell integration output - look for diagnostic content between OSC sequences
-      const oscMatch = fullStderr.match(/\]633;E;([^]*?)\]633;D/);
-      if (oscMatch && oscMatch[1]) {
+      // Parse human-readable diagnostic output
+      if (fullStderr.includes('✗')) {
         try {
-          // Skip the ">" prefix and parse the diagnostic lines
-          const content = oscMatch[1].replace(/^>\s*/, '').trim();
-          const lines = content.split('\n').filter((line) => line.trim());
-
-          // Count errors and warnings, and extract diagnostics
+          // Parse the new format output
+          const lines = fullStderr.split('\n').filter((line) => line.trim());
           const diagnostics: any[] = [];
 
           for (const line of lines) {
-            const errorMatch = line.match(/^✗\s+([^:]+):(\d+):(\d+)\s+-\s+(.+)$/);
-            const warningMatch = line.match(/^⚠\s+([^:]+):(\d+):(\d+)\s+-\s+(.+)$/);
+            // Match format: "  ✗ file.ts:1:7: message" or "  ⚠ file.ts:1:7: message"
+            const errorMatch = line.match(/^\s*✗\s+([^:]+):(\d+):(\d+):\s*(.+)$/);
+            const warningMatch = line.match(/^\s*⚠\s+([^:]+):(\d+):(\d+):\s*(.+)$/);
 
             if (errorMatch && errorMatch[1] && errorMatch[2] && errorMatch[3] && errorMatch[4]) {
               diagnostics.push({
@@ -77,9 +74,8 @@ async function runHookAndCaptureExit(
             }
           }
 
-          // Extract the actual summary from console.error output (visible output)
-          const consoleErrors = consoleErrorOutput.join('\n');
-          const summaryMatch = consoleErrors.match(/✗\s+([^\n]+found)/);
+          // Extract the actual summary from stderr output
+          const summaryMatch = fullStderr.match(/✗\s+([^\n]+found)/);
           const actualSummary = summaryMatch ? summaryMatch[1] : 'unknown';
 
           output = {

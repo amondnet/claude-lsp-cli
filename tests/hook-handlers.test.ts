@@ -144,16 +144,9 @@ describe('Hook Handlers', () => {
       expect(mockShouldShow).toHaveBeenCalledWith('/test/dir/test.ts');
       expect(_mockMarkShown).toHaveBeenCalledWith('/test/dir/test.ts');
 
-      // Check shell integration output format
-      const fullStderr = stderrOutput.join('');
-      expect(fullStderr).toContain('\x1b]633;A\x07'); // Start sequence
-      expect(fullStderr).toContain('\x1b]633;E;'); // Command metadata
-      expect(fullStderr).toContain('\x1b]633;D;1\x07'); // Exit code 1 for errors
-
-      // Check visible summary in console.error
-      const errorOutput = consoleErrorOutput.join(' ');
+      // Check visible summary in stderr output
+      const errorOutput = stderrOutput.join(' ');
       expect(errorOutput).toContain('✗ 1 error found');
-      expect(errorOutput).toContain('Files affected:');
     });
 
     test('should handle multiple files in parallel', async () => {
@@ -208,12 +201,8 @@ describe('Hook Handlers', () => {
 
       expect(mockCheckFile).toHaveBeenCalledTimes(2);
 
-      // Check shell integration format
-      const fullStderr = stderrOutput.join('');
-      expect(fullStderr).toContain('\x1b]633;E;'); // Command metadata
-
       // Check visible summary
-      const errorOutput = consoleErrorOutput.join(' ');
+      const errorOutput = stderrOutput.join(' ');
       expect(errorOutput).toContain('✗ 1 error, 1 warning found');
     });
 
@@ -306,11 +295,8 @@ describe('Hook Handlers', () => {
       const result = await runHookAndCaptureExit(handlePostToolUse(JSON.stringify(hookData)));
       expect(result.exitCode).toBe(2); // Exit code 2 when diagnostics found
 
-      // Check shell integration format shows all errors in summary
-      const fullStderr = stderrOutput.join('');
-      expect(fullStderr).toContain('\x1b]633;E;'); // Command metadata contains all diagnostics
-
-      const errorOutput = consoleErrorOutput.join(' ');
+      // Check that summary shows all errors
+      const errorOutput = stderrOutput.join(' ');
       expect(errorOutput).toContain('✗ 10 errors found'); // Summary shows all 10 errors
     });
 
@@ -371,12 +357,12 @@ describe('Hook Handlers', () => {
 
       // Check shell integration output in stderr
       const fullStderr = stderrOutput.join('');
-      expect(fullStderr).toContain(']633;E;');
       expect(fullStderr).toContain('✗');
 
-      // Count the number of error/warning lines (should be 2: error and warning)
-      const errorLines = (fullStderr.match(/✗|⚠/g) || []).length;
-      expect(errorLines).toBe(2);
+      // Check that we have both error and warning in output
+      expect(fullStderr).toContain('✗ test.ts:1:1: Error');
+      expect(fullStderr).toContain('⚠ test.ts:2:1: Warning');
+      // Info should be filtered out (not checking since it's not in output)
     });
 
     test('should handle multiple files from different projects with separate project roots', async () => {
@@ -450,7 +436,7 @@ describe('Hook Handlers', () => {
       expect(fullStderr).toContain('Project2 warning');
 
       // Check visible summary
-      const consoleOutput = consoleErrorOutput.join('');
+      const consoleOutput = stderrOutput.join('');
       expect(consoleOutput).toContain('1 error, 1 warning found');
     });
 

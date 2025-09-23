@@ -10,8 +10,23 @@ import { mapSeverity, shouldSkipDiagnostic } from '../language-checker-registry'
 export const pythonConfig: LanguageConfig = {
   name: 'Python',
   tool: 'pyright',
-  extensions: ['.py', '.pyi'],
-  localPaths: ['node_modules/.bin/pyright'],
+  extensions: ['.py', '.pyi', '.pyw'],
+  localPaths: [
+    'node_modules/.bin/pyright',
+    // Mise/rtx shims (most common on this system)
+    '~/.local/share/mise/shims/pyright',
+    // Common system installation paths
+    '/usr/local/bin/pyright',
+    '/usr/bin/pyright',
+    // Homebrew
+    '/opt/homebrew/bin/pyright',
+    // asdf
+    '~/.asdf/shims/pyright',
+    // npm global install
+    '~/.npm-global/bin/pyright',
+    // Mise/rtx version-specific installations
+    '~/.local/share/mise/installs/python/*/bin/pyright',
+  ],
 
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, _context?: any) => {
     const args = ['--outputjson'];
@@ -81,15 +96,15 @@ export const pythonConfig: LanguageConfig = {
           if (match) {
             const [, lineStr, colStr, severity, message] = match;
 
-            if (shouldSkipDiagnostic(message, _file)) {
+            if (message && shouldSkipDiagnostic(message, _file)) {
               continue;
             }
 
             diagnostics.push({
-              line: parseInt(lineStr, 10),
-              column: parseInt(colStr, 10),
-              severity: mapSeverity(severity),
-              message: message.trim(),
+              line: parseInt(lineStr || '1', 10),
+              column: parseInt(colStr || '1', 10),
+              severity: mapSeverity(severity || 'error'),
+              message: (message || 'Unknown error').trim(),
             });
           }
         }

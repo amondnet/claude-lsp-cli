@@ -86,8 +86,8 @@ export async function handlePostToolUse(input: string): Promise<void> {
         file: diag.file || 'unknown',
       }));
 
-      // Output using shell integration
-      outputDiagnostics(shellDiagnostics);
+      // Output using shell integration (isHook=true for silent when no errors)
+      outputDiagnostics(shellDiagnostics, true);
       process.exit(2);
       return; // For testing
     }

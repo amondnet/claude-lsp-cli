@@ -264,7 +264,7 @@ func main() {
       expect(result2.exitCode).toBe(1); // Has errors
 
       // Good file should show "No issues found" for check command
-      expect(result1.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result1.stderr).toContain('No issues found');
       expect(result1.stdout).toBe('');
 
       // Bad file should have errors
@@ -279,7 +279,7 @@ func main() {
       const checkResult = await runCLI(['check', createTestFile('test.py', 'print("hello")')]);
       expect(checkResult.exitCode).toBe(0);
       // Should show "No issues found" when no errors
-      expect(checkResult.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(checkResult.stderr).toContain('No issues found');
       expect(checkResult.stdout).toBe('');
 
       // Disable Python
@@ -394,7 +394,7 @@ func main() {
         expect(result.stderr).toContain('✗');
       } else {
         // Otherwise should show "No issues found"
-        expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+        expect(result.stderr).toContain('No issues found');
         expect(result.stdout).toBe('');
       }
     }, 50000);
@@ -416,11 +416,11 @@ func main() {
       expect(result3.exitCode).toBe(0);
 
       // All files have no errors (should show "No issues found")
-      expect(result1.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result1.stderr).toContain('No issues found');
       expect(result1.stdout).toBe('');
-      expect(result2.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result2.stderr).toContain('No issues found');
       expect(result2.stdout).toBe('');
-      expect(result3.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result3.stderr).toContain('No issues found');
       expect(result3.stdout).toBe('');
     }, 45000);
   });
@@ -499,7 +499,7 @@ func main() {
 
       expect(result.exitCode).toBe(0); // No errors
       // Should show "No issues found" when no errors
-      expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result.stderr).toContain('No issues found');
       expect(result.stdout).toBe('');
     }, 20000);
 
@@ -511,7 +511,7 @@ func main() {
       const result = await runCLI(['check', subFile]);
       expect(result.exitCode).toBe(0); // No errors
       // Should show "No issues found" when no errors
-      expect(result.stderr).toContain('claude-lsp-cli diagnostics: No issues found');
+      expect(result.stderr).toContain('No issues found');
       expect(result.stdout).toBe('');
     }, 20000);
   });

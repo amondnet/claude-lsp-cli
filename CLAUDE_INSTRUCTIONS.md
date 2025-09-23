@@ -4,41 +4,46 @@
 
 **Timing:** Appears after any tool use that modifies files.
 
-**Format:** Compact JSON array on a single line for easy parsing.
+**Format:** Human-readable summary with detailed diagnostics.
 
 ## Output Format
 
 ```
-[errors, warnings?, "file:line", "error_message", "X files"?]
+✗ N errors[, M warnings] found
+  ✗ file:line:column [code]: error message
+  ⚠ file:line:column: warning message
+  ... and X more
 ```
 
-**Fields:**
+**Structure:**
 
-- `errors`: Number of errors found (always present)
-- `warnings`: Number of warnings (only if > 0)
-- `"file:line"`: First error location (filename:line)
-- `"error_message"`: First error message (truncated to 40 chars)
-- `"X files"`: Total file count (only if > 3 files affected)
+- **Summary line**: Shows total count of errors/warnings
+- **Detail lines** (first 5): Each prefixed with ✗ (error) or ⚠ (warning)
+  - Shows file:line:column location
+  - Optional error code in brackets
+  - Full error message
+- **Overflow indicator**: "... and X more" when > 5 diagnostics
 
 ## Examples
 
-```json
-[30, 2, "index.ts:15", "Type 'string' is not assignable to...", "8 files"]
+```
+✗ 3 errors found
+  ✗ index.ts:15:7 [TS2322]: Type 'string' is not assignable to type 'number'
+  ✗ index.ts:20:5 [TS2304]: Cannot find name 'undefined_var'
+  ✗ utils.py:8:12: Undefined variable 'user'
 ```
 
-= 30 errors, 2 warnings, first error at index.ts line 15, affecting 8 files
-
-```json
-[5, "main.py:23", "Undefined variable 'user'"]
+```
+✗ 19 errors, 2 warnings found
+  ✗ main.py:8:8: Import "undefined_module" could not be resolved
+  ✗ main.py:18:20: Type "str | int" is not assignable to declared type "str"
+  ⚠ main.py:25:10: Variable 'unused' is assigned but never used
+  ✗ main.py:33:39: Cannot access attribute "height" for class "User"
+  ✗ main.py:43:29: Argument of type "list[str]" cannot be assigned
+  ... and 16 more
 ```
 
-= 5 errors, no warnings, first error at main.py line 23
-
-```json
-[0]
-```
-
-= No errors or warnings found
+**Silent when no errors** - No output is shown when files are clean
 
 ## Key Points
 
