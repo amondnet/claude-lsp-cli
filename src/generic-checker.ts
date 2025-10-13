@@ -122,9 +122,10 @@ export async function checkFileWithRegistry(
     // This ensures consistent behavior across all languages
     return null;
   } finally {
-    // Cleanup if needed
+    // Cleanup if needed (can be sync or async)
     if (cleanup) {
-      cleanup();
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await cleanup();
     }
   }
 }

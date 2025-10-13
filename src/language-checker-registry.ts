@@ -41,7 +41,7 @@ export interface LanguageConfig {
   setupCommand?: (
     _file: string,
     _projectRoot: string
-  ) => Promise<{ cleanup?: () => void; context?: unknown }>;
+  ) => Promise<{ cleanup?: () => void | Promise<void>; context?: unknown }>;
 }
 
 // Registry of all supported language checkers

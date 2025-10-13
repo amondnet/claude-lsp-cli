@@ -3,7 +3,7 @@
  */
 
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { createHash } from 'crypto';
 import type { LanguageConfig } from '../language-checker-registry';
@@ -18,36 +18,138 @@ export const typescriptConfig: LanguageConfig = {
   extensions: ['.ts', '.tsx', '.mts', '.cts'],
   localPaths: ['node_modules/.bin/tsc'],
 
-  buildArgs: (file: string, projectRoot: string, _toolCommand: string, _context?: any) => {
+  buildArgs: (file: string, projectRoot: string, _toolCommand: string, context?: any) => {
     const args = ['--noEmit', '--pretty', 'false'];
 
     // Enable incremental compilation for faster subsequent checks
     args.push('--incremental');
 
-    // Create project-specific cache directory in temp folder
+    // Create per-file cache to avoid conflicts when checking multiple files in parallel
     const projectHash = createHash('md5').update(projectRoot).digest('hex');
+    const fileHash = createHash('md5').update(file).digest('hex').substring(0, 8);
     const tsBuildInfoDir = join(tmpdir(), 'claude-lsp-ts', projectHash);
-    args.push('--tsBuildInfoFile', join(tsBuildInfoDir, 'project.tsbuildinfo'));
+    args.push('--tsBuildInfoFile', join(tsBuildInfoDir, `build-${fileHash}.tsbuildinfo`));
 
-    // Look for tsconfig in the project
-    const tsconfigRoot = findTsconfigRoot(file);
-    if (tsconfigRoot) {
-      const tsconfigPath = join(tsconfigRoot, 'tsconfig.json');
-      args.push('--project', tsconfigPath);
+    // Use temp tsconfig from setupCommand
+    if (context?.tempTsconfigPath) {
+      args.push('--project', context.tempTsconfigPath);
     } else {
-      // No tsconfig, just check the file
+      // Fallback if no temp tsconfig
       args.push(file);
     }
 
     return args;
   },
 
-  setupCommand: async (file: string, _projectRoot: string) => {
-    // No special setup needed - we'll just use the project's tsconfig
-    // and filter diagnostics to the target file
+  setupCommand: async (file: string, projectRoot: string) => {
+    const tsconfigRoot = findTsconfigRoot(file);
+
+    // Create temp tsconfig for single-file checking
+    // Include file path in hash to avoid conflicts when checking multiple files in parallel
+    const projectHash = createHash('md5').update(projectRoot).digest('hex');
+    const fileHash = createHash('md5').update(file).digest('hex').substring(0, 8);
+    const tempDir = join(tmpdir(), 'claude-lsp-ts', projectHash);
+    const tempTsconfigPath = join(tempDir, `tsconfig-${fileHash}.json`);
+
+    // Ensure temp directory exists using Bun API
+    await Bun.write(join(tempDir, '.keep'), '');
+
+    // Get absolute file path
+    const absoluteFilePath = file.startsWith('/') ? file : join(process.cwd(), file);
+
+    // Default compiler options (good defaults)
+    const defaultCompilerOptions: Record<string, any> = {
+      target: 'ES2020',
+      module: 'ESNext',
+      lib: ['ES2020', 'DOM'],
+      strict: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      moduleResolution: 'node',
+      noEmit: true,
+      types: [], // Disable @types auto-loading to avoid missing type definition errors
+    };
+
+    let compilerOptions: Record<string, any> = { ...defaultCompilerOptions };
+    let baseUrlRoot = projectRoot;
+
+    if (tsconfigRoot) {
+      // Project has tsconfig - read and copy all settings
+      const originalTsconfigPath = join(tsconfigRoot, 'tsconfig.json');
+      baseUrlRoot = tsconfigRoot;
+
+      try {
+        const content = await Bun.file(originalTsconfigPath).text();
+        const originalConfig = JSON.parse(content);
+
+        // Copy all compiler options from original
+        if (originalConfig.compilerOptions) {
+          compilerOptions = {
+            ...defaultCompilerOptions, // Start with defaults
+            ...originalConfig.compilerOptions, // Override with original settings
+          };
+        }
+
+        // Convert relative baseUrl to absolute
+        if (originalConfig.compilerOptions?.baseUrl) {
+          const relativeBase = originalConfig.compilerOptions.baseUrl;
+          compilerOptions.baseUrl = join(tsconfigRoot, relativeBase);
+        } else {
+          compilerOptions.baseUrl = tsconfigRoot;
+        }
+
+        // Convert relative paths in "paths" to absolute
+        if (originalConfig.compilerOptions?.paths) {
+          const absolutePaths: Record<string, string[]> = {};
+          const baseForPaths = compilerOptions.baseUrl || tsconfigRoot;
+
+          for (const [key, value] of Object.entries(originalConfig.compilerOptions.paths)) {
+            if (Array.isArray(value)) {
+              absolutePaths[key] = value.map((p: string) => {
+                if (p.startsWith('/')) return p;
+                return join(baseForPaths, p);
+              });
+            }
+          }
+          compilerOptions.paths = absolutePaths;
+        }
+
+        // Convert rootDir and outDir to absolute paths
+        if (
+          originalConfig.compilerOptions?.rootDir &&
+          !originalConfig.compilerOptions.rootDir.startsWith('/')
+        ) {
+          compilerOptions.rootDir = join(tsconfigRoot, originalConfig.compilerOptions.rootDir);
+        }
+        if (
+          originalConfig.compilerOptions?.outDir &&
+          !originalConfig.compilerOptions.outDir.startsWith('/')
+        ) {
+          compilerOptions.outDir = join(tsconfigRoot, originalConfig.compilerOptions.outDir);
+        }
+      } catch {
+        // Fallback to defaults on parse error
+        compilerOptions.baseUrl = tsconfigRoot;
+      }
+    } else {
+      // Standalone file - use defaults with project root as baseUrl
+      compilerOptions.baseUrl = projectRoot;
+    }
+
+    // Always enforce these settings
+    compilerOptions.noEmit = true;
+    compilerOptions.skipLibCheck = true;
+
+    const tempTsconfig = {
+      compilerOptions,
+      include: [absoluteFilePath],
+    };
+
+    await Bun.write(tempTsconfigPath, JSON.stringify(tempTsconfig, null, 2));
+
     return {
-      context: undefined,
-      cleanup: undefined,
+      context: { tempTsconfigPath },
+      // No cleanup needed - each file has unique config, gets regenerated on next check
     };
   },
 
@@ -84,13 +186,14 @@ export const typescriptConfig: LanguageConfig = {
       }
 
       // Only include diagnostics for the file we're checking
-      // Debug: log what we're comparing
-      if (!filePath.endsWith(_file) && !_file.endsWith(filePath)) {
-        // For now, let's be more lenient - check if the base filename matches
-        const fileName = _file.split('/').pop();
-        if (!fileName || !filePath.includes(fileName)) {
-          continue;
-        }
+      // Normalize both paths to absolute for comparison
+      // tsc outputs paths relative to the working directory (_projectRoot)
+      const normalizedFilePath = resolve(_projectRoot, filePath);
+      const normalizedTargetFile = resolve(_file);
+
+      if (normalizedFilePath !== normalizedTargetFile) {
+        // Paths don't match - skip this diagnostic
+        continue;
       }
       const lineNum = parseInt(lineStr, 10);
       const colNum = parseInt(colStr, 10);

@@ -6,6 +6,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import type { LanguageConfig } from '../language-checker-registry';
 import { mapSeverity, shouldSkipDiagnostic } from '../language-checker-registry';
+import { runCommand } from '../utils/common';
 
 export const pythonConfig: LanguageConfig = {
   name: 'Python',
@@ -29,6 +30,11 @@ export const pythonConfig: LanguageConfig = {
   ],
 
   buildArgs: (_file: string, _projectRoot: string, _toolCommand: string, _context?: any) => {
+    // Skip checking if uv is not available
+    if (_context?.skipChecking) {
+      return [];
+    }
+
     const args = ['--outputjson'];
 
     // Check for Python project configuration
@@ -41,7 +47,12 @@ export const pythonConfig: LanguageConfig = {
     }
 
     args.push(_file);
-    return args;
+
+    // Always use uv to run pyright
+    return {
+      tool: 'uv',
+      args: ['run', 'pyright', ...args],
+    };
   },
 
   parseOutput: (stdout: string, stderr: string, _file: string, _projectRoot: string) => {
@@ -124,6 +135,17 @@ export const pythonConfig: LanguageConfig = {
   },
 
   setupCommand: async (_file: string, _projectRoot: string) => {
+    // Check if uv is available
+    const uvCheck = await runCommand(['which', 'uv'], undefined, _projectRoot, 5000);
+    if (uvCheck.stderr.includes('not found') || uvCheck.stdout.trim() === '') {
+      // uv not installed - skip Python checking
+      return {
+        context: {
+          skipChecking: true,
+        },
+      };
+    }
+
     // Set up PYTHONPATH to help resolve local imports
     const pythonPath = [
       _projectRoot,

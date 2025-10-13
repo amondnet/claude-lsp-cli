@@ -84,8 +84,8 @@ result = add("hello", "world")  # Type error
 
     const result = await checkFile(testFile);
     if (result && result.diagnostics.length > 0) {
-      // Pyright is installed
-      expect(result.tool).toMatch(/pyright|mypy/);
+      // Python checking uses uv only
+      expect(result.tool).toBe('uv');
       expect(result.diagnostics.some((d) => d.severity === 'error')).toBe(true);
     }
   });
